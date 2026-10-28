@@ -114,9 +114,17 @@ EXIF orientation rotating images silently (use `cv2.IMREAD_IGNORE_ORIENTATION` o
 
 ---
 
-## Phase 2 — Feature Extraction
+## Phase 2 — Feature Extraction ✅
 
 **Goal:** Keypoints + descriptors for every image, cached and inspectable.
+
+> **Status — done.** `src.features.extractor`: `SIFTExtractor` (optional RootSIFT), `ORBExtractor`, `create_extractor(config.features)`, `extract_features(images, extractor, cache)` → `Features` per image + `FeatureStats`. `FeatureCache` stores `.npz` files keyed by SHA-1 of pixels + extractor signature (incl. OpenCV version). CLI: `python -m src.cli features <dir> [--detector orb]`. Decisions:
+> - `max_features` is a **strict** cap keeping the strongest responses: OpenCV's SIFT limit is soft (50 → 52) and ORB under-delivers (50 → 39), so both over-request and then truncate.
+> - Features are stored strongest first; points are float64 per the array conventions.
+> - New metric **grid coverage** (fraction of an 8×8 grid with ≥ 1 keypoint) flags features clustered on one region; the CLI warns below 100 features or 0.25 coverage.
+> - Repeatability tests: under 30° rotation + 0.8 scale, 84 % of SIFT keypoints reappear within 2.5 px; ORB 74 % under rotation.
+> - Observed: on a heavily blurred image SIFT still finds 265 features where ORB finds 0 — first data point for RQ4.
+> - Removed the unused `preprocessing.grayscale` key; added `features.sift_contrast_threshold` and `features.cache_dir`.
 
 ### Tasks
 - `features/extractor.py`: `Extractor` interface with `SIFTExtractor` (default, `nfeatures` from config) and `ORBExtractor`. Return `Features(points: (N,2) float32, descriptors, sizes, angles)`.

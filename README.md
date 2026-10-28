@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%202%20%E2%80%94%20Features-blue)
+![status](https://img.shields.io/badge/status-Phase%203%20%E2%80%94%20Matching-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -134,8 +134,8 @@ flowchart TD
 
 | Module | Responsibility | Key output |
 |---|---|---|
-| `data/` | Discover, decode, validate, and order images; record metadata; preprocess (grayscale, resize, undistort) and keep `K` consistent with resizing | `ImageRecord` list + metadata |
-| `features/extractor.py` | Detect keypoints, compute descriptors (SIFT default, ORB alternative), cache to disk | `Features(kps, desc)` per image |
+| `data/` | Discover, decode, validate, and order images; record metadata; preprocess (undistort, resize) and keep `K` consistent with resizing | `ImageRecord` list + metadata |
+| `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
 | `features/matcher.py` | kNN matching, Lowe ratio test, optional mutual check, diagnostics | Candidate matches per pair |
 | `geometry/epipolar.py` | Estimate `F` (uncalibrated) or `E` (calibrated) with RANSAC; inlier ratio; Sampson residuals | Verified matches + model |
 | `geometry/pose_estimation.py` | Decompose `E`, cheirality, relative `R, t̂`; PnP for new views | Camera poses |
@@ -222,7 +222,13 @@ python -m src.cli validate data/raw/sample_scene
 # optional: calibrate from checkerboard photos (inner corners 9x6, 25 mm squares)
 python -m src.cli calibrate data/raw/checkerboard --pattern 9x6 --square 0.025 --out configs/camera.yaml
 # then set camera.calibration_file: configs/camera.yaml in your config
+
+# detect keypoints → outputs/<timestamp>_features_sift/features/{feature_statistics.csv, *_keypoints.png}
+python -m src.cli features data/raw/sample_scene                 # SIFT (default)
+python -m src.cli features data/raw/sample_scene --detector orb  # ORB for comparison
 ```
+
+Features are cached in `outputs/cache/features/`, keyed by image pixels and detector settings, so reruns are instant and any setting change recomputes automatically.
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
@@ -468,7 +474,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 
 - [x] **Phase 0** Environment, scaffold, config, synthetic generator
 - [x] **Phase 1** Dataset loading & validation
-- [ ] **Phase 2** Feature extraction
+- [x] **Phase 2** Feature extraction
 - [ ] **Phase 3** Feature matching
 - [ ] **Phase 4** Geometric verification
 - [ ] **Phase 5** Relative camera pose

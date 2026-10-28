@@ -9,7 +9,6 @@ dataset:
 
 preprocessing:
   max_side: 1600               # longest image side in px after resizing; null keeps original
-  grayscale: true
   undistort: true              # only applied when distortion coefficients are known
 
 camera:
@@ -18,9 +17,11 @@ camera:
   fallback_focal_factor: 1.2   # f = factor * max(width, height) when K is unknown
 
 features:
-  detector: sift               # sift | orb
-  max_features: 8000
-  root_sift: false
+  detector: sift               # sift | orb (detection always runs on the grayscale image)
+  max_features: 8000           # strict cap; the strongest responses are kept
+  root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
+  sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
+  cache_dir: outputs/cache/features  # null disables the on-disk feature cache
 
 matching:
   ratio: 0.75                  # Lowe ratio test

@@ -34,7 +34,6 @@ class DatasetConfig:
 @dataclass(frozen=True)
 class PreprocessingConfig:
     max_side: int | None = 1600
-    grayscale: bool = True
     undistort: bool = True
 
 
@@ -50,6 +49,8 @@ class FeatureConfig:
     detector: Literal["sift", "orb"] = "sift"
     max_features: int = 8000
     root_sift: bool = False
+    sift_contrast_threshold: float = 0.04
+    cache_dir: str | None = "outputs/cache/features"
 
 
 @dataclass(frozen=True)

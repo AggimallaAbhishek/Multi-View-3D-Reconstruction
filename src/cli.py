@@ -3,20 +3,31 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import sys
 from pathlib import Path
 
-from src.config import load_config
-from src.data.dataset import prepare_dataset
+import cv2
+import numpy as np
+
+from src.config import Config, load_config
+from src.data.dataset import Dataset, prepare_dataset
 from src.data.loader import DatasetError, ImageRecord, discover_images, iter_images
 from src.data.validation import format_report
+from src.features.extractor import (
+    FeatureCache,
+    create_extractor,
+    extract_features,
+    write_feature_statistics,
+)
 from src.geometry.calibration import (
     CalibrationError,
     calibrate_from_checkerboard,
     save_camera_file,
 )
 from src.run import create_run_dir, write_run_metadata
+from src.visualization.features import draw_keypoints
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,6 +38,13 @@ def main(argv: list[str] | None = None) -> int:
     validate.add_argument("images", type=Path, help="directory of input photos")
     validate.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
     validate.add_argument("--out", type=Path, help="output root (default: config output.root)")
+
+    features = sub.add_parser("features", help="detect and describe keypoints in every image")
+    features.add_argument("images", type=Path, help="directory of input photos")
+    features.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
+    features.add_argument("--out", type=Path, help="output root (default: config output.root)")
+    features.add_argument("--detector", choices=["sift", "orb"], help="override features.detector")
+    features.add_argument("--draw", type=int, default=3, help="keypoint images to save (3)")
 
     calibrate = sub.add_parser("calibrate", help="calibrate a camera from checkerboard photos")
     calibrate.add_argument("images", type=Path, help="directory of checkerboard photos")
@@ -39,20 +57,28 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "validate":
         return _validate(args)
+    if args.command == "features":
+        return _features(args)
     if args.command == "calibrate":
         return _calibrate(args)
     parser.error(f"unknown command {args.command}")
     return 2
 
 
-def _validate(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
+def _load_dataset(images: Path, config: Config) -> Dataset | None:
     try:
-        dataset = prepare_dataset(args.images, config)
+        return prepare_dataset(images, config)
     except DatasetError as exc:
         print(f"ERROR: {exc}")
         if exc.report is not None:
             print(format_report(exc.report))
+        return None
+
+
+def _validate(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    dataset = _load_dataset(args.images, config)
+    if dataset is None:
         return 1
 
     run_dir = create_run_dir(args.out or config.output.root, "validate")
@@ -67,6 +93,51 @@ def _validate(args: argparse.Namespace) -> int:
         f"intrinsics from: {', '.join(sources)}; fx = {first.K[0, 0]:.1f} px"
     )
     print(f"Wrote {run_dir / 'dataset.json'}")
+    return 0
+
+
+def _features(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    if args.detector:
+        config = dataclasses.replace(
+            config, features=dataclasses.replace(config.features, detector=args.detector)
+        )
+    dataset = _load_dataset(args.images, config)
+    if dataset is None:
+        return 1
+
+    extractor = create_extractor(config.features)
+    cache = FeatureCache(config.features.cache_dir) if config.features.cache_dir else None
+    features, stats = extract_features(dataset.images, extractor, cache)
+
+    run_dir = create_run_dir(args.out or config.output.root, f"features_{extractor.name}")
+    write_run_metadata(run_dir, config)
+    csv_path = write_feature_statistics(stats, run_dir / "features" / "feature_statistics.csv")
+    for im, f in list(zip(dataset.images, features, strict=True))[: max(args.draw, 0)]:
+        out = run_dir / "features" / f"{Path(im.name).stem}_keypoints.png"
+        cv2.imwrite(str(out), draw_keypoints(im.image, f))
+
+    counts = np.array([s.n_features for s in stats])
+    coverage = np.array([s.coverage for s in stats])
+    new = [s.time_ms for s in stats if not s.cached]
+    print(f"Detector: {extractor.signature()}")
+    print(
+        f"Features per image: min {counts.min()}, median {int(np.median(counts))}, "
+        f"max {counts.max()} (cap {extractor.max_features})"
+    )
+    print(f"Grid coverage: min {coverage.min():.2f}, median {np.median(coverage):.2f}")
+    print(
+        f"Computed {len(new)} image(s)"
+        + (f" at {np.mean(new):.0f} ms each" if new else "")
+        + f", {len(stats) - len(new)} from cache"
+    )
+    for s in stats:
+        if s.n_features < 100 or s.coverage < 0.25:
+            print(
+                f"[WARNING] {s.image}: {s.n_features} features, coverage {s.coverage:.2f} "
+                "- too little texture or features concentrated in one region"
+            )
+    print(f"Wrote {csv_path}")
     return 0
 
 
