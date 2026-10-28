@@ -77,9 +77,18 @@ Mixed OpenCV wheels (remove all `opencv-*` then reinstall one) · Open3D/Python 
 
 ---
 
-## Phase 1 — Dataset Loading & Validation
+## Phase 1 — Dataset Loading & Validation ✅
 
 **Goal:** Turn a folder of photos into a validated, deterministically ordered list of images with metadata and a consistent intrinsic matrix.
+
+> **Status — done.** Entry point `src.data.dataset.prepare_dataset(dir, config)` → `Dataset` of `PreparedImage` (working-resolution BGR image, per-image `K`, scale, intrinsics source) + `ValidationReport`. CLI: `python -m src.cli validate <dir>` and `python -m src.cli calibrate <dir>`. Decisions made while building it:
+> - EXIF orientation is **applied** on load (OpenCV default), so all sizes and `K` refer to the upright image.
+> - Images are decoded one at a time and only the downscaled copy is kept (bounded memory for 80 × 12 MP photos).
+> - `K` rescaling uses the exact pixel-centre formula `c' = (c + 0.5)·s − 0.5`.
+> - EXIF focal → `K` uses the 35 mm-equivalent on the **diagonal**, so it is correct for 4:3 phone sensors too.
+> - Blur is measured at ≤ 800 px so one threshold works across cameras. Near-duplicates use a 64-bit dHash.
+> - Checkerboard calibration is verified on rendered boards with known `K` (fx recovered within 1 %).
+> - Remaining for real data: capture or download a scene, run the notebook, record findings in `data/sample/README.md`.
 
 ### Tasks
 - `data/loader.py`: discover `.jpg/.jpeg/.png/.tif` (case-insensitive), natural sort, decode with `cv2.imread`, return `ImageRecord(id, path, image, width, height, exif_focal)`.

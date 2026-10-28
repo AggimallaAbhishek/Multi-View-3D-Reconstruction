@@ -1,0 +1,13 @@
+# Example camera intrinsics file.
+# Produce a real one with:  python -m src.cli calibrate <checkerboard_dir> --pattern 9x6 --square 0.025
+# then set `camera.calibration_file: configs/camera.yaml` in your config.
+#
+# width/height: resolution the intrinsics were measured at (upright image).
+# Images at another resolution with the same aspect ratio are rescaled automatically.
+width: 4032
+height: 3024
+fx: 3100.0
+fy: 3100.0
+cx: 2015.5
+cy: 1511.5
+dist: [0.0, 0.0, 0.0, 0.0, 0.0]   # k1, k2, p1, p2, k3

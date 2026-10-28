@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%201%20%E2%80%94%20Dataset-blue)
+![status](https://img.shields.io/badge/status-Phase%202%20%E2%80%94%20Features-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -213,7 +213,22 @@ Windows PowerShell: `.venv\Scripts\Activate.ps1` instead of `source`.
 
 Use **one** OpenCV wheel only (`opencv-contrib-python`). Do not mix it with `opencv-python` or headless variants.
 
-### 7.2 Run the pipeline (Phase 7+)
+### 7.2 Check a dataset (available now)
+
+```bash
+# load, validate and summarise a photo folder → outputs/<timestamp>_validate/dataset.json
+python -m src.cli validate data/raw/sample_scene
+
+# optional: calibrate from checkerboard photos (inner corners 9x6, 25 mm squares)
+python -m src.cli calibrate data/raw/checkerboard --pattern 9x6 --square 0.025 --out configs/camera.yaml
+# then set camera.calibration_file: configs/camera.yaml in your config
+```
+
+`notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
+
+Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
+
+### 7.3 Run the pipeline (Phase 7+)
 
 ```bash
 # two-view reconstruction
@@ -226,7 +241,7 @@ python -m src.cli reconstruct --images data/raw/sample_scene --config configs/de
 python -m src.cli view outputs/run_001/point_clouds/filtered.ply --cameras outputs/run_001/camera_poses/cameras.json
 ```
 
-### 7.3 COLMAP (optional, Phase 9–10)
+### 7.4 COLMAP (optional, Phase 9–10)
 
 ```bash
 brew install colmap           # macOS
@@ -452,7 +467,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 ### Completion checklist
 
 - [x] **Phase 0** Environment, scaffold, config, synthetic generator
-- [ ] **Phase 1** Dataset loading & validation
+- [x] **Phase 1** Dataset loading & validation
 - [ ] **Phase 2** Feature extraction
 - [ ] **Phase 3** Feature matching
 - [ ] **Phase 4** Geometric verification

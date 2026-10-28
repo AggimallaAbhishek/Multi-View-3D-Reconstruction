@@ -18,12 +18,12 @@ import numpy as np
 
 @dataclass(frozen=True)
 class SyntheticScene:
-    K: np.ndarray            # (3, 3) shared intrinsics
-    rotations: np.ndarray    # (M, 3, 3) world -> camera
-    translations: np.ndarray # (M, 3)
-    points3d: np.ndarray     # (N, 3) world points
-    observations: np.ndarray # (M, N, 2) pixel coordinates, noise included
-    visible: np.ndarray      # (M, N) bool: in front of the camera and inside the image
+    K: np.ndarray  # (3, 3) shared intrinsics
+    rotations: np.ndarray  # (M, 3, 3) world -> camera
+    translations: np.ndarray  # (M, 3)
+    points3d: np.ndarray  # (N, 3) world points
+    observations: np.ndarray  # (M, N, 2) pixel coordinates, noise included
+    visible: np.ndarray  # (M, N) bool: in front of the camera and inside the image
     image_size: tuple[int, int]  # (width, height)
 
     @property
@@ -55,9 +55,7 @@ class SyntheticScene:
 
 
 def intrinsics(focal: float, width: int, height: int) -> np.ndarray:
-    return np.array(
-        [[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]]
-    )
+    return np.array([[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]])
 
 
 def camera_center(R: np.ndarray, t: np.ndarray) -> np.ndarray:
@@ -128,8 +126,10 @@ def make_scene(
         pixels, depths = project(K, rotations[i], translations[i], points3d)
         pixels = pixels + rng.normal(0.0, noise_px, size=pixels.shape) if noise_px else pixels
         inside = (
-            (pixels[:, 0] >= 0) & (pixels[:, 0] < width)
-            & (pixels[:, 1] >= 0) & (pixels[:, 1] < height)
+            (pixels[:, 0] >= 0)
+            & (pixels[:, 0] < width)
+            & (pixels[:, 1] >= 0)
+            & (pixels[:, 1] < height)
         )
         observations[i] = pixels
         visible[i] = (depths > 0) & inside

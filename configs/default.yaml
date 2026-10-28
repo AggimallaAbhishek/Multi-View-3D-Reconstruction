@@ -4,7 +4,8 @@
 dataset:
   extensions: [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
   min_images: 2
-  blur_threshold: 100.0        # Laplacian variance below this triggers a warning
+  blur_threshold: 100.0        # Laplacian variance (at <= 800 px) below this triggers a warning
+  duplicate_max_distance: 2    # dHash Hamming distance (of 64 bits) flagging near-duplicates
 
 preprocessing:
   max_side: 1600               # longest image side in px after resizing; null keeps original
@@ -13,6 +14,7 @@ preprocessing:
 
 camera:
   calibration_file: null       # path to configs/camera.yaml when calibrated
+  use_exif: true               # derive K from the EXIF 35 mm-equivalent focal length if present
   fallback_focal_factor: 1.2   # f = factor * max(width, height) when K is unknown
 
 features:

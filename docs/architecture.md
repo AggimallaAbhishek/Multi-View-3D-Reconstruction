@@ -10,7 +10,8 @@ The pipeline overview and module table live in the [README](../README.md#5-syste
 | Camera centre | `C = -R.T @ t` |
 | Camera frame | `+x` right, `+y` down, `+z` forward (optical axis) — OpenCV convention |
 | Projection | `x ~ K [R | t] X`, `P = K @ hstack([R, t[:, None]])` |
-| Pixels | origin at top-left of the top-left pixel's centre region; `x` = column, `y` = row |
+| Pixels | integer coordinates are pixel **centres** (OpenCV); `(0, 0)` is the centre of the top-left pixel; `x` = column, `y` = row |
+| Image orientation | EXIF orientation is applied on load; sizes and `K` always refer to the upright image |
 | Depth | camera-frame `z`; a point is valid only if `z > 0` in every camera observing it |
 | Relative pose (i → j) | `R_ij = R_j @ R_i.T`, `t_ij = t_j - R_ij @ t_i` (maps camera-i coords to camera-j coords) |
 | Essential / fundamental | `E = [t]x R`, `F = K_j^-T E K_i^-1`, constraint `x_j^T F x_i = 0` |
@@ -31,7 +32,9 @@ Two-view translation is recovered only up to scale; the first reconstruction fix
 
 ## Intrinsics and resizing
 
-Resizing an image by factor `s` scales `fx, fy, cx, cy` by `s`. Every function that resizes must return the updated `K`; never resize without it.
+Resizing an image by `(sx, sy)` maps `fx → fx·sx`, `fy → fy·sy` and, because of the pixel-centre convention, `cx → (cx + 0.5)·sx − 0.5` (same for `cy`). `src.data.preprocessing.scale_intrinsics` implements this; every function that resizes must return the updated `K`. Never resize without it.
+
+Estimated intrinsics put the principal point at the image centre `((w − 1)/2, (h − 1)/2)`. Intrinsics are resolved per image (calibration file → EXIF → fallback), so mixed-resolution folders are handled. Undistortion happens at the original resolution, before resizing; after it the distortion vector is zero.
 
 ## Configuration
 

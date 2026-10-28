@@ -1,0 +1,97 @@
+import json
+
+import numpy as np
+import pytest
+
+from src.cli import main
+from src.config import config_from_dict
+from src.data.dataset import prepare_dataset
+from src.data.loader import DatasetError
+from src.geometry.calibration import fallback_intrinsics, save_camera_file
+from tests.images import write_textured_images
+
+CFG = config_from_dict({"preprocessing": {"max_side": 320}})
+
+
+@pytest.fixture
+def image_dir(tmp_path):
+    directory = tmp_path / "scene"
+    write_textured_images(directory, 4, size=(640, 480))
+    (directory / "image_005.jpg").write_bytes(b"corrupt")
+    return directory
+
+
+def test_prepare_dataset_loads_resizes_and_scales_k(image_dir):
+    dataset = prepare_dataset(image_dir, CFG)
+
+    assert [im.name for im in dataset.images] == [f"image_{i:03d}.jpg" for i in range(1, 5)]
+    assert [im.index for im in dataset.images] == [0, 1, 2, 3]
+    for im in dataset.images:
+        assert im.image.shape == (240, 320, 3)
+        assert im.original_size == (640, 480)
+        assert im.scale == (0.5, 0.5)
+        assert im.intrinsics_source == "fallback"
+        np.testing.assert_allclose(im.K[0, 0], 1.2 * 640 * 0.5)
+        assert im.gray.shape == (240, 320)
+
+    assert dataset.report.ok
+    assert [i.code for i in dataset.report.issues] == ["unreadable"]
+
+
+def test_prepare_dataset_is_deterministic(image_dir):
+    a = prepare_dataset(image_dir, CFG)
+    b = prepare_dataset(image_dir, CFG)
+    assert [im.name for im in a.images] == [im.name for im in b.images]
+    for x, y in zip(a.images, b.images, strict=True):
+        np.testing.assert_array_equal(x.image, y.image)
+
+
+def test_prepare_dataset_empty_directory(tmp_path):
+    with pytest.raises(DatasetError, match="no images"):
+        prepare_dataset(tmp_path, CFG)
+
+
+def test_prepare_dataset_too_few_images_attaches_report(tmp_path):
+    write_textured_images(tmp_path, 1)
+    with pytest.raises(DatasetError) as excinfo:
+        prepare_dataset(tmp_path, CFG)
+    assert excinfo.value.report is not None
+    assert "too_few_images" in [i.code for i in excinfo.value.report.issues]
+
+
+def test_prepare_dataset_uses_calibration_file(image_dir, tmp_path):
+    camera_file = save_camera_file(fallback_intrinsics(1280, 960, 2.0), tmp_path / "camera.yaml")
+    cfg = config_from_dict(
+        {"preprocessing": {"max_side": 320}, "camera": {"calibration_file": str(camera_file)}}
+    )
+    dataset = prepare_dataset(image_dir, cfg)
+    im = dataset.images[0]
+    assert im.intrinsics_source == "file"
+    # 2.0 * 1280 at calibration size -> x0.5 to 640 -> x0.5 to 320.
+    np.testing.assert_allclose(im.K[0, 0], 640.0)
+
+
+def test_dataset_save_writes_json(image_dir, tmp_path):
+    dataset = prepare_dataset(image_dir, CFG)
+    path = dataset.save(tmp_path / "out" / "dataset.json")
+    data = json.loads(path.read_text())
+    assert data["n_images"] == 4
+    assert data["images"][0]["name"] == "image_001.jpg"
+    assert np.array(data["images"][0]["K"]).shape == (3, 3)
+    assert data["report"]["ok"] is True
+
+
+def test_cli_validate_writes_run_directory(image_dir, tmp_path):
+    out = tmp_path / "outputs"
+    assert main(["validate", str(image_dir), "--out", str(out)]) == 0
+    (run_dir,) = out.iterdir()
+    assert (run_dir / "dataset.json").is_file()
+    assert (run_dir / "config.yaml").is_file()
+    env = json.loads((run_dir / "environment.json").read_text())
+    assert "opencv" in env["packages"]
+
+
+def test_cli_validate_fails_on_invalid_dataset(tmp_path, capsys):
+    write_textured_images(tmp_path / "one", 1)
+    assert main(["validate", str(tmp_path / "one"), "--out", str(tmp_path / "o")]) == 1
+    assert "too_few_images" in capsys.readouterr().out

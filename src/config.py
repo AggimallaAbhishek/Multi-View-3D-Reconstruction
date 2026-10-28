@@ -28,6 +28,7 @@ class DatasetConfig:
     extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
     min_images: int = 2
     blur_threshold: float = 100.0
+    duplicate_max_distance: int = 2
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class PreprocessingConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     calibration_file: str | None = None
+    use_exif: bool = True
     fallback_focal_factor: float = 1.2
 
 
