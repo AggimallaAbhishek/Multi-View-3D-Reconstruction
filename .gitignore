@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data and generated outputs (keep placeholders and the small sample set)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/
+outputs/*
+!outputs/.gitkeep
+*.ply
+!data/sample/**/*.ply
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

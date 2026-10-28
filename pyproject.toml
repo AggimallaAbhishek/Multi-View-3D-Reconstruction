@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mv3d"
+version = "0.1.0"
+description = "Multi-view 3D reconstruction from overlapping photographs (classical SfM)"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "opencv-contrib-python==5.0.0.93",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "open3d==0.20.0",
+    "matplotlib==3.11.2",
+    "pandas==3.1.0",
+    "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.3",
+]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# dash's pytest plugin is installed transitively by open3d and is unused here.
+addopts = "-ra -p no:dash"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "NPY"]

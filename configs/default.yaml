@@ -1,0 +1,45 @@
+# Default pipeline configuration. Every threshold used by the pipeline lives here.
+# Sections map 1:1 to dataclasses in src/config.py; unknown keys are rejected.
+
+dataset:
+  extensions: [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
+  min_images: 2
+  blur_threshold: 100.0        # Laplacian variance below this triggers a warning
+
+preprocessing:
+  max_side: 1600               # longest image side in px after resizing; null keeps original
+  grayscale: true
+  undistort: true              # only applied when distortion coefficients are known
+
+camera:
+  calibration_file: null       # path to configs/camera.yaml when calibrated
+  fallback_focal_factor: 1.2   # f = factor * max(width, height) when K is unknown
+
+features:
+  detector: sift               # sift | orb
+  max_features: 8000
+  root_sift: false
+
+matching:
+  ratio: 0.75                  # Lowe ratio test
+  mutual: true                 # keep only mutual nearest neighbours
+  pair_mode: exhaustive        # exhaustive | sequential
+  sequential_window: 5
+
+verification:
+  method: essential            # essential (calibrated) | fundamental
+  ransac_threshold_px: 1.0
+  confidence: 0.999
+  min_inliers: 30
+
+triangulation:
+  max_reprojection_error_px: 2.0
+  min_angle_deg: 1.5
+
+filtering:
+  statistical_nb_neighbors: 20
+  statistical_std_ratio: 2.0
+
+output:
+  root: outputs
+  save_intermediates: true
