@@ -24,10 +24,12 @@ features:
   cache_dir: outputs/cache/features  # null disables the on-disk feature cache
 
 matching:
-  ratio: 0.75                  # Lowe ratio test
-  mutual: true                 # keep only mutual nearest neighbours
-  pair_mode: exhaustive        # exhaustive | sequential
+  ratio: 0.75                  # Lowe ratio test: keep if d1 < ratio * d2
+  mutual: true                 # keep only mutual nearest neighbours (one-to-one)
+  method: bruteforce           # bruteforce (exact, deterministic) | flann (approximate, seeded)
+  pair_mode: exhaustive        # exhaustive (all pairs) | sequential (j - i <= window)
   sequential_window: 5
+  min_matches: 30              # an image whose best pair has fewer is reported as isolated
 
 verification:
   method: essential            # essential (calibrated) | fundamental

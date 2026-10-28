@@ -101,3 +101,54 @@ def checkerboard_pose(
     board_centre = np.array([(pattern[0] + 1) / 2, (pattern[1] + 1) / 2, 0.0])
     t = -R @ board_centre + np.array([0.0, 0.0, distance])
     return R, t
+
+
+def make_natural_texture(seed: int, width: int = 640, height: int = 480) -> np.ndarray:
+    """BGR multi-scale noise texture: features at many scales, like real surfaces.
+
+    Unlike ``make_texture`` (uniform 8 px blocks), keypoints here have distinctive
+    neighbourhoods at several scales, which matching tests need.
+    """
+    rng = np.random.default_rng(seed)
+    acc = np.zeros((height, width, 3))
+    for k in range(1, 7):
+        s = 2**k
+        small = rng.random((height // s + 2, width // s + 2, 3))
+        up = cv2.resize(small, ((width // s + 2) * s, (height // s + 2) * s), cv2.INTER_CUBIC)
+        acc += up[:height, :width] / k
+    acc = (acc - acc.min()) / (acc.max() - acc.min())
+    return (acc * 255).astype(np.uint8)
+
+
+def make_view_sequence(
+    n: int,
+    size: tuple[int, int] = (640, 480),
+    seed: int = 0,
+    step: float = 40.0,
+    rotation_deg: float = 3.0,
+    zoom: float = 0.02,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Views of one planar textured scene from a camera that pans, rotates and zooms.
+
+    Returns (images, homographies) where ``homographies[k]`` maps scene-texture pixels
+    to view-k pixels. The ground-truth mapping from view i to view j is
+    ``homographies[j] @ inv(homographies[i])``.
+    """
+    width, height = size
+    margin = int(step * n + max(width, height))
+    scene = make_natural_texture(seed, width + 2 * margin, height + 2 * margin)
+    centre = np.array([(width - 1) / 2, (height - 1) / 2])
+
+    images, homographies = [], []
+    for k in range(n):
+        shift = np.array([[1, 0, -margin - k * step], [0, 1, -margin], [0, 0, 1.0]])
+        A = cv2.getRotationMatrix2D(tuple(centre), rotation_deg * k, 1.0 + zoom * k)
+        H = np.vstack([A, [0, 0, 1]]) @ shift
+        H[2, :2] += np.array([2e-5, -1e-5]) * k  # mild perspective
+        images.append(cv2.warpPerspective(scene, H, size, flags=cv2.INTER_LINEAR))
+        homographies.append(H)
+    return images, homographies
+
+
+def relative_homography(homographies: list[np.ndarray], i: int, j: int) -> np.ndarray:
+    return homographies[j] @ np.linalg.inv(homographies[i])

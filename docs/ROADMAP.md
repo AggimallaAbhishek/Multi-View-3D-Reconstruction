@@ -143,9 +143,17 @@ Stable feature counts on the sample set; keypoints visibly concentrate on textur
 
 ---
 
-## Phase 3 — Feature Matching
+## Phase 3 — Feature Matching ✅
 
 **Goal:** Reliable candidate correspondences between image pairs.
+
+> **Status — done.** `src.features.matcher`: `DescriptorMatcher(config.matching).match(fi, fj)` → `Matches` (one-to-one index arrays) + `MatchStats` (raw / after ratio / after mutual); `ratios()` for threshold analysis; `select_pairs`, `match_pairs`, `connectivity`, `match_matrix`, `save_matches` / `load_matches`. CLI: `python -m src.cli matches <dir> [--ratio R] [--pairs sequential]`. Notebook `02_feature_matching.ipynb`. Decisions:
+> - **Brute-force is the default.** Measured on 8000×8000 SIFT: brute-force 86 ms vs FLANN 93 ms, and FLANN gave *different matches on identical runs*. `method: flann` stays available and is seeded via `cv2.setRNGSeed(0)` so it is reproducible.
+> - The mutual check runs a reverse 1-NN; matches are one-to-one and sorted by query index.
+> - Pairs with < 2 features in image j return no matches (the ratio test needs a second neighbour).
+> - New test oracle `tests/images.make_view_sequence`: a camera panning/rotating/zooming over a textured plane with known homographies. SIFT matches agree with ground truth at > 95 % precision; unrelated images yield < 30 matches out of > 1000 candidates.
+> - On a 13-image synthetic sequence (8000 features, 1600×1200): 78 pairs in 14 s; the unrelated image was flagged isolated (best pair 8 matches vs ≥ 1045). Ratio histogram is cleanly bimodal with 0.75 in the valley.
+> - Added `matching.method` and `matching.min_matches`.
 
 ### Tasks
 - `features/matcher.py`: FLANN (SIFT) / BFMatcher Hamming (ORB); kNN k=2; Lowe ratio test (config, default 0.75); optional mutual nearest-neighbor check.

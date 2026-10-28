@@ -21,6 +21,15 @@ from src.features.extractor import (
     extract_features,
     write_feature_statistics,
 )
+from src.features.matcher import (
+    DescriptorMatcher,
+    connectivity,
+    match_matrix,
+    match_pairs,
+    save_matches,
+    select_pairs,
+    write_match_statistics,
+)
 from src.geometry.calibration import (
     CalibrationError,
     calibrate_from_checkerboard,
@@ -28,6 +37,7 @@ from src.geometry.calibration import (
 )
 from src.run import create_run_dir, write_run_metadata
 from src.visualization.features import draw_keypoints
+from src.visualization.matches import draw_matches, plot_match_matrix
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,6 +56,17 @@ def main(argv: list[str] | None = None) -> int:
     features.add_argument("--detector", choices=["sift", "orb"], help="override features.detector")
     features.add_argument("--draw", type=int, default=3, help="keypoint images to save (3)")
 
+    matches = sub.add_parser("matches", help="match features between image pairs")
+    matches.add_argument("images", type=Path, help="directory of input photos")
+    matches.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
+    matches.add_argument("--out", type=Path, help="output root (default: config output.root)")
+    matches.add_argument("--detector", choices=["sift", "orb"], help="override features.detector")
+    matches.add_argument("--ratio", type=float, help="override matching.ratio")
+    matches.add_argument(
+        "--pairs", choices=["exhaustive", "sequential"], help="override matching.pair_mode"
+    )
+    matches.add_argument("--draw", type=int, default=3, help="match images to save (3)")
+
     calibrate = sub.add_parser("calibrate", help="calibrate a camera from checkerboard photos")
     calibrate.add_argument("images", type=Path, help="directory of checkerboard photos")
     calibrate.add_argument("--pattern", default="9x6", help="inner corners, COLSxROWS (9x6)")
@@ -59,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate(args)
     if args.command == "features":
         return _features(args)
+    if args.command == "matches":
+        return _matches(args)
     if args.command == "calibrate":
         return _calibrate(args)
     parser.error(f"unknown command {args.command}")
@@ -96,19 +119,30 @@ def _validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _override(config: Config, section: str, **values) -> Config:
+    """Config with command-line overrides applied; ``None`` values are ignored."""
+    values = {k: v for k, v in values.items() if v is not None}
+    if not values:
+        return config
+    return dataclasses.replace(
+        config, **{section: dataclasses.replace(getattr(config, section), **values)}
+    )
+
+
+def _extract(dataset: Dataset, config: Config):
+    extractor = create_extractor(config.features)
+    cache = FeatureCache(config.features.cache_dir) if config.features.cache_dir else None
+    features, stats = extract_features(dataset.images, extractor, cache)
+    return extractor, features, stats
+
+
 def _features(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    if args.detector:
-        config = dataclasses.replace(
-            config, features=dataclasses.replace(config.features, detector=args.detector)
-        )
+    config = _override(load_config(args.config), "features", detector=args.detector)
     dataset = _load_dataset(args.images, config)
     if dataset is None:
         return 1
 
-    extractor = create_extractor(config.features)
-    cache = FeatureCache(config.features.cache_dir) if config.features.cache_dir else None
-    features, stats = extract_features(dataset.images, extractor, cache)
+    extractor, features, stats = _extract(dataset, config)
 
     run_dir = create_run_dir(args.out or config.output.root, f"features_{extractor.name}")
     write_run_metadata(run_dir, config)
@@ -137,6 +171,57 @@ def _features(args: argparse.Namespace) -> int:
                 f"[WARNING] {s.image}: {s.n_features} features, coverage {s.coverage:.2f} "
                 "- too little texture or features concentrated in one region"
             )
+    print(f"Wrote {csv_path}")
+    return 0
+
+
+def _matches(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    config = _override(config, "features", detector=args.detector)
+    config = _override(config, "matching", ratio=args.ratio, pair_mode=args.pairs)
+    dataset = _load_dataset(args.images, config)
+    if dataset is None:
+        return 1
+
+    extractor, features, feature_stats = _extract(dataset, config)
+    pairs = select_pairs(len(features), config.matching)
+    matches, stats = match_pairs(features, pairs, DescriptorMatcher(config.matching))
+
+    names = [im.name for im in dataset.images]
+    run_dir = create_run_dir(args.out or config.output.root, f"matches_{extractor.name}")
+    write_run_metadata(run_dir, config)
+    write_feature_statistics(feature_stats, run_dir / "features" / "feature_statistics.csv")
+    out = run_dir / "matches"
+    csv_path = write_match_statistics(stats, names, out / "match_statistics.csv")
+    save_matches(matches, out / "matches.npz")
+    plot_match_matrix(match_matrix(stats, len(names)), names, out / "match_matrix.png")
+    # Neighbouring images first: they are the pairs most worth inspecting.
+    for m in sorted(matches, key=lambda m: (m.j - m.i, m.i))[: max(args.draw, 0)]:
+        a, b = dataset.images[m.i], dataset.images[m.j]
+        canvas = draw_matches(a.image, b.image, features[m.i], features[m.j], m)
+        cv2.imwrite(str(out / f"{Path(a.name).stem}_{Path(b.name).stem}_matches.png"), canvas)
+
+    final = np.array([s.final for s in stats])
+    min_matches = config.matching.min_matches
+    good = final >= min_matches
+    print(f"Detector: {extractor.signature()}; ratio {config.matching.ratio}, "
+          f"mutual {config.matching.mutual}, {config.matching.method}")  # fmt: skip
+    print(
+        f"Pairs: {len(pairs)} ({config.matching.pair_mode}) in "
+        f"{sum(s.time_ms for s in stats) / 1000:.1f} s; "
+        f"{good.sum()} with >= {min_matches} matches"
+    )
+    if good.any():
+        print(
+            f"Matches per connected pair: min {final[good].min()}, "
+            f"median {int(np.median(final[good]))}, max {final[good].max()}"
+        )
+    best = connectivity(stats, len(names))
+    for k in np.flatnonzero(best < min_matches):
+        print(
+            f"[WARNING] {names[k]}: best pair has only {best[k]} matches - "
+            "it will probably not be registered"
+        )
     print(f"Wrote {csv_path}")
     return 0
 

@@ -57,8 +57,10 @@ class FeatureConfig:
 class MatchConfig:
     ratio: float = 0.75
     mutual: bool = True
+    method: Literal["bruteforce", "flann"] = "bruteforce"
     pair_mode: Literal["exhaustive", "sequential"] = "exhaustive"
     sequential_window: int = 5
+    min_matches: int = 30
 
 
 @dataclass(frozen=True)

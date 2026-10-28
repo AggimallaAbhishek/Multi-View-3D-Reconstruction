@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%203%20%E2%80%94%20Matching-blue)
+![status](https://img.shields.io/badge/status-Phase%204%20%E2%80%94%20Verification-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -136,7 +136,7 @@ flowchart TD
 |---|---|---|
 | `data/` | Discover, decode, validate, and order images; record metadata; preprocess (undistort, resize) and keep `K` consistent with resizing | `ImageRecord` list + metadata |
 | `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
-| `features/matcher.py` | kNN matching, Lowe ratio test, optional mutual check, diagnostics | Candidate matches per pair |
+| `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
 | `geometry/epipolar.py` | Estimate `F` (uncalibrated) or `E` (calibrated) with RANSAC; inlier ratio; Sampson residuals | Verified matches + model |
 | `geometry/pose_estimation.py` | Decompose `E`, cheirality, relative `R, t̂`; PnP for new views | Camera poses |
 | `geometry/triangulation.py` | Build `P = K[R\|t]`, triangulate, reject non-positive depth / high error / low parallax | 3D landmarks |
@@ -226,7 +226,16 @@ python -m src.cli calibrate data/raw/checkerboard --pattern 9x6 --square 0.025 -
 # detect keypoints → outputs/<timestamp>_features_sift/features/{feature_statistics.csv, *_keypoints.png}
 python -m src.cli features data/raw/sample_scene                 # SIFT (default)
 python -m src.cli features data/raw/sample_scene --detector orb  # ORB for comparison
+
+# match image pairs → outputs/<timestamp>_matches_sift/matches/
+#   match_statistics.csv, matches.npz, match_matrix.png, <a>_<b>_matches.png
+python -m src.cli matches data/raw/sample_scene
+python -m src.cli matches data/raw/sample_scene --ratio 0.8 --pairs sequential
 ```
+
+`notebooks/02_feature_matching.ipynb` shows the match graph, matches for one pair, the ratio-test histogram for choosing `matching.ratio`, and a SIFT vs ORB comparison.
+
+Exhaustive matching costs ~0.18 s per pair at 8000 SIFT features on an M-series Mac (80 images ≈ 3160 pairs ≈ 10 min). For larger or ordered captures use `--pairs sequential`.
 
 Features are cached in `outputs/cache/features/`, keyed by image pixels and detector settings, so reruns are instant and any setting change recomputes automatically.
 
@@ -475,7 +484,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 0** Environment, scaffold, config, synthetic generator
 - [x] **Phase 1** Dataset loading & validation
 - [x] **Phase 2** Feature extraction
-- [ ] **Phase 3** Feature matching
+- [x] **Phase 3** Feature matching
 - [ ] **Phase 4** Geometric verification
 - [ ] **Phase 5** Relative camera pose
 - [ ] **Phase 6** Triangulation
