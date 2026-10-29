@@ -85,7 +85,6 @@ def extract(result: PipelineResult) -> PipelineResult:
         result.images,
         result.extractor,
         FeatureCache(cache_dir) if cache_dir else None,
-        workers=config.performance.workers,
     )
     return result
 

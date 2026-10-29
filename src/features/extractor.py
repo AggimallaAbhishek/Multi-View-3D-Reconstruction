@@ -23,7 +23,7 @@ import numpy as np
 from src.config import FeatureConfig
 from src.data.dataset import PreparedImage
 from src.data.preprocessing import to_gray
-from src.run import atomic_savez, parallel_map, write_csv
+from src.run import atomic_savez, write_csv
 
 log = logging.getLogger(__name__)
 
@@ -237,12 +237,12 @@ def extract_features(
     images: Sequence[PreparedImage],
     extractor: FeatureExtractor,
     cache: FeatureCache | None = None,
-    workers: int = 1,
 ) -> tuple[list[Features], list[FeatureStats]]:
-    """Features for every image, in dataset order, on ``workers`` threads (0 = all cores).
+    """Features for every image, in dataset order.
 
-    Each call builds its own OpenCV detector and the cache writes one file per image,
-    so images are independent and the result does not depend on ``workers``.
+    Images run one after another on purpose: OpenCV's SIFT already uses all cores, and
+    threading images on top of it was slower (measured 2.4 s sequential vs 3.5-5.8 s
+    threaded for 13 images at 1600x1200).
     """
 
     def one(im: PreparedImage) -> tuple[Features, FeatureStats]:
@@ -261,7 +261,7 @@ def extract_features(
             cached=hit,
         )
 
-    results = parallel_map(one, images, workers)
+    results = [one(im) for im in images]
     return [f for f, _ in results], [s for _, s in results]
 
 

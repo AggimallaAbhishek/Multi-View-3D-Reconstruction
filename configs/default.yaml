@@ -68,4 +68,4 @@ output:
   cache_dir: outputs/cache     # features, matches and prepared images; null disables caching
 
 performance:
-  workers: 0                   # threads for extraction and verification; 0 = all CPU cores
+  workers: 0                   # threads for geometric verification (RANSAC is single-threaded); 0 = all cores

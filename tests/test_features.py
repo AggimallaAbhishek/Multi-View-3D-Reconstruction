@@ -248,20 +248,6 @@ def test_cli_features_writes_statistics_and_figures(tmp_path, detector):
     assert len(list((tmp_path / "cache" / "features").glob("*.npz"))) == 3
 
 
-def test_parallel_extraction_equals_sequential(tmp_path):
-    from src.config import config_from_dict
-    from src.data.dataset import prepare_dataset
-    from tests.images import write_textured_images
-
-    write_textured_images(tmp_path / "scene", 4, size=(640, 480))
-    images = prepare_dataset(tmp_path / "scene", config_from_dict({})).images
-    extractor = SIFTExtractor(max_features=400)
-    seq, _ = extract_features(images, extractor, workers=1)
-    par, _ = extract_features(images, extractor, workers=4)
-    for a, b in zip(seq, par, strict=True):
-        np.testing.assert_array_equal(a.descriptors, b.descriptors)
-
-
 def test_weak_images():
     from src.features.extractor import FeatureStats, weak_images
 
