@@ -67,7 +67,7 @@ def look_at(center: np.ndarray, target: np.ndarray, up: np.ndarray | None = None
     up = np.array([0.0, -1.0, 0.0]) if up is None else np.asarray(up, dtype=float)
     z = target - center
     z = z / np.linalg.norm(z)
-    x = np.cross(up, z)
+    x = np.cross(z, up)  # camera x points right when y points down
     x = x / np.linalg.norm(x)
     y = np.cross(z, x)
     R = np.vstack([x, y, z])
@@ -98,17 +98,21 @@ def make_scene(
     radius: float = 6.0,
     arc_deg: float = 60.0,
     elevation: float = 1.0,
+    planar: bool = False,
 ) -> SyntheticScene:
     """Random points in a unit cube at the origin, cameras on an arc looking at it.
 
     Cameras sit at distance ``radius`` from the origin, spread over ``arc_deg``
     degrees around the y axis and raised by ``elevation`` (negative y is up).
+    With ``planar`` all points lie in the plane z = 0 (a degenerate scene for F).
     """
     rng = np.random.default_rng(seed)
     width, height = image_size
     K = intrinsics(focal, width, height)
 
     points3d = rng.uniform(-1.0, 1.0, size=(n_points, 3))
+    if planar:
+        points3d[:, 2] = 0.0
 
     angles = np.deg2rad(np.linspace(-arc_deg / 2, arc_deg / 2, n_cameras))
     rotations, translations = [], []

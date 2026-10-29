@@ -32,10 +32,12 @@ matching:
   min_matches: 30              # an image whose best pair has fewer is reported as isolated
 
 verification:
-  method: essential            # essential (calibrated) | fundamental
-  ransac_threshold_px: 1.0
+  method: auto                 # auto: essential if both images have file/EXIF intrinsics, else fundamental
+  estimator: usac_accurate     # usac_accurate | usac_magsac | ransac (all seeded, reproducible)
+  ransac_threshold_px: 1.5     # max Sampson distance (px) for an inlier, for both models
   confidence: 0.999
-  min_inliers: 30
+  min_inliers: 30              # pairs with fewer inliers are rejected
+  planar_ratio: 0.8            # homography/epipolar inlier ratio above which a pair counts as planar
 
 triangulation:
   max_reprojection_error_px: 2.0

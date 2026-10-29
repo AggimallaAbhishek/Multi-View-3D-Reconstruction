@@ -172,9 +172,17 @@ On inspected pairs the majority of lines connect the same physical point.
 
 ---
 
-## Phase 4 — Geometric Verification
+## Phase 4 — Geometric Verification ✅
 
 **Goal:** Remove matches inconsistent with two-view geometry and quantify pair quality.
+
+> **Status — done.** `src.geometry.epipolar`: `eight_point` (own normalised 8-point), `sampson_distance`, `skew`, `enforce_essential`, `fundamental_from_essential` / `essential_from_fundamental`, `select_model`, `verify_pair` → `TwoViewGeometry` (failures are results with a `reason`, never exceptions). `src.geometry.verification`: `verify_matches`, `inlier_matches`, `verification_matrix`, CSV writer. `src.visualization.epipolar.draw_epipolar_lines`. CLI: `python -m src.cli verify <dir>`. Decisions:
+> - **Estimator `USAC_ACCURATE`** (seeded → reproducible). Measured with 30 % outliers, 0.5 px noise: E error 0.005 vs 0.039 for RANSAC, true-match recall 0.95 vs 0.82.
+> - **`method: auto`** uses E only if both images have file/EXIF/checkerboard intrinsics; with guessed K it uses F, since a wrong K makes an E fit reject good matches. Different K per image is supported (points normalised with their own K).
+> - **One inlier definition for both models:** Sampson distance to the final F ≤ `ransac_threshold_px` (default raised to 1.5 px).
+> - **Homography ratio** H-inliers / F-inliers flags planar or rotation-only pairs. The H threshold is scaled by √2·√(χ²₂/χ²₁) ≈ 1.77 so both residuals are judged at the same confidence; planar scenes now score ≈ 1.0, general 3-D ≈ 0.08.
+> - **New test fixture `tests/render.py`:** renders a textured box on a ground plane from known cameras. On rendered pairs every verified inlier is within 1.5 px of the *true* F and every truly-good match is kept; H/F 0.6–0.75 (partly planar scene). A 60° baseline yields only 3 SIFT matches and is correctly rejected — wide baselines need intermediate views.
+> - Fixed `tests/synthetic.look_at`, which produced cameras rolled 180° (valid rotations, so earlier tests passed, but images were upside-down).
 
 ### Tasks
 - `geometry/epipolar.py`:

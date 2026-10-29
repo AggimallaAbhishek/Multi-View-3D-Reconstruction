@@ -23,6 +23,7 @@ from src.features.extractor import (
 )
 from src.features.matcher import (
     DescriptorMatcher,
+    Matches,
     connectivity,
     match_matrix,
     match_pairs,
@@ -35,7 +36,14 @@ from src.geometry.calibration import (
     calibrate_from_checkerboard,
     save_camera_file,
 )
+from src.geometry.verification import (
+    inlier_matches,
+    verification_matrix,
+    verify_matches,
+    write_verification_statistics,
+)
 from src.run import create_run_dir, write_run_metadata
+from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
 
@@ -67,6 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     matches.add_argument("--draw", type=int, default=3, help="match images to save (3)")
 
+    verify = sub.add_parser("verify", help="match pairs and verify them with epipolar geometry")
+    verify.add_argument("images", type=Path, help="directory of input photos")
+    verify.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
+    verify.add_argument("--out", type=Path, help="output root (default: config output.root)")
+    verify.add_argument("--detector", choices=["sift", "orb"], help="override features.detector")
+    verify.add_argument(
+        "--method", choices=["auto", "essential", "fundamental"], help="override model"
+    )
+    verify.add_argument("--threshold", type=float, help="override ransac_threshold_px")
+    verify.add_argument("--draw", type=int, default=3, help="pairs to draw (3)")
+
     calibrate = sub.add_parser("calibrate", help="calibrate a camera from checkerboard photos")
     calibrate.add_argument("images", type=Path, help="directory of checkerboard photos")
     calibrate.add_argument("--pattern", default="9x6", help="inner corners, COLSxROWS (9x6)")
@@ -82,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         return _features(args)
     if args.command == "matches":
         return _matches(args)
+    if args.command == "verify":
+        return _verify(args)
     if args.command == "calibrate":
         return _calibrate(args)
     parser.error(f"unknown command {args.command}")
@@ -175,31 +196,37 @@ def _features(args: argparse.Namespace) -> int:
     return 0
 
 
-def _matches(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    config = _override(config, "features", detector=args.detector)
-    config = _override(config, "matching", ratio=args.ratio, pair_mode=args.pairs)
+def _inspection_order(matches: list[Matches]) -> list[Matches]:
+    """Neighbouring images first: they are the pairs most worth looking at."""
+    return sorted(matches, key=lambda m: (m.j - m.i, m.i))
+
+
+def _run_matching(args: argparse.Namespace, config: Config, label: str):
+    """Shared by ``matches`` and ``verify``: features, matching, outputs and summary.
+
+    Returns (dataset, features, matches, run_dir) or None if the dataset is unusable.
+    """
     dataset = _load_dataset(args.images, config)
     if dataset is None:
-        return 1
+        return None
 
     extractor, features, feature_stats = _extract(dataset, config)
     pairs = select_pairs(len(features), config.matching)
     matches, stats = match_pairs(features, pairs, DescriptorMatcher(config.matching))
 
     names = [im.name for im in dataset.images]
-    run_dir = create_run_dir(args.out or config.output.root, f"matches_{extractor.name}")
+    run_dir = create_run_dir(args.out or config.output.root, f"{label}_{extractor.name}")
     write_run_metadata(run_dir, config)
     write_feature_statistics(feature_stats, run_dir / "features" / "feature_statistics.csv")
     out = run_dir / "matches"
-    csv_path = write_match_statistics(stats, names, out / "match_statistics.csv")
+    write_match_statistics(stats, names, out / "match_statistics.csv")
     save_matches(matches, out / "matches.npz")
     plot_match_matrix(match_matrix(stats, len(names)), names, out / "match_matrix.png")
-    # Neighbouring images first: they are the pairs most worth inspecting.
-    for m in sorted(matches, key=lambda m: (m.j - m.i, m.i))[: max(args.draw, 0)]:
-        a, b = dataset.images[m.i], dataset.images[m.j]
-        canvas = draw_matches(a.image, b.image, features[m.i], features[m.j], m)
-        cv2.imwrite(str(out / f"{Path(a.name).stem}_{Path(b.name).stem}_matches.png"), canvas)
+    if label == "matches":
+        for m in _inspection_order(matches)[: max(args.draw, 0)]:
+            a, b = dataset.images[m.i], dataset.images[m.j]
+            canvas = draw_matches(a.image, b.image, features[m.i], features[m.j], m)
+            cv2.imwrite(str(out / f"{_pair_stem(a.name, b.name)}_matches.png"), canvas)
 
     final = np.array([s.final for s in stats])
     min_matches = config.matching.min_matches
@@ -222,6 +249,90 @@ def _matches(args: argparse.Namespace) -> int:
             f"[WARNING] {names[k]}: best pair has only {best[k]} matches - "
             "it will probably not be registered"
         )
+    return dataset, features, matches, run_dir
+
+
+def _pair_stem(name_i: str, name_j: str) -> str:
+    return f"{Path(name_i).stem}_{Path(name_j).stem}"
+
+
+def _matches(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    config = _override(config, "features", detector=args.detector)
+    config = _override(config, "matching", ratio=args.ratio, pair_mode=args.pairs)
+    result = _run_matching(args, config, "matches")
+    if result is None:
+        return 1
+    print(f"Wrote {result[3] / 'matches' / 'match_statistics.csv'}")
+    return 0
+
+
+def _verify(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    config = _override(config, "features", detector=args.detector)
+    config = _override(
+        config, "verification", method=args.method, ransac_threshold_px=args.threshold
+    )
+    result = _run_matching(args, config, "verify")
+    if result is None:
+        return 1
+    dataset, features, matches, run_dir = result
+    names = [im.name for im in dataset.images]
+
+    geometries, stats = verify_matches(dataset.images, features, matches, config.verification)
+    out = run_dir / "verification"
+    csv_path = write_verification_statistics(stats, names, out / "verification_statistics.csv")
+    verified = [inlier_matches(m, g) for m, g in zip(matches, geometries, strict=True)]
+    save_matches(verified, out / "verified_matches.npz")
+    plot_match_matrix(
+        verification_matrix(stats, len(names)),
+        names,
+        out / "verified_matrix.png",
+        title="Verified inliers per image pair",
+        label="geometric inliers",
+    )
+    by_pair = {(m.i, m.j): (m, g) for m, g in zip(matches, geometries, strict=True)}
+    for m in _inspection_order(matches)[: max(args.draw, 0)]:
+        g = by_pair[(m.i, m.j)][1]
+        a, b = dataset.images[m.i], dataset.images[m.j]
+        stem = _pair_stem(a.name, b.name)
+        canvas = draw_matches(
+            a.image, b.image, features[m.i], features[m.j], m, inlier_mask=g.inlier_mask
+        )
+        cv2.imwrite(str(out / f"{stem}_inliers.png"), canvas)
+        if g.F is not None and g.n_inliers:
+            x_i, x_j = m.points(features[m.i], features[m.j])
+            canvas = draw_epipolar_lines(
+                a.image, b.image, x_i[g.inlier_mask], x_j[g.inlier_mask], g.F
+            )
+            cv2.imwrite(str(out / f"{stem}_epipolar.png"), canvas)
+
+    ok = [s for s in stats if s.success]
+    models = sorted({s.model for s in stats})
+    v = config.verification
+    print(
+        f"Verification: {', '.join(models)} ({v.estimator}, threshold {v.ransac_threshold_px} px)"
+        f" in {sum(s.time_ms for s in stats) / 1000:.1f} s"
+    )
+    print(f"Verified pairs: {len(ok)} of {len(stats)} (>= {v.min_inliers} inliers)")
+    if ok:
+        ratios = np.array([s.inlier_ratio for s in ok])
+        residuals = np.array([s.median_residual for s in ok])
+        planar = sum(s.homography_ratio > v.planar_ratio for s in ok)
+        print(
+            f"Inlier ratio: min {ratios.min():.2f}, median {np.median(ratios):.2f}; "
+            f"median residual {np.median(residuals):.2f} px"
+        )
+        print(
+            f"Pairs explained by a homography (H/F > {v.planar_ratio}): {planar} "
+            "- planar scene or rotation only, weak for initialisation"
+        )
+    best = np.zeros(len(names), dtype=int)
+    for s in ok:
+        best[s.i] = max(best[s.i], s.n_inliers)
+        best[s.j] = max(best[s.j], s.n_inliers)
+    for k in np.flatnonzero(best == 0):
+        print(f"[WARNING] {names[k]}: no verified pair - it cannot be registered")
     print(f"Wrote {csv_path}")
     return 0
 

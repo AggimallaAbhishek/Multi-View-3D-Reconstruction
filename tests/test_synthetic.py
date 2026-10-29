@@ -87,3 +87,9 @@ def test_baseline_gives_real_parallax(scene):
     # Phase 5/6 need non-degenerate geometry: the outer cameras must be well separated.
     baseline = np.linalg.norm(scene.camera_center(0) - scene.camera_center(scene.n_cameras - 1))
     assert baseline > 3.0
+
+
+def test_look_at_keeps_cameras_upright():
+    # Camera looking along +z with world y pointing down: image x is world +x, image y world +y.
+    R, _ = look_at(np.array([0.0, 0.0, -5.0]), np.zeros(3))
+    np.testing.assert_allclose(R, np.eye(3), atol=1e-12)

@@ -7,6 +7,7 @@ import numpy as np
 
 from src.features.extractor import Features
 from src.features.matcher import Matches
+from src.visualization.common import dimmed_gray, side_by_side
 
 
 def draw_matches(
@@ -27,11 +28,9 @@ def draw_matches(
     matches stay readable. With ``inlier_mask``, inliers are green and outliers red;
     otherwise each line gets its own colour so crossings can be followed.
     """
-    left, right = _dimmed(image_i, background), _dimmed(image_j, background)
-    height = max(left.shape[0], right.shape[0])
-    canvas = np.zeros((height, left.shape[1] + right.shape[1], 3), np.uint8)
-    canvas[: left.shape[0], : left.shape[1]] = left
-    canvas[: right.shape[0], left.shape[1] :] = right
+    left = dimmed_gray(image_i, background)
+    canvas = side_by_side(left, dimmed_gray(image_j, background))
+    height = canvas.shape[0]
 
     rng = np.random.default_rng(seed)
     chosen = np.arange(len(matches))
@@ -54,12 +53,13 @@ def draw_matches(
     return canvas
 
 
-def _dimmed(image: np.ndarray, brightness: float) -> np.ndarray:
-    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return cv2.cvtColor(cv2.convertScaleAbs(gray, alpha=brightness), cv2.COLOR_GRAY2BGR)
-
-
-def plot_match_matrix(matrix: np.ndarray, names: list[str], path=None):
+def plot_match_matrix(
+    matrix: np.ndarray,
+    names: list[str],
+    path=None,
+    title: str = "Matches per image pair",
+    label: str = "matches after ratio + mutual check",
+):
     """Heatmap of match counts between every pair of images (the match graph).
 
     Returns the matplotlib ``Figure``; it is also saved when ``path`` is given.
@@ -78,8 +78,8 @@ def plot_match_matrix(matrix: np.ndarray, names: list[str], path=None):
     fontsize = 8 if n <= 20 else 6
     ax.set_xticks(range(n), labels, rotation=90, fontsize=fontsize)
     ax.set_yticks(range(n), labels, fontsize=fontsize)
-    ax.set_title("Matches per image pair")
-    fig.colorbar(image, ax=ax, label="matches after ratio + mutual check", shrink=0.8)
+    ax.set_title(title)
+    fig.colorbar(image, ax=ax, label=label, shrink=0.8)
     if path is not None:
         fig.savefig(path, dpi=120)
     return fig

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from src.features.extractor import Features
+from src.visualization.common import dimmed_gray
 
 
 def draw_keypoints(
@@ -21,9 +22,7 @@ def draw_keypoints(
     out on colourful scenes. Features are stored strongest first, so ``max_points`` keeps
     the strongest ones.
     """
-    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    dimmed = cv2.convertScaleAbs(gray, alpha=background)
-    canvas = cv2.cvtColor(dimmed, cv2.COLOR_GRAY2BGR)
+    canvas = dimmed_gray(image, background)
     n = len(features) if max_points is None else min(len(features), max_points)
     if n == 0:
         return canvas

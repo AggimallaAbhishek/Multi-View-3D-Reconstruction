@@ -65,10 +65,12 @@ class MatchConfig:
 
 @dataclass(frozen=True)
 class VerificationConfig:
-    method: Literal["essential", "fundamental"] = "essential"
-    ransac_threshold_px: float = 1.0
+    method: Literal["auto", "essential", "fundamental"] = "auto"
+    estimator: Literal["usac_accurate", "usac_magsac", "ransac"] = "usac_accurate"
+    ransac_threshold_px: float = 1.5
     confidence: float = 0.999
     min_inliers: int = 30
+    planar_ratio: float = 0.8
 
 
 @dataclass(frozen=True)
