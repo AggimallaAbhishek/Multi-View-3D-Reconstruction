@@ -14,9 +14,6 @@ from src.config import DatasetConfig
 from src.data.loader import ImageRecord, SkippedFile
 from src.data.preprocessing import to_gray
 
-# Blur is measured at a capped size so one threshold works for any camera resolution.
-BLUR_WORKING_SIDE = 800
-
 
 @dataclass(frozen=True)
 class ImageStats:
@@ -65,12 +62,12 @@ class ValidationReport:
         }
 
 
-def blur_score(image: np.ndarray) -> float:
+def blur_score(image: np.ndarray, working_side: int = DatasetConfig.blur_working_side) -> float:
     """Variance of the Laplacian, computed with the longest side capped at 800 px."""
     gray = to_gray(image)
     longest = max(gray.shape)
-    if longest > BLUR_WORKING_SIDE:
-        s = BLUR_WORKING_SIDE / longest
+    if longest > working_side:
+        s = working_side / longest
         gray = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
@@ -86,12 +83,14 @@ def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
-def image_stats(record: ImageRecord) -> ImageStats:
+def image_stats(
+    record: ImageRecord, blur_working_side: int = DatasetConfig.blur_working_side
+) -> ImageStats:
     return ImageStats(
         name=record.name,
         width=record.width,
         height=record.height,
-        blur=blur_score(record.image),
+        blur=blur_score(record.image, blur_working_side),
         dhash=dhash(record.image),
     )
 

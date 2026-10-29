@@ -8,7 +8,6 @@ Features of one image are stored as plain arrays, strongest response first:
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import logging
 import time
@@ -24,6 +23,7 @@ import numpy as np
 from src.config import FeatureConfig
 from src.data.dataset import PreparedImage
 from src.data.preprocessing import to_gray
+from src.run import write_csv
 
 log = logging.getLogger(__name__)
 
@@ -270,20 +270,12 @@ def extract_features(
 
 
 def write_feature_statistics(stats: Sequence[FeatureStats], path: str | Path) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["image", "detector", "n_features", "coverage", "time_ms", "cached"])
-        for s in stats:
-            writer.writerow(
-                [
-                    s.image,
-                    s.detector,
-                    s.n_features,
-                    f"{s.coverage:.4f}",
-                    f"{s.time_ms:.1f}",
-                    int(s.cached),
-                ]
-            )
-    return path
+    return write_csv(
+        path,
+        ["image", "detector", "n_features", "coverage", "time_ms", "cached"],
+        (
+            [s.image, s.detector, s.n_features, f"{s.coverage:.4f}", f"{s.time_ms:.1f}",
+             int(s.cached)]
+            for s in stats
+        ),
+    )  # fmt: skip

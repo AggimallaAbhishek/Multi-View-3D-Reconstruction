@@ -4,7 +4,8 @@
 dataset:
   extensions: [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
   min_images: 2
-  blur_threshold: 100.0        # Laplacian variance (at <= 800 px) below this triggers a warning
+  blur_threshold: 100.0        # Laplacian variance below this triggers a warning
+  blur_working_side: 800       # blur is measured with the longest side capped here, so one threshold fits all cameras
   duplicate_max_distance: 2    # dHash Hamming distance (of 64 bits) flagging near-duplicates
 
 preprocessing:
@@ -21,6 +22,8 @@ features:
   max_features: 8000           # strict cap; the strongest responses are kept
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
   sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
+  warn_min_features: 100       # warn about images with fewer features...
+  warn_min_coverage: 0.25      # ...or keypoints on less than this share of an 8x8 grid
   cache_dir: outputs/cache/features  # null disables the on-disk feature cache
 
 matching:
@@ -38,6 +41,13 @@ verification:
   confidence: 0.999
   min_inliers: 30              # pairs with fewer inliers are rejected
   planar_ratio: 0.8            # homography/epipolar inlier ratio above which a pair counts as planar
+
+pose:
+  min_points: 30               # verified correspondences needed to estimate a relative pose
+  min_cheirality_ratio: 0.9    # share of points that must lie in front of both cameras
+  min_parallax_deg: 1.0        # median ray angle below this: rotation only, no depth information
+  max_depth: 50.0              # depth limit in baseline units; farther points count as at infinity
+  init_min_parallax_deg: 4.0   # the initial reconstruction pair needs at least this median angle
 
 triangulation:
   max_reprojection_error_px: 2.0

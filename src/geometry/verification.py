@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,6 +14,7 @@ from src.config import VerificationConfig
 from src.features.extractor import Features
 from src.features.matcher import Matches
 from src.geometry.epipolar import TwoViewGeometry, select_model, verify_pair
+from src.run import write_csv
 
 
 class View(Protocol):
@@ -94,19 +94,15 @@ def verification_matrix(stats: Sequence[VerificationStats], n_images: int) -> np
 def write_verification_statistics(
     stats: Sequence[VerificationStats], names: Sequence[str], path: str | Path
 ) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["image_i", "image_j", "model", "matches", "inliers", "inlier_ratio",
-             "median_residual_px", "homography_ratio", "success", "reason", "time_ms"]
-        )  # fmt: skip
-        for s in stats:
-            writer.writerow(
-                [names[s.i], names[s.j], s.model, s.n_matches, s.n_inliers,
-                 f"{s.inlier_ratio:.4f}", f"{s.median_residual:.3f}",
-                 f"{s.homography_ratio:.3f}", int(s.success), s.reason or "",
-                 f"{s.time_ms:.1f}"]
-            )  # fmt: skip
-    return path
+    return write_csv(
+        path,
+        ["image_i", "image_j", "model", "matches", "inliers", "inlier_ratio",
+         "median_residual_px", "homography_ratio", "success", "reason", "time_ms"],
+        (
+            [names[s.i], names[s.j], s.model, s.n_matches, s.n_inliers,
+             f"{s.inlier_ratio:.4f}", f"{s.median_residual:.3f}",
+             f"{s.homography_ratio:.3f}", int(s.success), s.reason or "",
+             f"{s.time_ms:.1f}"]
+            for s in stats
+        ),
+    )  # fmt: skip

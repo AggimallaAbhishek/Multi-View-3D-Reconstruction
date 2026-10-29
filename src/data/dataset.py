@@ -104,7 +104,7 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
         if isinstance(item, SkippedFile):
             skipped.append(item)
             continue
-        stats.append(image_stats(item))
+        stats.append(image_stats(item, config.dataset.blur_working_side))
         prepared.append(_prepare_image(item, calibration, config))
 
     report = validate(stats, skipped, config.dataset)

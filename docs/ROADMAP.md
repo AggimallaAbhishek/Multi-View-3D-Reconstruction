@@ -203,9 +203,16 @@ Real pairs show stable inlier ratios; epipolar lines pass through corresponding 
 
 ---
 
-## Phase 5 — Relative Camera Pose
+## Phase 5 — Relative Camera Pose ✅
 
 **Goal:** Recover `R` and unit `t` between two calibrated views.
+
+> **Status — done.** `src.geometry.pose_estimation`: `decompose_essential` (own SVD decomposition, 4 candidates), `estimate_relative_pose` → `RelativePose` (failures carry a reason: `too_few_points`, `low_parallax`, `cheirality`), `parallax_angles_deg`, `essential_for_pose`, `estimate_pair_poses`, `select_initial_pair`, error metrics. `src.geometry.triangulation.triangulate_two_view` (vectorised DLT; Phase 6 extends it). `src.visualization.cameras.plot_two_view`. CLI: `python -m src.cli pose <dir>`. New config section `pose`. Decisions and measurements:
+> - Cheirality: candidate with most points at positive depth in both cameras and closer than `max_depth` = 50 baselines (farther points are at infinity; their depth sign is noise). Agrees with `cv2.recoverPose` to 1e-4°.
+> - **Parallax** is the rotation-compensated angle between viewing rays (= triangulation angle for a correct pose) — independent of `t`, so rotation-only pairs are detected: they fail as `low_parallax` while their rotation is still recovered (< 1° error).
+> - Accuracy with 1 px noise via E: rotation 0.5–1.3°, translation direction < 1.1° (narrow field of view → bas-relief ambiguity; BA in Phase 8 refines). **Via F projected to E (even with the correct K) translation errors reach ~9°** — F has 7 DoF vs E's 5, so `auto` prefers E whenever K is known.
+> - Initial pair: valid pose, H/F ≤ `planar_ratio`, median parallax ≥ `init_min_parallax_deg` (4°); most valid points wins.
+> - Rendered 8-view set (1600×1200): 23 of 24 verified pairs get a pose; the one failure (30 inliers, all on one plane, H/F = 1.0) is a genuinely bad E, rejected by cheirality. Initial pair is exact with the true K (0.00° / 0.01°) and 1.75° / 0.83° off with a 20 %-wrong guessed focal length — evidence for RQ3.
 
 ### Tasks
 - `geometry/pose_estimation.py`: wrap `cv2.recoverPose` (four-solution decomposition + cheirality); also implement SVD decomposition of `E` manually for understanding; return pose + count of points in front of both cameras.

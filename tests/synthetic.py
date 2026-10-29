@@ -55,7 +55,10 @@ class SyntheticScene:
 
 
 def intrinsics(focal: float, width: int, height: int) -> np.ndarray:
-    return np.array([[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0.0, 0.0, 1.0]])
+    # Pixel-centre convention (docs/architecture.md): the image centre is ((w-1)/2, (h-1)/2).
+    return np.array(
+        [[focal, 0.0, (width - 1) / 2.0], [0.0, focal, (height - 1) / 2.0], [0.0, 0.0, 1.0]]
+    )
 
 
 def camera_center(R: np.ndarray, t: np.ndarray) -> np.ndarray:

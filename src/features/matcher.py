@@ -7,7 +7,6 @@ large datasets; its randomised k-d trees are seeded so runs are reproducible.
 
 from __future__ import annotations
 
-import csv
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ import numpy as np
 
 from src.config import MatchConfig
 from src.features.extractor import Features
+from src.run import write_csv
 
 _FLOAT_DETECTORS = {"sift", "rootsift"}
 _BINARY_DETECTORS = {"orb"}
@@ -76,11 +76,14 @@ class DescriptorMatcher:
         after_ratio = len(idx_i)
 
         if self.config.mutual and after_ratio:
-            # Nearest neighbour of each feature of image j back in image i.
+            # Nearest neighbour back in image i, only for the image-j features that survived
+            # the ratio test (typically 10-30 %): same result, a fraction of the work.
+            used = np.unique(idx_j)
             reverse = self._matcher(features_i.detector).knnMatch(
-                features_j.descriptors, features_i.descriptors, k=1
+                features_j.descriptors[used], features_i.descriptors, k=1
             )
-            back = np.array([m[0].trainIdx if m else -1 for m in reverse], dtype=np.int32)
+            back = np.full(len(features_j), -1, dtype=np.int32)
+            back[used] = [m[0].trainIdx if m else -1 for m in reverse]
             mutual = back[idx_j] == idx_i
             idx_i, idx_j, dist = idx_i[mutual], idx_j[mutual], dist[mutual]
 
@@ -172,11 +175,7 @@ def connectivity(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:
 
     An image whose best partner has few matches cannot be registered later.
     """
-    best = np.zeros(n_images, dtype=int)
-    for s in stats:
-        best[s.i] = max(best[s.i], s.final)
-        best[s.j] = max(best[s.j], s.final)
-    return best
+    return match_matrix(stats, n_images).max(axis=1)
 
 
 def match_matrix(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:
@@ -190,20 +189,16 @@ def match_matrix(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:
 def write_match_statistics(
     stats: Sequence[MatchStats], names: Sequence[str], path: str | Path
 ) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["image_i", "image_j", "features_i", "features_j", "raw", "after_ratio",
-             "after_mutual", "time_ms"]
-        )  # fmt: skip
-        for s in stats:
-            writer.writerow(
-                [names[s.i], names[s.j], s.features_i, s.features_j, s.raw, s.after_ratio,
-                 s.final, f"{s.time_ms:.1f}"]
-            )  # fmt: skip
-    return path
+    return write_csv(
+        path,
+        ["image_i", "image_j", "features_i", "features_j", "raw", "after_ratio",
+         "after_mutual", "time_ms"],
+        (
+            [names[s.i], names[s.j], s.features_i, s.features_j, s.raw, s.after_ratio,
+             s.final, f"{s.time_ms:.1f}"]
+            for s in stats
+        ),
+    )  # fmt: skip
 
 
 def save_matches(matches: Sequence[Matches], path: str | Path) -> Path:

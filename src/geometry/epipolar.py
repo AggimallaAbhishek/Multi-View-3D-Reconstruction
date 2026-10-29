@@ -45,6 +45,13 @@ def skew(v: np.ndarray) -> np.ndarray:
     return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
 
 
+def angle_between_deg(a: np.ndarray, b: np.ndarray) -> np.ndarray | float:
+    """Angle in degrees between vectors a and b (row-wise for (N, 3) arrays)."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    cos = np.sum(a * b, axis=-1) / (np.linalg.norm(a, axis=-1) * np.linalg.norm(b, axis=-1))
+    return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+
+
 def homogeneous(points: np.ndarray) -> np.ndarray:
     return np.hstack([points, np.ones((len(points), 1))])
 
@@ -197,7 +204,7 @@ def verify_pair(
     def failed(reason: str, F=None, E=None, residuals=nan) -> TwoViewGeometry:
         return TwoViewGeometry(model, F, E, none, residuals, 0, False, reason)
 
-    if n < 8:
+    if n < max(8, config.min_inliers):  # could never reach min_inliers: skip RANSAC
         return failed("too_few_matches")
 
     x_i = np.ascontiguousarray(x_i, dtype=np.float64)
@@ -230,11 +237,14 @@ def verify_pair(
 
     residuals = sampson_distance(F, x_i, x_j)
     inliers = residuals <= threshold
-
-    _, h_mask = cv2.findHomography(x_i, x_j, cv2.RANSAC, threshold * HOMOGRAPHY_THRESHOLD_FACTOR)
-    h_inliers = int(h_mask.sum()) if h_mask is not None else 0
-
     success = int(inliers.sum()) >= config.min_inliers
+
+    h_inliers = 0  # the homography ratio only matters for verified pairs
+    if success:
+        _, h_mask = cv2.findHomography(
+            x_i, x_j, cv2.RANSAC, threshold * HOMOGRAPHY_THRESHOLD_FACTOR
+        )
+        h_inliers = int(h_mask.sum()) if h_mask is not None else 0
     return TwoViewGeometry(
         model=model,
         F=F,

@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%205%20%E2%80%94%20Relative%20pose-blue)
+![status](https://img.shields.io/badge/status-Phase%206%20%E2%80%94%20Triangulation-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -138,7 +138,7 @@ flowchart TD
 | `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
 | `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
 | `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; homography ratio for planar/low-parallax pairs | Verified matches + model |
-| `geometry/pose_estimation.py` | Decompose `E`, cheirality, relative `R, t̂`; PnP for new views | Camera poses |
+| `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection; PnP for new views (Phase 8) | Camera poses |
 | `geometry/triangulation.py` | Build `P = K[R\|t]`, triangulate, reject non-positive depth / high error / low parallax | 3D landmarks |
 | `geometry/reprojection.py` | Project points, per-observation and mean reprojection error | Error statistics |
 | `reconstruction/` | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
@@ -237,7 +237,13 @@ python -m src.cli matches data/raw/sample_scene --ratio 0.8 --pairs sequential
 #   <a>_<b>_inliers.png (green inliers / red outliers), <a>_<b>_epipolar.png
 python -m src.cli verify data/raw/sample_scene
 python -m src.cli verify data/raw/sample_scene --method fundamental --threshold 2.0
+
+# relative pose of every verified pair and the initial pair for reconstruction → .../pose/
+#   relative_poses.csv, initial_pair.json (R, unit t), initial_pair.png (top + side view)
+python -m src.cli pose data/raw/sample_scene
 ```
+
+Calibrate if you can: on rendered views the initial-pair pose is exact with the true `K` (0.00° rotation error) but off by 1.75° with a guessed focal length 20 % too long.
 
 `notebooks/02_feature_matching.ipynb` shows the match graph, matches for one pair, the ratio-test histogram for choosing `matching.ratio`, and a SIFT vs ORB comparison.
 
@@ -492,7 +498,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 2** Feature extraction
 - [x] **Phase 3** Feature matching
 - [x] **Phase 4** Geometric verification
-- [ ] **Phase 5** Relative camera pose
+- [x] **Phase 5** Relative camera pose
 - [ ] **Phase 6** Triangulation
 - [ ] **Phase 7** Two-view sparse cloud + viewer — *M1*
 - [ ] **Phase 8** Multi-view incremental SfM + BA

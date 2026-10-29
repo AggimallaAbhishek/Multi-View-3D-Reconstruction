@@ -28,6 +28,7 @@ class DatasetConfig:
     extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
     min_images: int = 2
     blur_threshold: float = 100.0
+    blur_working_side: int = 800
     duplicate_max_distance: int = 2
 
 
@@ -50,6 +51,8 @@ class FeatureConfig:
     max_features: int = 8000
     root_sift: bool = False
     sift_contrast_threshold: float = 0.04
+    warn_min_features: int = 100
+    warn_min_coverage: float = 0.25
     cache_dir: str | None = "outputs/cache/features"
 
 
@@ -71,6 +74,15 @@ class VerificationConfig:
     confidence: float = 0.999
     min_inliers: int = 30
     planar_ratio: float = 0.8
+
+
+@dataclass(frozen=True)
+class PoseConfig:
+    min_points: int = 30
+    min_cheirality_ratio: float = 0.9
+    min_parallax_deg: float = 1.0
+    max_depth: float = 50.0
+    init_min_parallax_deg: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,7 @@ class Config:
     features: FeatureConfig = field(default_factory=FeatureConfig)
     matching: MatchConfig = field(default_factory=MatchConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
+    pose: PoseConfig = field(default_factory=PoseConfig)
     triangulation: TriangulationConfig = field(default_factory=TriangulationConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
     output: OutputConfig = field(default_factory=OutputConfig)

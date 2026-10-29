@@ -5,11 +5,12 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from src.data.preprocessing import to_gray
+
 
 def dimmed_gray(image: np.ndarray, brightness: float) -> np.ndarray:
     """BGR grayscale copy at ``brightness`` (0-1), so coloured overlays stand out."""
-    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return cv2.cvtColor(cv2.convertScaleAbs(gray, alpha=brightness), cv2.COLOR_GRAY2BGR)
+    return cv2.cvtColor(cv2.convertScaleAbs(to_gray(image), alpha=brightness), cv2.COLOR_GRAY2BGR)
 
 
 def side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:

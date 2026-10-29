@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import platform
 import subprocess
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -32,6 +34,17 @@ def create_run_dir(root: str | Path, label: str) -> Path:
         n += 1
         path = base.with_name(f"{base.name}_{n}")
     path.mkdir(parents=True)
+    return path
+
+
+def write_csv(path: str | Path, header: Sequence[str], rows: Iterable[Sequence]) -> Path:
+    """Write a CSV file (creating parent folders) and return its path."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
     return path
 
 
