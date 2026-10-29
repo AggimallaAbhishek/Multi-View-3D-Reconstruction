@@ -233,6 +233,11 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
         stats.append(entry[0])
         prepared.append(replace(entry[1], index=len(prepared)))
 
+    if not config.preprocessing.undistort and any(np.any(im.dist) for im in prepared):
+        log.warning(
+            "preprocessing.undistort is off but the intrinsics have distortion coefficients; "
+            "they are ignored, so geometry assumes undistorted pixels"
+        )
     report = validate(stats, skipped, config.dataset)
     for issue in report.issues:
         log.debug("%s: %s", issue.code, issue.message)

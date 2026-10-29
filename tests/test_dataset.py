@@ -1,4 +1,6 @@
+import dataclasses
 import json
+import logging
 
 import numpy as np
 import pytest
@@ -69,6 +71,22 @@ def test_prepare_dataset_uses_calibration_file(image_dir, tmp_path):
     assert im.intrinsics_source == "file"
     # 2.0 * 1280 at calibration size -> x0.5 to 640 -> x0.5 to 320.
     np.testing.assert_allclose(im.K[0, 0], 640.0)
+
+
+def test_ignored_distortion_is_reported(image_dir, tmp_path, caplog):
+    distorted = dataclasses.replace(
+        fallback_intrinsics(640, 480, 2.0), dist=np.array([-0.2, 0.0, 0.0, 0.0, 0.0])
+    )
+    camera_file = save_camera_file(distorted, tmp_path / "camera.yaml")
+    cfg = config_from_dict(
+        {
+            "preprocessing": {"max_side": 320, "undistort": False},
+            "camera": {"calibration_file": str(camera_file)},
+        }
+    )
+    with caplog.at_level(logging.WARNING, logger="src.data.dataset"):
+        prepare_dataset(image_dir, cfg)
+    assert "undistort is off" in caplog.text
 
 
 def test_dataset_save_writes_json(image_dir, tmp_path):

@@ -216,12 +216,14 @@ class FeatureStats:
     image: str
     detector: str
     n_features: int
-    coverage: float  # fraction of an 8x8 grid of cells containing at least one keypoint
+    coverage: float  # fraction of coverage-grid cells containing at least one keypoint
     time_ms: float  # extraction time (cache lookup time on a hit)
     cached: bool
 
 
-def spatial_coverage(points: np.ndarray, width: int, height: int, grid: int = 8) -> float:
+def spatial_coverage(
+    points: np.ndarray, width: int, height: int, grid: int = FeatureConfig.coverage_grid
+) -> float:
     """Fraction of a grid x grid partition of the image that contains a keypoint.
 
     Low coverage means features cluster in one region, which weakens pose estimation.
@@ -237,6 +239,7 @@ def extract_features(
     images: Sequence[PreparedImage],
     extractor: FeatureExtractor,
     cache: FeatureCache | None = None,
+    coverage_grid: int = FeatureConfig.coverage_grid,
 ) -> tuple[list[Features], list[FeatureStats]]:
     """Features for every image, in dataset order.
 
@@ -256,7 +259,7 @@ def extract_features(
             image=im.name,
             detector=features.detector,
             n_features=len(features),
-            coverage=spatial_coverage(features.points, im.width, im.height),
+            coverage=spatial_coverage(features.points, im.width, im.height, coverage_grid),
             time_ms=(time.perf_counter() - start) * 1000,
             cached=hit,
         )

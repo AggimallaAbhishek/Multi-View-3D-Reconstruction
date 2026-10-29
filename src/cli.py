@@ -43,7 +43,7 @@ from src.geometry.verification import (
     verification_matrix,
     write_verification_statistics,
 )
-from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
+from src.pipeline import PipelineResult, Stage, run_pipeline, stages_until
 from src.pointcloud.export import read_cameras_json, read_ply, save_cloud
 from src.reconstruction.two_view import FRAME as TWO_VIEW_FRAME
 from src.run import atomic_savez, create_run_dir, write_json, write_run_metadata
@@ -152,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pattern", default="9x6", help="inner corners, COLSxROWS (9x6)")
     p.add_argument("--square", type=float, default=1.0, help="square size (any unit)")
     p.add_argument("--out", type=Path, default=Path("configs/camera.yaml"))
-    p.add_argument("--config", type=Path, help="config for dataset.extensions")
+    p.add_argument("--config", type=Path, help="config (dataset.extensions, calibration)")
     p.set_defaults(func=_calibrate)
 
     args = parser.parse_args(argv)
@@ -239,9 +239,10 @@ def _stage_command(args: argparse.Namespace) -> int:
     label = args.command.replace("-", "_")
     run_dir = create_run_dir(config.output.root, f"{label}_{result.extractor.name}")
     write_run_metadata(run_dir, config)
+    result.dataset.save(run_dir / "dataset.json")
 
     written, status = None, 0
-    for s in STAGES[: STAGES.index(stage) + 1]:
+    for s in stages_until(stage):
         draw = max(args.draw, 0) if s == stage else 0
         path, stage_status = _SAVERS[s](result, run_dir, draw)
         written, status = path or written, max(status, stage_status)
@@ -287,7 +288,8 @@ def _save_matches(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path, in
     for k in _inspection_order(r.matches)[:draw]:
         m = r.matches[k]
         a, b = r.images[m.i], r.images[m.j]
-        canvas = draw_matches(a.image, b.image, r.features[m.i], r.features[m.j], m)
+        image_a, image_b = a.image, b.image  # each access decodes from disk: do it once
+        canvas = draw_matches(image_a, image_b, r.features[m.i], r.features[m.j], m)
         cv2.imwrite(str(out / f"{_pair_stem(a.name, b.name)}_matches.png"), canvas)
 
     final = np.array([s.final for s in stats])
@@ -507,9 +509,12 @@ def _calibrate(args: argparse.Namespace) -> int:
         print(f"ERROR: --pattern must look like 9x6, got {args.pattern!r}")
         return 2
     try:
-        paths = discover_images(args.images, load_config(args.config).dataset.extensions)
+        config = load_config(args.config)
+        paths = discover_images(args.images, config.dataset.extensions)
         images = [r.image for r in iter_images(paths) if isinstance(r, ImageRecord)]
-        intrinsics, rms = calibrate_from_checkerboard(images, (cols, rows), args.square)
+        intrinsics, rms = calibrate_from_checkerboard(
+            images, (cols, rows), args.square, config.calibration
+        )
     except (DatasetError, CalibrationError) as exc:
         print(f"ERROR: {exc}")
         return 1

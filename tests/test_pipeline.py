@@ -111,6 +111,9 @@ def test_cli_triangulate_writes_outputs(scene_dir, tmp_path):
     assert summary["reprojection_valid_points"]["median_px"] < 0.5
     points = np.load(tri / "points.npz")
     assert points["valid"].sum() == summary["counts"]["valid"]
+    assert len(json.loads((run_dir / "dataset.json").read_text())["images"]) == len(
+        list(images.glob("*.png"))
+    )
 
 
 def test_cli_two_view_exports_cloud_and_cameras(scene_dir, tmp_path):

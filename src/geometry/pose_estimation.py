@@ -24,6 +24,7 @@ from src.geometry.epipolar import (
     angle_between_deg,
     cos_to_deg,
     enforce_essential,
+    essential_factors,
     essential_from_fundamental,
     homogeneous,
     normalize_points,
@@ -33,9 +34,6 @@ from src.geometry.verification import View
 from src.run import write_csv
 
 # W in Hartley & Zisserman (9.13): a 90 degree rotation about z.
-_W = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-
-
 # --- metrics -------------------------------------------------------------------------------
 
 
@@ -57,21 +55,6 @@ def essential_for_pose(geometry: TwoViewGeometry, K_i: np.ndarray, K_j: np.ndarr
     if geometry.F is None:
         raise ValueError("pair has no estimated geometry")
     return enforce_essential(essential_from_fundamental(geometry.F, K_i, K_j))
-
-
-def essential_factors(E: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(R1, R2, t): the two rotations and the unit translation (up to sign) in E.
-
-    With E = U diag(1, 1, 0) V^T: R = U W V^T or U W^T V^T, t = +-u3 (last column of U)
-    (Hartley & Zisserman, result 9.19).
-    """
-    U, _, Vt = np.linalg.svd(E)
-    # Flipping the sign of U or V^T leaves E unchanged up to sign but makes R proper.
-    if np.linalg.det(U) < 0:
-        U = -U
-    if np.linalg.det(Vt) < 0:
-        Vt = -Vt
-    return U @ _W @ Vt, U @ _W.T @ Vt, U[:, 2]
 
 
 def _depths(R: np.ndarray, t: np.ndarray, n_i: np.ndarray, n_j: np.ndarray):

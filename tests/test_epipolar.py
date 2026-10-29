@@ -19,11 +19,6 @@ from tests.synthetic import intrinsics, make_scene, project
 CFG = VerificationConfig(method="essential", ransac_threshold_px=1.0, min_inliers=30)
 
 
-def _true_essential(scene, i=0, j=1):
-    R, t = scene.relative_pose(i, j)
-    return skew(t) @ R
-
-
 def _same_up_to_scale(A, B, atol=1e-6):
     A = A / np.linalg.norm(A)
     B = B / np.linalg.norm(B)
@@ -57,7 +52,7 @@ def test_skew_is_cross_product():
 
 
 def test_true_essential_has_two_equal_singular_values(scene):
-    s = np.linalg.svd(_true_essential(scene), compute_uv=False)
+    s = np.linalg.svd(scene.essential(0, 1), compute_uv=False)
     assert s[0] == pytest.approx(s[1])
     assert s[2] == pytest.approx(0.0, abs=1e-12)
 
@@ -70,7 +65,7 @@ def test_enforce_essential_projects_onto_essential_manifold():
 
 
 def test_fundamental_essential_round_trip(scene):
-    E = _true_essential(scene)
+    E = scene.essential(0, 1)
     K1, K2 = scene.K, intrinsics(800.0, 640, 480)
     F = fundamental_from_essential(E, K1, K2)
     assert _same_up_to_scale(essential_from_fundamental(F, K1, K2), E)
@@ -82,7 +77,7 @@ def test_fundamental_essential_round_trip(scene):
 def test_eight_point_recovers_true_fundamental(scene):
     x1, x2 = scene.pair(0, 1)
     F = eight_point(x1, x2)
-    F_true = fundamental_from_essential(_true_essential(scene), scene.K, scene.K)
+    F_true = fundamental_from_essential(scene.essential(0, 1), scene.K, scene.K)
     assert _same_up_to_scale(F, F_true, atol=1e-6)
     assert np.linalg.matrix_rank(F) == 2
     np.testing.assert_allclose(sampson_distance(F, x1, x2), 0.0, atol=1e-6)
@@ -116,7 +111,7 @@ def test_sampson_distance_is_in_pixels(scene):
     # error to first order by d * |l|; with exact x1, Sampson distance is close to d / sqrt(2)
     # at most and d at least half of that, so it scales linearly with pixel displacement.
     x1, x2 = scene.pair(0, 1)
-    F = fundamental_from_essential(_true_essential(scene), scene.K, scene.K)
+    F = fundamental_from_essential(scene.essential(0, 1), scene.K, scene.K)
     lines = np.c_[x1, np.ones(len(x1))] @ F.T
     normals = lines[:, :2] / np.linalg.norm(lines[:, :2], axis=1, keepdims=True)
     d1 = sampson_distance(F, x1, x2 + 1.0 * normals)
@@ -136,10 +131,10 @@ def test_verify_noise_free_pair(scene, method):
     assert g.success and g.reason is None
     assert g.model == method
     assert g.inlier_mask.all()
-    F_true = fundamental_from_essential(_true_essential(scene), scene.K, scene.K)
+    F_true = fundamental_from_essential(scene.essential(0, 1), scene.K, scene.K)
     assert _same_up_to_scale(g.F, F_true, atol=1e-3)
     if method == "essential":
-        assert _same_up_to_scale(g.E, _true_essential(scene), atol=1e-3)
+        assert _same_up_to_scale(g.E, scene.essential(0, 1), atol=1e-3)
     else:
         assert g.E is None
 
@@ -158,6 +153,30 @@ def test_verify_rejects_outliers(noisy, method):
     assert np.all(g.residuals[g.inlier_mask] <= cfg.ransac_threshold_px)
 
 
+def test_essential_refinement_lowers_inlier_error():
+    # RANSAC only guarantees every inlier is within the threshold; the refined E must
+    # lower the least-squares objective on those inliers and never lose any of them.
+    totals = np.zeros(2)
+    for seed in range(6):
+        sc = make_scene(n_points=40, n_cameras=2, noise_px=1.0, seed=seed)
+        x1, x2 = sc.pair(0, 1)
+        g0 = verify_pair(x1, x2, sc.K, sc.K, VerificationConfig(refine=False), model="essential")
+        g1 = verify_pair(x1, x2, sc.K, sc.K, VerificationConfig(refine=True), model="essential")
+        assert g0.success and g1.success
+        assert g1.n_inliers >= g0.n_inliers
+        sq = np.array([np.sum(g.residuals[g0.inlier_mask] ** 2) for g in (g0, g1)])
+        assert sq[1] <= sq[0] * (1 + 1e-9)
+        totals += sq
+    assert totals[1] < totals[0]
+
+
+def test_refinement_makes_noise_free_solution_exact(scene):
+    # Unrefined, the RANSAC E is only accurate to ~1e-3 on exact data.
+    cfg = VerificationConfig(refine=True)
+    g = verify_pair(*scene.pair(0, 1), scene.K, scene.K, cfg, model="essential")
+    assert _same_up_to_scale(g.E, scene.essential(0, 1), atol=1e-6)
+
+
 def test_verify_with_different_intrinsics(scene):
     # Camera j has a different focal length: E must use both K matrices.
     K2 = intrinsics(900.0, 640, 480)
@@ -166,7 +185,7 @@ def test_verify_with_different_intrinsics(scene):
     x2, _ = project(K2, scene.rotations[1], scene.translations[1], scene.points3d[both])
     g = verify_pair(x1, x2, scene.K, K2, CFG, model="essential")
     assert g.success and g.inlier_mask.all()
-    assert _same_up_to_scale(g.E, _true_essential(scene), atol=1e-3)
+    assert _same_up_to_scale(g.E, scene.essential(0, 1), atol=1e-3)
 
 
 def test_verify_is_deterministic(noisy):

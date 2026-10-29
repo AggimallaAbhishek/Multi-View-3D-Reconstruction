@@ -16,6 +16,7 @@ from typing import Literal
 
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
 
 from src.config import VerificationConfig
 
@@ -33,6 +34,7 @@ _CALIBRATED_SOURCES = {"file", "exif", "checkerboard"}
 # noise (sigma * sqrt(2) per axis). Scaling by sqrt(2) and by the ratio of 95 % chi-square
 # bounds for 2 vs 1 degrees of freedom makes both thresholds equally permissive, so the
 # homography ratio compares like with like (as in ORB-SLAM's model selection).
+_W = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 HOMOGRAPHY_THRESHOLD_FACTOR = float(np.sqrt(2.0) * np.sqrt(5.991 / 3.841))
 
 
@@ -81,6 +83,43 @@ def fundamental_from_essential(E: np.ndarray, K_i: np.ndarray, K_j: np.ndarray) 
 def essential_from_fundamental(F: np.ndarray, K_i: np.ndarray, K_j: np.ndarray) -> np.ndarray:
     E = K_j.T @ F @ K_i
     return E / np.linalg.norm(E)
+
+
+def essential_factors(E: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(R1, R2, t): the two rotations and the unit translation (up to sign) in E.
+
+    With E = U diag(1, 1, 0) V^T: R = U W V^T or U W^T V^T, t = +-u3 (last column of U)
+    (Hartley & Zisserman, result 9.19).
+    """
+    U, _, Vt = np.linalg.svd(E)
+    # Flipping the sign of U or V^T leaves E unchanged up to sign but makes R proper.
+    if np.linalg.det(U) < 0:
+        U = -U
+    if np.linalg.det(Vt) < 0:
+        Vt = -Vt
+    return U @ _W @ Vt, U @ _W.T @ Vt, U[:, 2]
+
+
+def refine_essential(
+    E: np.ndarray, x_i: np.ndarray, x_j: np.ndarray, K_i: np.ndarray, K_j: np.ndarray
+) -> np.ndarray:
+    """E = [t]x R minimising the Sampson distance (px) of the given correspondences.
+
+    RANSAC only guarantees every inlier lies within the threshold; on wide-baseline pairs
+    with few inliers that leaves poses degrees off. Any one factorisation of E
+    parametrises it (the others give the same E up to sign): R as a Rodrigues vector, t on
+    the unit sphere.
+    """
+    R, _, t = essential_factors(E)
+
+    def unpack(p: np.ndarray) -> np.ndarray:
+        return skew(p[3:] / np.linalg.norm(p[3:])) @ cv2.Rodrigues(p[:3])[0]
+
+    def residuals(p: np.ndarray) -> np.ndarray:
+        return sampson_distance(fundamental_from_essential(unpack(p), K_i, K_j), x_i, x_j)
+
+    p0 = np.concatenate([cv2.Rodrigues(R)[0].ravel(), t])
+    return enforce_essential(unpack(least_squares(residuals, p0).x))
 
 
 def sampson_distance(F: np.ndarray, x_i: np.ndarray, x_j: np.ndarray) -> np.ndarray:
@@ -203,6 +242,8 @@ def verify_pair(
 
     Inliers are correspondences whose Sampson distance to the final F is at most
     ``config.ransac_threshold_px``; the same pixel criterion is used for both models.
+    With ``config.refine``, a verified E is then refined on its inliers (``refine_essential``)
+    and kept if it holds at least as many inliers.
     """
     n = len(x_i)
     nan = np.full(n, np.nan)
@@ -244,6 +285,12 @@ def verify_pair(
 
     residuals = sampson_distance(F, x_i, x_j)
     inliers = residuals <= threshold
+    if E is not None and config.refine and inliers.sum() >= config.min_inliers:
+        E_ref = refine_essential(E, x_i[inliers], x_j[inliers], K_i, K_j)
+        F_ref = fundamental_from_essential(E_ref, K_i, K_j)
+        res_ref = sampson_distance(F_ref, x_i, x_j)
+        if np.sum(res_ref <= threshold) >= inliers.sum():  # never lose consensus
+            E, F, residuals, inliers = E_ref, F_ref, res_ref, res_ref <= threshold
     success = int(inliers.sum()) >= config.min_inliers
 
     h_inliers = 0  # the homography ratio only matters for verified pairs

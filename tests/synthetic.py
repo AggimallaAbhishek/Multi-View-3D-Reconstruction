@@ -53,6 +53,12 @@ class SyntheticScene:
         R = R_j @ R_i.T
         return R, t_j - R @ t_i
 
+    def essential(self, i: int, j: int) -> np.ndarray:
+        """True essential matrix [t]x R of the pair, with x_j^T E x_i = 0."""
+        R, t = self.relative_pose(i, j)
+        t_x = np.array([[0.0, -t[2], t[1]], [t[2], 0.0, -t[0]], [-t[1], t[0], 0.0]])
+        return t_x @ R
+
 
 def intrinsics(focal: float, width: int, height: int) -> np.ndarray:
     # Pixel-centre convention (docs/architecture.md): the image centre is ((w-1)/2, (h-1)/2).

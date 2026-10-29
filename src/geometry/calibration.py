@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import yaml
 
-from src.config import CameraConfig
+from src.config import CalibrationConfig, CameraConfig
 from src.data.loader import ExifInfo
 from src.data.preprocessing import scale_intrinsics, to_gray
 
@@ -37,10 +37,12 @@ class Intrinsics:
     height: int
     source: str  # "file" | "exif" | "fallback" | "checkerboard"
 
-    def scaled_to(self, width: int, height: int) -> Intrinsics:
-        """The same camera at another resolution with the same aspect ratio."""
+    def scaled_to(
+        self, width: int, height: int, rtol: float = CameraConfig.aspect_tolerance
+    ) -> Intrinsics:
+        """The same camera at another resolution with the same aspect ratio (within ``rtol``)."""
         sx, sy = width / self.width, height / self.height
-        if not np.isclose(sx, sy, rtol=0.01):
+        if not np.isclose(sx, sy, rtol=rtol):
             raise CalibrationError(
                 f"intrinsics for {self.width}x{self.height} cannot be used for {width}x{height}: "
                 "aspect ratio differs (rotated image or different camera mode?)"
@@ -96,7 +98,7 @@ def resolve_intrinsics(
     calibration: Intrinsics | None = None,
 ) -> Intrinsics:
     if calibration is not None:
-        return calibration.scaled_to(width, height)
+        return calibration.scaled_to(width, height, config.aspect_tolerance)
     if config.use_exif:
         from_exif = intrinsics_from_exif(exif, width, height)
         if from_exif is not None:
@@ -150,16 +152,22 @@ def calibrate_from_checkerboard(
     images: Sequence[np.ndarray],
     pattern_size: tuple[int, int] = (9, 6),
     square_size: float = 1.0,
-    min_views: int = 3,
+    config: CalibrationConfig | None = None,
 ) -> tuple[Intrinsics, float]:
     """Zhang calibration from checkerboard photos.
 
     ``pattern_size`` counts inner corners (columns, rows). Returns the intrinsics
     and the RMS reprojection error in pixels.
     """
+    config = config or CalibrationConfig()
     objp = np.zeros((pattern_size[0] * pattern_size[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0 : pattern_size[0], 0 : pattern_size[1]].T.reshape(-1, 2) * square_size
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
+    criteria = (
+        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+        config.subpix_max_iter,
+        config.subpix_eps,
+    )
+    window = (config.subpix_window, config.subpix_window)
     flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
 
     object_points, image_points = [], []
@@ -174,14 +182,14 @@ def calibrate_from_checkerboard(
         found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
         if not found:
             continue
-        corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+        corners = cv2.cornerSubPix(gray, corners, window, (-1, -1), criteria)
         object_points.append(objp)
         image_points.append(corners)
 
-    if len(object_points) < min_views:
+    if len(object_points) < config.min_views:
         raise CalibrationError(
             f"checkerboard {pattern_size} found in {len(object_points)} image(s); "
-            f"need at least {min_views}"
+            f"need at least {config.min_views}"
         )
     assert size is not None
     rms, K, dist, _, _ = cv2.calibrateCamera(object_points, image_points, size, None, None)

@@ -137,16 +137,15 @@ flowchart TD
 | `data/` | Discover, decode, validate, and order images; record metadata; preprocess (undistort, resize) and keep `K` consistent with resizing | `ImageRecord` list + metadata |
 | `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
 | `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
-| `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; homography ratio for planar/low-parallax pairs | Verified matches + model |
+| `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; verified `E` refined on its inliers (Sampson least squares over `R`, `t`); homography ratio for planar/low-parallax pairs | Verified matches + model |
 | `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection. *Planned (Phase 8): PnP for new views* | Relative poses, initial pair |
 | `geometry/camera.py`, `geometry/triangulation.py`, `geometry/reprojection.py` | `Camera(K, R, t)`; observation-list N-view DLT (own, batched), Gauss-Newton point refinement, filters (≥ 2 views, finite, in front of every camera, max reprojection error, triangulation angle); reprojection statistics | 3D landmarks |
 | `reconstruction/two_view.py` | Initial structure: the initial pair's verified matches triangulated and filtered | `TwoViewStructure` |
-| `geometry/reprojection.py` | Project points, per-observation and mean reprojection error | Error statistics |
-| `reconstruction/` | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
+| `reconstruction/` *(planned, Phase 8)* | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
 | `pointcloud/` | Colours sampled bilinearly at every observation and averaged; PLY via Open3D's tensor API; `cameras.json`. *Planned (Phase 9): statistical outlier removal* | `sparse.ply`, `cameras.json` |
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
-| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose) | In-memory results |
+| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud) | In-memory results |
 | `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
 
 ### 5.3 Design principles
@@ -400,16 +399,16 @@ measured in pixels. Bundle adjustment minimizes the (robustified) sum of squared
 
 ## 11. Outputs
 
-Each command writes `outputs/<timestamp>_<command>_<detector>/`, containing every stage it ran — `features` writes only `features/`, `pose` stops after `pose/`, `triangulate` adds `triangulation/`, and `two-view` adds the cloud, cameras and renders. Diagnostic images are drawn for the command's own stage only (`--draw N` pairs or images). A full `two-view` run:
+Each command writes `outputs/<timestamp>_<command>_<detector>/`, containing every stage it ran — `features` writes only `features/`, `pose` stops after `pose/`, `triangulate` adds `triangulation/`, and `two-view` adds the cloud, cameras and renders. Per-image / per-pair diagnostic images are drawn only by `features`, `matches` and `verify`, and only for that command's own stage (`--draw N` images or pairs, default 3; `pose`, `triangulate` and `two-view` have no `--draw`). A full `two-view` run:
 
 ```text
 outputs/<timestamp>_two_view_sift/
 ├── config.yaml                   # exact config used
 ├── environment.json              # versions, hardware, git commit
-├── features/      feature_statistics.csv · <image>_keypoints.png
-├── matches/       match_statistics.csv · matches.npz · match_matrix.png · <a>_<b>_matches.png
+├── dataset.json                  # per-image size, scale, intrinsics
+├── features/      feature_statistics.csv
+├── matches/       match_statistics.csv · matches.npz · match_matrix.png
 ├── verification/  verification_statistics.csv · verified_matches.npz · verified_matrix.png
-│                  <a>_<b>_inliers.png · <a>_<b>_epipolar.png
 ├── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
 ├── triangulation/ triangulation.json · points.npz · reprojection_histogram.png · structure.png
 ├── point_clouds/  sparse.ply

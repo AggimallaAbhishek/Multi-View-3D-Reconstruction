@@ -4,7 +4,7 @@ import pytest
 
 from src.config import PoseConfig, VerificationConfig, load_config
 from src.evaluation.metrics import rotation_error_deg, translation_direction_error_deg
-from src.geometry.epipolar import normalize_points, skew, verify_pair
+from src.geometry.epipolar import normalize_points, verify_pair
 from src.geometry.pose_estimation import (
     PoseStats,
     RelativePose,
@@ -20,11 +20,6 @@ from src.geometry.triangulation import triangulate_two_view
 from tests.synthetic import intrinsics, look_at, make_scene, project
 
 CFG = load_config().pose  # the defaults users actually run with
-
-
-def _true_E(scene, i, j):
-    R, t = scene.relative_pose(i, j)
-    return skew(t) @ R
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +47,7 @@ def test_rotation_metrics():
 
 def test_essential_factors_contain_true_pose(scene):
     R_true, t_true = scene.relative_pose(0, 1)
-    R1, R2, t = essential_factors(_true_E(scene, 0, 1))
+    R1, R2, t = essential_factors(scene.essential(0, 1))
     candidates = [(R1, t), (R1, -t), (R2, t), (R2, -t)]
     for R, t in candidates:
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-10)
@@ -93,7 +88,7 @@ def test_triangulate_two_view_point_at_infinity_does_not_warn():
 def test_noise_free_pose_is_exact(scene, pair):
     i, j = pair
     x_i, x_j = scene.pair(i, j)
-    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, _true_E(scene, i, j), CFG)
+    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, scene.essential(i, j), CFG)
     R_true, t_true = scene.relative_pose(i, j)
     assert pose.success and pose.reason is None
     assert rotation_error_deg(pose.R, R_true) < 0.1
@@ -133,7 +128,7 @@ def test_pose_from_fundamental_with_correct_k(noisy):
 
 def test_agrees_with_opencv_recover_pose(noisy):
     x_i, x_j = noisy.pair(0, 2)
-    E = _true_E(noisy, 0, 2)
+    E = noisy.essential(0, 2)
     pose = estimate_relative_pose(x_i, x_j, noisy.K, noisy.K, E, CFG)
     n_i, n_j = normalize_points(x_i, noisy.K), normalize_points(x_j, noisy.K)
     _, R_cv, t_cv, _ = cv2.recoverPose(E, n_i, n_j, np.eye(3))
@@ -143,7 +138,7 @@ def test_agrees_with_opencv_recover_pose(noisy):
 
 def test_parallax_matches_triangulation_angle(scene):
     x_i, x_j = scene.pair(0, 1)
-    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, _true_E(scene, 0, 1), CFG)
+    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, scene.essential(0, 1), CFG)
     C0, C1 = scene.camera_center(0), scene.camera_center(1)
     a, b = scene.points3d - C0, scene.points3d - C1
     cos = np.sum(a * b, axis=1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1))
@@ -197,7 +192,7 @@ def test_rotation_only_is_rejected_as_low_parallax():
 
 def test_too_few_points(scene):
     x_i, x_j = scene.pair(0, 1)
-    pose = estimate_relative_pose(x_i[:10], x_j[:10], scene.K, scene.K, _true_E(scene, 0, 1), CFG)
+    pose = estimate_relative_pose(x_i[:10], x_j[:10], scene.K, scene.K, scene.essential(0, 1), CFG)
     assert not pose.success
     assert pose.reason == "too_few_points"
     assert pose.R is None and pose.t is None
@@ -208,7 +203,7 @@ def test_points_at_infinity_fail_cheirality(scene):
     # baseline as "at infinity" leaves no point whose depth sign can be trusted.
     x_i, x_j = scene.pair(0, 1)
     cfg = PoseConfig(max_depth=0.5)
-    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, _true_E(scene, 0, 1), cfg)
+    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, scene.essential(0, 1), cfg)
     assert not pose.success
     assert pose.reason == "cheirality"
     assert pose.n_valid == 0
@@ -258,7 +253,7 @@ def test_select_initial_pair_returns_none_without_candidates():
 
 def test_relative_pose_properties(scene):
     x_i, x_j = scene.pair(0, 1)
-    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, _true_E(scene, 0, 1), CFG)
+    pose = estimate_relative_pose(x_i, x_j, scene.K, scene.K, scene.essential(0, 1), CFG)
     assert isinstance(pose, RelativePose)
     assert pose.n_points == len(x_i)
     assert pose.n_valid == int(pose.valid_mask.sum())
@@ -338,7 +333,7 @@ def test_far_points_do_not_count_as_cheirality_failures():
     # although all are in front of both cameras. Their depth sign is unreliable, so they
     # must be excluded from the cheirality ratio, not counted as failures.
     scene = make_scene(n_points=400, n_cameras=2, noise_px=0.0, seed=0, arc_deg=1.2)
-    pose = estimate_relative_pose(*scene.pair(0, 1), scene.K, scene.K, _true_E(scene, 0, 1), CFG)
+    pose = estimate_relative_pose(*scene.pair(0, 1), scene.K, scene.K, scene.essential(0, 1), CFG)
     assert pose.success, pose.reason
     assert pose.cheirality_ratio == 1.0
     assert pose.n_in_front == pose.n_points  # all points are in front of both cameras
@@ -350,7 +345,7 @@ def test_all_points_far_still_picks_the_right_candidate():
     # candidates had 0 valid points and the first (a wrong, ~180 deg "twisted" rotation)
     # won the tie, giving nonsense parallax (~170 deg). Ties are broken by points in front.
     scene = make_scene(n_points=400, n_cameras=2, noise_px=0.0, seed=0, arc_deg=0.8)
-    pose = estimate_relative_pose(*scene.pair(0, 1), scene.K, scene.K, _true_E(scene, 0, 1), CFG)
+    pose = estimate_relative_pose(*scene.pair(0, 1), scene.K, scene.K, scene.essential(0, 1), CFG)
     R_true, _ = scene.relative_pose(0, 1)
     assert rotation_error_deg(pose.R, R_true) < 1e-3
     assert pose.reason == "low_parallax"

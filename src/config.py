@@ -45,6 +45,15 @@ class CameraConfig:
     calibration_file: str | None = None
     use_exif: bool = True
     fallback_focal_factor: float = 1.2
+    aspect_tolerance: float = 0.01
+
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    min_views: int = 3
+    subpix_window: int = 11
+    subpix_max_iter: int = 30
+    subpix_eps: float = 0.001
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,7 @@ class FeatureConfig:
     sift_contrast_threshold: float = 0.04
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
+    coverage_grid: int = 8
 
 
 @dataclass(frozen=True)
@@ -78,6 +88,7 @@ class VerificationConfig:
     confidence: float = 0.999
     min_inliers: int = 30
     planar_ratio: float = 0.8
+    refine: bool = True
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,7 @@ class Config:
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
+    calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
     features: FeatureConfig = field(default_factory=FeatureConfig)
     matching: MatchConfig = field(default_factory=MatchConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)

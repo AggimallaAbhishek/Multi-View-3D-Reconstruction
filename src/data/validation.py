@@ -63,7 +63,7 @@ class ValidationReport:
 
 
 def blur_score(image: np.ndarray, working_side: int = DatasetConfig.blur_working_side) -> float:
-    """Variance of the Laplacian, computed with the longest side capped at 800 px."""
+    """Variance of the Laplacian, computed with the longest side capped at ``working_side``."""
     gray = to_gray(image)
     longest = max(gray.shape)
     if longest > working_side:

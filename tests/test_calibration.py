@@ -3,7 +3,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from src.config import CameraConfig
+from src.config import CalibrationConfig, CameraConfig
 from src.data.loader import ExifInfo
 from src.geometry.calibration import (
     CalibrationError,
@@ -62,6 +62,15 @@ def test_scaled_to_rejects_different_aspect_ratio():
         intr.scaled_to(3000, 4000)
 
 
+def test_scaled_to_aspect_tolerance_is_configurable():
+    intr = fallback_intrinsics(4000, 3000, 1.2)
+    with pytest.raises(CalibrationError, match="aspect"):
+        intr.scaled_to(2000, 1530)  # y scale 2 % off the x scale
+    assert intr.scaled_to(2000, 1530, rtol=0.03).height == 1530
+    cfg = CameraConfig(aspect_tolerance=0.03)
+    assert resolve_intrinsics(2000, 1530, NO_EXIF, cfg, intr).height == 1530
+
+
 def test_resolve_priority():
     cfg = CameraConfig()
     calibrated = dataclasses.replace(fallback_intrinsics(640, 480, 2.0), source="file")
@@ -118,3 +127,13 @@ def test_checkerboard_calibration_needs_enough_views():
     blank = [np.full((480, 640), 255, np.uint8)] * 5
     with pytest.raises(CalibrationError, match="checkerboard"):
         calibrate_from_checkerboard(blank, pattern_size=(9, 6))
+
+
+def test_checkerboard_min_views_comes_from_config():
+    K_true = np.array([[500.0, 0, 319.5], [0, 500.0, 239.5], [0, 0, 1]])
+    images = [
+        render_checkerboard(K_true, *checkerboard_pose(ax, 0, 15.0), image_size=(640, 480))
+        for ax in (0, 20, -20)
+    ]
+    with pytest.raises(CalibrationError, match="need at least 4"):
+        calibrate_from_checkerboard(images, (9, 6), config=CalibrationConfig(min_views=4))

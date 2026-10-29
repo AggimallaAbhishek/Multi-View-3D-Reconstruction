@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 
@@ -46,7 +46,12 @@ from src.pointcloud.coloring import color_points
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
 Stage = Literal["features", "matches", "verify", "pose", "triangulate", "cloud"]
-STAGES: tuple[Stage, ...] = ("features", "matches", "verify", "pose", "triangulate", "cloud")
+STAGES: tuple[Stage, ...] = get_args(Stage)
+
+
+def stages_until(stage: Stage) -> tuple[Stage, ...]:
+    """Every stage up to and including ``stage``, in run order."""
+    return STAGES[: STAGES.index(stage) + 1]
 
 
 @dataclass
@@ -85,6 +90,7 @@ def extract(result: PipelineResult) -> PipelineResult:
         result.images,
         result.extractor,
         FeatureCache(cache_dir) if cache_dir else None,
+        config.features.coverage_grid,
     )
     return result
 
@@ -172,6 +178,6 @@ def run_pipeline(
     Raises ``DatasetError`` if the image folder is unusable.
     """
     result = PipelineResult(config=config, dataset=prepare_dataset(images, config))
-    for stage in STAGES[: STAGES.index(until) + 1]:
+    for stage in stages_until(until):
         _STEPS[stage](result)
     return result

@@ -18,6 +18,13 @@ camera:
   calibration_file: null       # path to configs/camera.yaml when calibrated
   use_exif: true               # derive K from the EXIF 35 mm-equivalent focal length if present
   fallback_focal_factor: 1.2   # f = factor * max(width, height) when K is unknown
+  aspect_tolerance: 0.01       # relative x/y scale mismatch allowed when rescaling a calibration
+
+calibration:                   # checkerboard calibration (python -m src.cli calibrate)
+  min_views: 3                 # images in which the board must be found
+  subpix_window: 11            # cornerSubPix search window side (px)
+  subpix_max_iter: 30
+  subpix_eps: 0.001
 
 features:
   detector: sift               # sift | orb (detection always runs on the grayscale image)
@@ -25,7 +32,8 @@ features:
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
   sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
   warn_min_features: 100       # warn about images with fewer features...
-  warn_min_coverage: 0.25      # ...or keypoints on less than this share of an 8x8 grid
+  warn_min_coverage: 0.25      # ...or keypoints on less than this share of the coverage grid
+  coverage_grid: 8             # coverage is measured on a grid x grid partition of the image
 
 matching:
   ratio: 0.75                  # Lowe ratio test: keep if d1 < ratio * d2
@@ -45,6 +53,7 @@ verification:
   confidence: 0.999
   min_inliers: 30              # pairs with fewer inliers are rejected
   planar_ratio: 0.8            # homography/epipolar inlier ratio above which a pair counts as planar
+  refine: true                 # essential: minimise inlier Sampson error over (R, t) after RANSAC
 
 pose:
   min_points: 30               # verified correspondences needed to estimate a relative pose
