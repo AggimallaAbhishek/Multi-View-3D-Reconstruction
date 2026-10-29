@@ -138,14 +138,14 @@ flowchart TD
 | `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
 | `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
 | `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; verified `E` refined on its inliers (Sampson least squares over `R`, `t`); homography ratio for planar/low-parallax pairs | Verified matches + model |
-| `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection. *Planned (Phase 8): PnP for new views* | Relative poses, initial pair |
+| `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection | Relative poses, initial pair |
 | `geometry/camera.py`, `geometry/triangulation.py`, `geometry/reprojection.py` | `Camera(K, R, t)`; observation-list N-view DLT (own, batched), Gauss-Newton point refinement, filters (≥ 2 views, finite, in front of every camera, max reprojection error, triangulation angle); reprojection statistics | 3D landmarks |
 | `reconstruction/two_view.py` | Initial structure: the initial pair's verified matches triangulated and filtered | `TwoViewStructure` |
-| `reconstruction/` *(planned, Phase 8)* | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
+| `reconstruction/` | View graph → tracks (union-find); camera registry; landmarks ↔ observations; registration by PnP (`solvePnPRansac` + LM refinement); next-best-view loop; bundle adjustment (SciPy `least_squares`, soft-L1 loss, sparse Jacobian; local after each registration, global every k and at the end); after each adjustment track completion, per-observation filtering and re-triangulation | `Reconstruction`: cameras + landmarks |
 | `pointcloud/` | Colours sampled bilinearly at every observation and averaged; PLY via Open3D's tensor API; `cameras.json`. *Planned (Phase 9): statistical outlier removal* | `sparse.ply`, `cameras.json` |
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
-| `evaluation/` | Pose metrics and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
-| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud) | In-memory results |
+| `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment) and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
+| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct) | In-memory results |
 | `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
 
 ### 5.3 Design principles
@@ -284,9 +284,19 @@ python -m src.cli view outputs/<run>/point_clouds/sparse.ply --cameras outputs/<
 
 `notebooks/03_two_view_geometry.ipynb` walks the initial pair from verified matches to the coloured cloud, with a ground-truth check when `gt_cameras.json` exists.
 
-Planned for Phase 8–9: `python -m src.cli reconstruct <images>` (all views) and `filtered.ply`.
+### 7.5 Multi-view reconstruction
 
-### 7.5 COLMAP (optional, Phase 9–10)
+```bash
+# every image: tracks, PnP registration, bundle adjustment -> coloured sparse cloud
+python -m src.cli reconstruct data/raw/templeRing
+#   .../point_clouds/multi_view.ply · camera_poses/multi_view_cameras.json
+#   .../reconstruction/reconstruction.json · registration.csv · cameras.png · reprojection_histogram.png
+#   .../figures/multi_view.png (close-up render)
+```
+
+Planned for Phase 9: `filtered.ply`.
+
+### 7.6 COLMAP (optional, Phase 9–10)
 
 ```bash
 brew install colmap           # macOS
@@ -327,7 +337,8 @@ Multi-View-3D-Reconstruction/
 │   │                  camera.py · triangulation.py · reprojection.py
 │   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py
 │   │                  reprojection.py · viewer.py
-│   ├── reconstruction/ two_view.py · (planned) sfm.py · tracks.py · bundle_adjustment.py
+│   ├── reconstruction/ two_view.py · tracks.py · camera_registry.py · landmarks.py
+│   │                  registration.py · bundle_adjustment.py · incremental.py
 │   ├── pointcloud/    coloring.py · export.py · (planned) filtering.py
 │   └── evaluation/    metrics.py · ground_truth.py · (planned) experiments.py · reports.py
 ├── tests/
@@ -526,7 +537,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 5** Relative camera pose
 - [x] **Phase 6** Triangulation
 - [x] **Phase 7** Two-view sparse cloud + viewer — *M1* ✅
-- [ ] **Phase 8** Multi-view incremental SfM + BA
+- [x] **Phase 8** Multi-view incremental SfM + BA
 - [ ] **Phase 9** Filtering & export (+ optional dense) — *M2*
 - [ ] **Phase 10** Evaluation & experiments
 - [ ] **Phase 11** Documentation & presentation — *M3*

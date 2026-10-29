@@ -15,13 +15,19 @@ from src.config import BundleAdjustmentConfig, Config, TriangulationConfig
 from src.features.extractor import Features
 from src.geometry.camera import Camera
 from src.geometry.pose_estimation import InitialPair
-from src.geometry.reprojection import per_point_mean, reprojection_errors
-from src.geometry.triangulation import Observations, triangulate_and_filter
+from src.geometry.reprojection import per_point_mean, project_observations, reprojection_errors
+from src.geometry.triangulation import (
+    Observations,
+    triangulate_and_filter,
+    triangulation_angles_deg,
+)
 from src.reconstruction.bundle_adjustment import BundleAdjustmentResult, bundle_adjust
 from src.reconstruction.camera_registry import CameraRegistry
 from src.reconstruction.landmarks import Landmarks, keypoint_pixels
 from src.reconstruction.registration import Registration, next_best_view, register_image
 from src.reconstruction.tracks import Tracks
+
+FRAME = "camera of the initial pair's image i at the origin, initial baseline length 1"
 
 
 @dataclass(frozen=True, eq=False)
@@ -44,7 +50,9 @@ def reconstruct(
     landmarks may give it enough links). Stops when no remaining image can be added.
     With bundle adjustment enabled, the newest ``local_window`` cameras and the points
     they see are adjusted after each registration, and everything every
-    ``global_every`` registrations and at the end.
+    ``global_every`` registrations; each adjustment is followed by ``refine_structure``.
+    At the end, global adjustment and refinement alternate until refinement changes
+    nothing (at most ``max_refinements`` rounds).
     """
     ba = config.bundle_adjustment
     registry, landmarks = initialize(pair, intrinsics, tracks, features, config.triangulation)
@@ -67,8 +75,12 @@ def reconstruct(
             elif ba.local_window > 0:
                 newest = range(len(registry) - ba.local_window, len(registry))
                 adjust(registry, landmarks, features, ba, free_views=newest)
+            refine_structure(registry, landmarks, tracks, features, config.triangulation)
     if ba.enabled:
-        adjust(registry, landmarks, features, ba)
+        for _ in range(ba.max_refinements):
+            adjust(registry, landmarks, features, ba)
+            if not refine_structure(registry, landmarks, tracks, features, config.triangulation):
+                break
     return Reconstruction(registry, landmarks, attempts)
 
 
@@ -153,3 +165,74 @@ def triangulate_new_tracks(
     ids = landmarks.add(candidates[valid], result.points[valid], tracks, set(images))
     landmarks.error[ids] = per_point_mean(result.errors, obs.point, len(candidates))[valid]
     return ids
+
+
+def refine_structure(
+    registry: CameraRegistry,
+    landmarks: Landmarks,
+    tracks: Tracks,
+    features: Sequence[Features],
+    config: TriangulationConfig,
+) -> int:
+    """After bundle adjustment: attach track keypoints that now fit their landmark, drop
+    observations and landmarks that no longer fit, and triangulate the tracks left
+    without a landmark (the dropped ones included). Returns how many observations
+    were added or removed."""
+    changed = complete_tracks(registry, landmarks, tracks, features, config)
+    changed += filter_landmarks(registry, landmarks, features, config)
+    new = triangulate_new_tracks(registry, landmarks, tracks, features, config)
+    return changed + int(np.isin(landmarks.obs_landmark, new).sum())
+
+
+def complete_tracks(
+    registry: CameraRegistry,
+    landmarks: Landmarks,
+    tracks: Tracks,
+    features: Sequence[Features],
+    config: TriangulationConfig,
+) -> int:
+    """Attach to each landmark the keypoints of its track, in registered images, that it
+    does not observe yet (e.g. links PnP rejected) and that reproject in front of the
+    camera within ``max_reprojection_error_px``. Returns how many were attached.
+    Landmark errors are not updated (``filter_landmarks`` does that)."""
+    images = registry.images
+    landmark_of_track = np.full(tracks.n_tracks, -1, np.int64)
+    landmark_of_track[landmarks.track] = np.arange(len(landmarks))
+    lid = landmark_of_track[tracks.track]
+    # A track has at most one keypoint per image, so (landmark, image) is an observation.
+    n = int(tracks.image.max(initial=0)) + 1
+    observed = np.isin(lid * n + tracks.image, landmarks.obs_landmark * n + landmarks.obs_image)
+    candidate = (lid >= 0) & np.isin(tracks.image, images) & ~observed
+    added = 0
+    for m in np.unique(tracks.image[candidate]).tolist():
+        sel = np.flatnonzero(candidate & (tracks.image == m))
+        pixels, depth = registry.camera(m).project(landmarks.position[lid[sel]])
+        error = np.linalg.norm(pixels - features[m].points[tracks.keypoint[sel]], axis=1)
+        fits = sel[(depth > 0) & (error <= config.max_reprojection_error_px)]
+        landmarks.add_observations(m, tracks.keypoint[fits], lid[fits])
+        added += len(fits)
+    return added
+
+
+def filter_landmarks(
+    registry: CameraRegistry,
+    landmarks: Landmarks,
+    features: Sequence[Features],
+    config: TriangulationConfig,
+) -> int:
+    """Drop single observations that lie behind their camera or reproject farther than
+    ``max_reprojection_error_px``, then whole landmarks left with fewer than two
+    observations or a triangulation angle below ``min_angle_deg``. Unlike the filter at
+    triangulation, one bad observation does not cost a long track its landmark.
+    Recomputes the landmark errors; returns how many observations were removed."""
+    n_obs = len(landmarks.obs_image)
+    cameras, obs, X = landmarks.as_problem(registry, features)
+    pixels, depth = project_observations(cameras, obs, X)
+    errors = np.linalg.norm(pixels - obs.xy, axis=1)
+    good = (depth > 0) & (errors <= config.max_reprojection_error_px)
+    landmarks.keep_observations(good)
+    obs = obs.subset(good)
+    landmarks.error = per_point_mean(errors[good], obs.point, len(X))
+    angles = triangulation_angles_deg(cameras, obs, X)  # nan below two observations
+    landmarks.keep(angles >= config.min_angle_deg)
+    return n_obs - len(landmarks.obs_image)

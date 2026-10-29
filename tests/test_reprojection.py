@@ -74,3 +74,29 @@ def test_align_similarity_recovers_known_transform():
     assert sim.scale == pytest.approx(2.5)
     np.testing.assert_allclose(sim.R, R, atol=1e-10)
     np.testing.assert_allclose(sim.apply(A), B, atol=1e-10)
+
+
+def test_camera_pose_errors_ignore_a_global_similarity():
+    import cv2
+
+    from src.evaluation.metrics import camera_pose_errors
+
+    scene = make_scene(n_cameras=6, seed=3)
+    truth = [
+        Camera(scene.K, R, t) for R, t in zip(scene.rotations, scene.translations, strict=True)
+    ]
+    # The same cameras in another frame: X_other = s * Q @ X + d, so R' = R Q^T, t' = s t - R' d.
+    s, Q, d = 0.3, cv2.Rodrigues(np.array([0.4, 0.1, -0.7]))[0], np.array([2.0, 0.5, -1.0])
+    other = [Camera(c.K, c.R @ Q.T, s * c.t - c.R @ Q.T @ d) for c in truth]
+    errors = camera_pose_errors(other, truth)
+    assert errors.rotation_deg.max() < 1e-5  # arccos resolution near 0
+    assert errors.centre.max() < 1e-9
+
+    # Moving one camera by 10 % of the cameras' extent shows up (mostly) on that camera.
+    centres = np.array([c.centre for c in truth])
+    extent = np.sqrt(((centres - centres.mean(axis=0)) ** 2).sum(axis=1).mean())
+    moved = list(truth)
+    c = truth[2]
+    moved[2] = Camera(c.K, c.R, -c.R @ (c.centre + [0.1 * extent, 0, 0]))
+    errors = camera_pose_errors(moved, truth)
+    assert np.argmax(errors.centre) == 2 and 0.05 < errors.centre[2] < 0.1

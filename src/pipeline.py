@@ -1,6 +1,7 @@
 """The reconstruction pipeline as library code.
 
-dataset -> features -> matches -> verify -> pose -> triangulate (initial structure) -> cloud.
+dataset -> features -> matches -> verify -> pose -> triangulate (initial structure) -> cloud
+-> reconstruct (every image: tracks, incremental registration, bundle adjustment).
 
 Each stage reads and extends one ``PipelineResult``. The CLI and notebooks call these
 functions and decide what to write or plot; nothing here touches the filesystem except
@@ -43,9 +44,11 @@ from src.geometry.pose_estimation import (
 )
 from src.geometry.verification import VerificationStats, verify_matches
 from src.pointcloud.coloring import color_points
+from src.reconstruction.incremental import Reconstruction, reconstruct
+from src.reconstruction.tracks import Tracks, ViewGraph, build_tracks
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
-Stage = Literal["features", "matches", "verify", "pose", "triangulate", "cloud"]
+Stage = Literal["features", "matches", "verify", "pose", "triangulate", "cloud", "reconstruct"]
 STAGES: tuple[Stage, ...] = get_args(Stage)
 
 
@@ -72,6 +75,8 @@ class PipelineResult:
     initial_pair: InitialPair | None = None
     structure: TwoViewStructure | None = None  # set by "triangulate" if an initial pair exists
     colors: np.ndarray | None = None  # "cloud": RGB in [0, 1] of the structure's valid points
+    tracks: Tracks | None = None  # "reconstruct", from the verified matches
+    reconstruction: Reconstruction | None = None  # "reconstruct", if an initial pair exists
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -160,6 +165,23 @@ def color_cloud(result: PipelineResult) -> PipelineResult:
     return result
 
 
+def reconstruct_scene(result: PipelineResult) -> PipelineResult:
+    """Link verified matches into tracks, grow the reconstruction from the initial pair
+    and colour its landmarks (mean over their observations)."""
+    result.tracks = build_tracks(ViewGraph.from_verified(result.matches, result.geometries))
+    pair = result.initial_pair
+    if pair is None:
+        return result
+    intrinsics = [im.K for im in result.images]
+    rec = reconstruct(pair, intrinsics, result.tracks, result.features, result.config)
+    cameras, obs, X = rec.landmarks.as_problem(rec.registry, result.features)
+    images = [result.images[m].image for m in rec.registry.images]  # decoded once each
+    rgb = color_points(images, obs, len(X))
+    rec.landmarks.color = np.round(rgb * 255).astype(np.uint8)
+    result.reconstruction = rec
+    return result
+
+
 _STEPS = {
     "features": extract,
     "matches": match,
@@ -167,6 +189,7 @@ _STEPS = {
     "pose": estimate_poses,
     "triangulate": triangulate,
     "cloud": color_cloud,
+    "reconstruct": reconstruct_scene,
 }
 
 

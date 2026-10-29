@@ -37,6 +37,7 @@ from src.geometry.calibration import (
     save_camera_file,
 )
 from src.geometry.pose_estimation import write_pose_statistics
+from src.geometry.reprojection import ReprojectionStats, reprojection_errors
 from src.geometry.verification import (
     inlier_matches,
     unverified_images,
@@ -45,9 +46,10 @@ from src.geometry.verification import (
 )
 from src.pipeline import PipelineResult, Stage, run_pipeline, stages_until
 from src.pointcloud.export import read_cameras_json, read_ply, save_cloud
+from src.reconstruction.incremental import FRAME as MULTI_VIEW_FRAME
 from src.reconstruction.two_view import FRAME as TWO_VIEW_FRAME
-from src.run import atomic_savez, create_run_dir, write_json, write_run_metadata
-from src.visualization.cameras import plot_two_view
+from src.run import atomic_savez, create_run_dir, write_csv, write_json, write_run_metadata
+from src.visualization.cameras import plot_cameras, plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
@@ -142,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.set_defaults(func=_stage_command, stage="cloud", draw=0)
 
+    p = sub.add_parser(
+        "reconstruct",
+        parents=[common, detector, verification],
+        help="register every image (tracks, PnP, bundle adjustment) -> multi-view cloud",
+    )
+    p.set_defaults(func=_stage_command, stage="reconstruct", draw=0)
+
     p = sub.add_parser("view", help="open a point cloud (PLY) with its cameras in a 3-D viewer")
     p.add_argument("ply", type=Path, help="point cloud, e.g. .../point_clouds/sparse.ply")
     p.add_argument("--cameras", type=Path, help="cameras.json written next to it")
@@ -225,8 +234,9 @@ def _validate(args: argparse.Namespace) -> int:
 
 
 def _stage_command(args: argparse.Namespace) -> int:
-    """features, matches, verify, pose, triangulate and two-view: run the pipeline up to
-    ``args.stage`` and write the outputs of every stage that ran (see ``_SAVERS``)."""
+    """features, matches, verify, pose, triangulate, two-view and reconstruct: run the
+    pipeline up to ``args.stage`` and write the outputs of every stage that ran (see
+    ``_SAVERS``)."""
     config = _config_from_args(args)
     stage: Stage = args.stage
     try:
@@ -480,6 +490,85 @@ def _save_cloud(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | Non
     return files.ply, 0
 
 
+def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    """Multi-view cloud, cameras, registration log, summary and figures."""
+    from src.visualization.viewer import RenderUnavailable, render_scene
+
+    rec = r.reconstruction
+    if rec is None:  # no initial pair: _save_poses already reported it
+        return None, 0
+    out, names, cfg = run_dir / "reconstruction", r.names, r.config
+    out.mkdir(parents=True, exist_ok=True)
+    registry, lm = rec.registry, rec.landmarks
+    images = registry.images
+    cameras, obs, X = lm.as_problem(registry, r.features)
+    errors = reprojection_errors(cameras, obs, X)
+    stats = ReprojectionStats.from_errors(errors)
+    unregistered = [names[m] for m in range(len(names)) if m not in registry]
+    track_lengths = np.bincount(obs.point, minlength=len(lm))
+    summary = {
+        "images": len(names),
+        "registered": len(images),
+        "unregistered": unregistered,
+        "registration_order": [names[m] for m in images],
+        "landmarks": len(lm),
+        "observations": len(obs),
+        "mean_track_length": float(track_lengths.mean()) if len(lm) else None,
+        "reprojection": stats.to_dict(),
+        "settings": {k: cfg.to_dict()[k] for k in ("registration", "bundle_adjustment")},
+        "frame": MULTI_VIEW_FRAME,
+    }
+    json_path = write_json(out / "reconstruction.json", summary)
+    write_csv(
+        out / "registration.csv",
+        ["attempt", "image", "success", "reason", "correspondences", "inliers"],
+        (
+            [k, names[a.image], a.success, a.reason or "", a.n_correspondences, a.n_inliers]
+            for k, a in enumerate(rec.attempts)
+        ),
+    )
+    plot_reprojection_histogram(
+        errors, cfg.triangulation.max_reprojection_error_px, out / "reprojection_histogram.png",
+        title=f"{len(images)} cameras, {len(lm)} landmarks",
+    )  # fmt: skip
+    plot_cameras(
+        [c.R for c in cameras], [c.t for c in cameras], X, [names[m] for m in images],
+        out / "cameras.png", title=f"Reconstruction: {len(images)} of {len(names)} images",
+    )  # fmt: skip
+
+    sizes = [(r.images[m].width, r.images[m].height) for m in images]
+    colors = lm.color / 255.0
+    files = save_cloud(
+        run_dir, X, colors, cameras, [names[m] for m in images], sizes, MULTI_VIEW_FRAME,
+        name="multi_view", cameras_name="multi_view_cameras",
+    )  # fmt: skip
+
+    print(
+        f"Registered {len(images)} of {len(names)} images "
+        f"({sum(not a.success for a in rec.attempts)} failed attempts)"
+    )
+    print(
+        f"Landmarks: {len(lm)}, observations {len(obs)} "
+        f"(mean track length {summary['mean_track_length'] or 0:.1f})"
+    )
+    print(
+        f"Reprojection error: mean {stats.mean:.2f} px, median {stats.median:.2f} px, "
+        f"90th percentile {stats.p90:.2f} px, max {stats.max:.2f} px"
+    )
+    if unregistered:
+        print(f"[WARNING] not registered: {', '.join(unregistered)}")
+    print(f"Sparse cloud: {len(X)} coloured points -> {files.ply}")
+    try:
+        render = render_scene(
+            X, colors, cameras, sizes, run_dir / "figures" / "multi_view.png", focus="points"
+        )
+        print(f"Render: {render}")
+    except RenderUnavailable as exc:
+        print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
+    print(f"View it: python -m src.cli view {files.ply} --cameras {files.cameras}")
+    return json_path, 0
+
+
 _SAVERS = {
     "features": _save_features,
     "matches": _save_matches,
@@ -487,6 +576,7 @@ _SAVERS = {
     "pose": _save_poses,
     "triangulate": _save_triangulation,
     "cloud": _save_cloud,
+    "reconstruct": _save_reconstruction,
 }
 
 

@@ -127,6 +127,7 @@ class BundleAdjustmentConfig:
     function_tolerance: float = 1e-6
     local_window: int = 5
     global_every: int = 5
+    max_refinements: int = 3
 
 
 @dataclass(frozen=True)

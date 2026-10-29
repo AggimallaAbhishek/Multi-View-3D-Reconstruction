@@ -107,12 +107,14 @@ def save_cloud(
     sizes: Sequence[tuple[int, int]],
     frame: str,
     name: str = "sparse",
+    cameras_name: str = "cameras",
 ) -> SavedCloud:
-    """``point_clouds/<name>.ply`` and ``camera_poses/cameras.json`` under ``directory``."""
+    """``point_clouds/<name>.ply`` and ``camera_poses/<cameras_name>.json`` under
+    ``directory``."""
     directory = Path(directory)
     return SavedCloud(
         ply=write_ply(directory / "point_clouds" / f"{name}.ply", points, colors),
         cameras=write_cameras_json(
-            directory / "camera_poses" / "cameras.json", cameras, names, sizes, frame=frame
+            directory / "camera_poses" / f"{cameras_name}.json", cameras, names, sizes, frame=frame
         ),
     )

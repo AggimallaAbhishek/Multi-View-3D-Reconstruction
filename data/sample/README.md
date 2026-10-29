@@ -10,7 +10,7 @@ Full datasets live in `data/raw/<name>/` (git-ignored) and are fetched by script
 
 The download script writes `camera.yaml` (shared intrinsics, for `camera.calibration_file`) and `gt_cameras.json` (per-image ground truth) next to the images.
 
-## Results on templeRing (Phases 1–7)
+## Results on templeRing (Phases 1–8)
 
 ```bash
 python scripts/download_middlebury.py templeRing
@@ -23,12 +23,13 @@ python scripts/evaluate_against_ground_truth.py data/raw/templeRing
 | Validation | 47/47 readable; no false blur warnings; exactly one near-duplicate flagged — `templeR0001`/`templeR0030`, which have **identical** ground-truth poses (the ring closes on itself) |
 | Features (SIFT, 640×480) | median 875 per image, min 597 |
 | Matching (exhaustive, 1081 pairs) | 235 pairs verified with the essential matrix |
-| Relative poses | 229 pairs; rotation error median **0.61°** (90 % < 2.05°), translation direction median **0.55°** (90 % < 1.90°) |
+| Relative poses | 229 pairs; rotation error median **0.51°** (90 % < 1.79°, max 4.33°), translation direction median **0.49°** (90 % < 1.23°, max 4.57°) — re-measured after `E` refinement on its inliers (was 0.61° / 0.55°, max 12°) |
 | Initial pair | `templeR0033`–`templeR0034`: 626 points, 8.3° parallax, errors 0.47° / 0.57° |
 | Two-view cloud (Phase 7, M1) | 626 coloured points in `sparse.ply`; the close-up render shows the temple's entablature, three columns and base, as in the photos |
 | Triangulation (Phase 6) | 626/626 points valid; reprojection median 0.04 px; 3-D shape error after similarity alignment median 0.094 % of scene size; scale vs true baseline 1.059 |
-| Runtime (Apple M4, `evaluate_against_ground_truth.py`) | 3.4 s cold, 1.1 s with caches (re-measured after the Phase 7 review) |
+| Multi-view SfM (Phase 8) | **47/47 images registered**, 0 failed attempts (median 338 PnP inliers); 6454 landmarks, 27 905 observations (mean track length 4.3). After similarity alignment to ground truth: camera rotation error median **0.15°** (max 0.41°), centre error median **0.18 %** of the camera ring's extent (max 0.71 %). Reprojection mean **0.23 px**, median 0.14 px, max 1.99 px (filter at 2 px). Cameras close the full ring; the render shows the temple's block and columns |
+| Runtime (Apple M4, `evaluate_against_ground_truth.py`, caches warm) | 2.0 s up to the two-view cloud, 13.6 s for the multi-view reconstruction (bundle adjustment dominates) |
 
-Three of the 229 pairwise poses err by 5–12°: wide baselines (23–38°) with 75–169 inliers, where E is poorly conditioned. Error grows as inliers fall (median 0.32° above 250 inliers, ~1° below 120). Incremental SfM (Phase 8) should therefore register views by PnP and refine with bundle adjustment rather than chain pairwise poses.
+Before `E` refinement, three of the 229 pairwise poses erred by 5–12°: wide baselines (23–38°) with 75–169 inliers, where E is poorly conditioned; error grew as inliers fell (median 0.32° above 250 inliers, ~1° below 120). Refinement brought the worst down to 4.3°. Incremental SfM (Phase 8) therefore registers views by PnP and refines with bundle adjustment rather than chaining pairwise poses — its camera rotations (median 0.15°) are 3× more accurate than the pairwise estimates.
 
 Own captures: document the camera, resolution, focal length, lighting and capture path for each scene in `data/raw/<scene>/README.md`.

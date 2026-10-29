@@ -86,6 +86,8 @@ bundle_adjustment:             # joint refinement of camera poses and points (K 
                                # SciPy's 1e-8 crawls on for ~15x longer for <0.01 deg
   local_window: 5              # local BA after each registration: newest cameras left free
   global_every: 5              # global BA after this many registrations (and at the end)
+  max_refinements: 3           # final rounds of global BA + filtering / re-triangulation,
+                               # stopping early once a round changes no observation
 
 filtering:
   statistical_nb_neighbors: 20

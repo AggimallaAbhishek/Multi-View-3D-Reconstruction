@@ -1,4 +1,5 @@
-"""Compare the pipeline's relative poses and initial structure with ground truth.
+"""Compare the pipeline's relative poses, initial structure and multi-view
+reconstruction with ground truth.
 
 Usage:
     python scripts/evaluate_against_ground_truth.py data/raw/templeRing [--config CONFIG]
@@ -6,8 +7,10 @@ Usage:
 The folder must contain ``gt_cameras.json`` (see scripts/download_middlebury.py) and,
 for calibrated runs, ``camera.yaml``. Prints rotation and translation-direction errors
 over all successfully estimated pairs and for the initial pair, and the 3-D error of the
-initial pair's triangulated points relative to the scene size. Writes per-pair and
-per-point CSVs into a run directory under outputs/.
+initial pair's triangulated points relative to the scene size, then how many images the
+incremental reconstruction registers, their pose errors after similarity alignment and
+the final reprojection error. Writes per-pair, per-point and per-camera CSVs into a run
+directory under outputs/.
 """
 
 from __future__ import annotations
@@ -25,10 +28,12 @@ sys.path.insert(0, str(ROOT))
 from src.config import load_config  # noqa: E402
 from src.evaluation.ground_truth import load_cameras_json, relative_pose  # noqa: E402
 from src.evaluation.metrics import (  # noqa: E402
+    camera_pose_errors,
     rotation_error_deg,
     translation_direction_error_deg,
     two_view_structure_errors,
 )
+from src.geometry.reprojection import ReprojectionStats, reprojection_errors  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
 from src.run import create_run_dir, write_csv, write_run_metadata  # noqa: E402
 
@@ -52,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config)
     gt = load_cameras_json(args.images / "gt_cameras.json")
 
-    result = run_pipeline(args.images, config)
+    result = run_pipeline(args.images, config, until="reconstruct")
     names = result.names
     rows: list[PairError] = []
     for m, g, pose in zip(result.matches, result.geometries, result.poses, strict=True):
@@ -129,8 +134,50 @@ def main(argv: list[str] | None = None) -> int:
                 )
             ),
         )  # fmt: skip
+    rec = result.reconstruction
+    if rec is not None:
+        evaluate_reconstruction(result, gt, run_dir)
     print(f"Wrote {csv_path}")
     return 0
+
+
+def evaluate_reconstruction(result, gt, run_dir: Path) -> None:
+    """Registered images, camera pose errors after aligning to ground truth, reprojection."""
+    rec, names = result.reconstruction, result.names
+    images = rec.registry.images
+    cameras = [rec.registry.camera(m) for m in images]
+    errors = camera_pose_errors(cameras, [gt[names[m]] for m in images])
+    _, obs, X = rec.landmarks.as_problem(rec.registry, result.features)
+    rp = ReprojectionStats.from_errors(reprojection_errors(cameras, obs, X))
+    print(
+        f"reconstruction: {len(images)} of {len(names)} images registered "
+        f"({len(images) / len(names):.0%}), {len(X)} landmarks, {len(obs)} observations"
+    )
+    for label, e, fmt in (
+        ("camera rotation error (deg)", errors.rotation_deg, "{:.2f}"),
+        ("camera centre error (fraction of camera extent)", errors.centre, "{:.2%}"),
+    ):
+        print(
+            f"{label}: median {fmt.format(np.median(e))}, 90th percentile "
+            f"{fmt.format(np.percentile(e, 90))}, max {fmt.format(e.max())}"
+        )
+    print(
+        f"reprojection error: mean {rp.mean:.2f} px, median {rp.median:.2f} px, "
+        f"90th percentile {rp.p90:.2f} px, max {rp.max:.2f} px"
+    )
+    missing = [names[m] for m in range(len(names)) if m not in rec.registry]
+    if missing:
+        print(f"not registered: {', '.join(missing)}")
+    write_csv(
+        run_dir / "camera_pose_errors.csv",
+        ["order", "image", "rotation_error_deg", "centre_error_fraction"],
+        (
+            [k, names[m], f"{r:.4f}", f"{c:.6f}"]
+            for k, (m, r, c) in enumerate(
+                zip(images, errors.rotation_deg, errors.centre, strict=True)
+            )
+        ),
+    )
 
 
 if __name__ == "__main__":

@@ -60,6 +60,15 @@ def test_landmarks_take_track_observations_in_registered_images():
     assert _obs(lm) == [(0, 0, 20), (0, 1, 21)]  # renumbered, landmark 0's gone
 
 
+def test_keep_observations_drops_single_observations_but_not_landmarks():
+    lm = Landmarks()
+    lm.add([0, 1], np.array([[0.0, 0, 1], [1.0, 0, 1]]), _tracks(), registered={0, 1, 2})
+    drop = (lm.obs_image == 2) | ((lm.obs_landmark == 1) & (lm.obs_image == 0))
+    lm.keep_observations(~drop)
+    assert len(lm) == 2  # a landmark may be left with < 2 views; filtering removes it
+    assert _obs(lm) == [(0, 0, 10), (0, 1, 11), (1, 1, 21)]
+
+
 def test_correspondences_link_keypoints_of_a_new_image_to_their_landmarks():
     s = make_sfm_scene()
     scene, point_of, tracks, truth = s.scene, s.point_of, s.tracks, s.truth

@@ -1,7 +1,9 @@
-"""Accuracy metrics against ground truth: relative poses and two-view structure."""
+"""Accuracy metrics against ground truth: relative poses, camera poses of a
+reconstruction and two-view structure."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -46,6 +48,32 @@ def align_similarity(source: np.ndarray, target: np.ndarray) -> Similarity:
     R = U @ S @ Vt
     scale = float(np.trace(np.diag(D) @ S) / (a**2).sum(axis=1).mean())
     return Similarity(scale, R, mu_t - scale * R @ mu_s)
+
+
+@dataclass(frozen=True, eq=False)
+class PoseErrors:
+    rotation_deg: np.ndarray  # (M,) per camera, after alignment
+    centre: np.ndarray  # (M,) camera-centre distance after alignment, fraction of extent
+    scale: float  # of the aligning similarity: true units per reconstruction unit
+
+
+def camera_pose_errors(estimated: Sequence[Camera], truth: Sequence[Camera]) -> PoseErrors:
+    """Errors of reconstructed cameras against ground truth (needs >= 3 cameras).
+
+    A reconstruction is only defined up to a similarity, so the estimated camera centres
+    are first mapped onto the true ones with the best similarity (x -> s Q x + d; a
+    camera rotation then becomes R Q^T). Centre errors are relative to the cameras'
+    extent: the RMS distance of the true centres from their centroid.
+    """
+    est = np.stack([c.centre for c in estimated])
+    true = np.stack([c.centre for c in truth])
+    sim = align_similarity(est, true)
+    extent = np.sqrt(((true - true.mean(axis=0)) ** 2).sum(axis=1).mean())
+    centre = np.linalg.norm(sim.apply(est) - true, axis=1) / extent
+    rotation = np.array(
+        [rotation_error_deg(e.R @ sim.R.T, t.R) for e, t in zip(estimated, truth, strict=True)]
+    )
+    return PoseErrors(rotation, centre, sim.scale)
 
 
 @dataclass(frozen=True, eq=False)

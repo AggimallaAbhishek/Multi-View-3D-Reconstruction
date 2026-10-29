@@ -208,3 +208,58 @@ def test_cli_records_out_and_camera_yaml_next_to_images_is_used(scene_dir, tmp_p
     assert recorded["output"]["root"] == str(out)
     stats = (run_dir / "verification" / "verification_statistics.csv").read_text()
     assert ",essential," in stats  # calibrated intrinsics -> auto picks the essential matrix
+
+
+def test_reconstruct_stage_registers_every_view(scene_dir):
+    from src.evaluation.metrics import camera_pose_errors
+    from src.geometry.camera import Camera
+    from src.geometry.reprojection import reprojection_errors
+
+    scene, images, config = scene_dir
+    result = run_pipeline(images, config, until="reconstruct")
+    rec = result.reconstruction
+    registered = rec.registry.images
+    assert sorted(registered) == [0, 1, 2, 3]
+    assert registered[:2] == [result.initial_pair.i, result.initial_pair.j]
+
+    gt = [Camera(scene.K, scene.rotations[m], scene.translations[m]) for m in registered]
+    errors = camera_pose_errors([rec.registry.camera(m) for m in registered], gt)
+    assert errors.rotation_deg.max() < 0.5
+    assert errors.centre.max() < 0.02
+
+    lm = rec.landmarks
+    assert len(lm) > len(result.structure.points)  # more than the initial pair alone
+    cameras, obs, X = lm.as_problem(rec.registry, result.features)
+    assert np.median(reprojection_errors(cameras, obs, X)) < 0.5
+    assert lm.color.shape == (len(lm), 3) and lm.color.std() > 5  # sampled from the images
+
+
+def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
+    import json
+
+    from src.cli import main
+    from src.pointcloud.export import read_cameras_json, read_ply
+
+    _, images, _ = scene_dir
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"camera:\n  calibration_file: {images.parent / 'camera.yaml'}\n"
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 3000\n"
+    )
+    out = tmp_path / "outputs"
+    assert main(["reconstruct", str(images), "--config", str(config), "--out", str(out)]) == 0
+    (run_dir,) = out.glob("*_reconstruct_sift")
+
+    rec = run_dir / "reconstruction"
+    summary = json.loads((rec / "reconstruction.json").read_text())
+    assert summary["registered"] == summary["images"] == 4
+    assert summary["reprojection"]["median_px"] < 0.5
+    for name in ["registration.csv", "reprojection_histogram.png", "cameras.png"]:
+        assert (rec / name).is_file(), name
+
+    points, colors = read_ply(run_dir / "point_clouds" / "multi_view.ply")
+    assert len(points) == summary["landmarks"] > 0
+    assert colors is not None and colors.std() > 0.02
+    cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "multi_view_cameras.json")
+    assert sorted(names) == sorted(p.name for p in images.glob("*.png"))
+    assert all((c.project(points)[1] > 0).mean() > 0.9 for c in cameras)

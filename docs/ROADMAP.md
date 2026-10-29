@@ -10,7 +10,7 @@ Each phase must be **working and tested before the next starts**. Every phase fo
 
 Legend: 🧪 tests · 📦 deliverable · ✅ exit criteria · ⚠️ risks · 🧰 skills
 
-> **Validation status (Phases 1–5):** verified against synthetic and rendered ground truth (`tests/synthetic.py`, `tests/render.py`, `tests/images.py`) **and on real photos with ground-truth cameras**: Middlebury *templeRing* (47 views; `scripts/download_middlebury.py`, `scripts/evaluate_against_ground_truth.py`). Real-data results — relative-pose errors median 0.61° rotation / 0.55° translation direction, initial pair 0.47° / 0.57° — are in [`data/sample/README.md`](../data/sample/README.md). The real data exposed and fixed two Phase 1 validation false-positive classes (see Phase 1).
+> **Validation status (Phases 1–5):** verified against synthetic and rendered ground truth (`tests/synthetic.py`, `tests/render.py`, `tests/images.py`) **and on real photos with ground-truth cameras**: Middlebury *templeRing* (47 views; `scripts/download_middlebury.py`, `scripts/evaluate_against_ground_truth.py`). Real-data results — relative-pose errors median 0.51° rotation / 0.49° translation direction (0.61° / 0.55° before `E` refinement), initial pair 0.47° / 0.57° — are in [`data/sample/README.md`](../data/sample/README.md). The real data exposed and fixed two Phase 1 validation false-positive classes (see Phase 1).
 
 ---
 
@@ -294,9 +294,17 @@ A real image pair produces a recognizable structure, not a random cloud. Screens
 
 ---
 
-## Phase 8 — Multi-View Incremental SfM
+## Phase 8 — Multi-View Incremental SfM ✅
 
 **Goal:** Register most images into one consistent reconstruction.
+
+> **Status — done** (task 8, the optional COLMAP runner, not started). `src.reconstruction`: `tracks` (`ViewGraph.from_verified`, `build_tracks`: union-find over (image, keypoint), components touching one image twice dropped whole), `camera_registry`, `landmarks` (flat observation list; `as_problem` exports cameras/observations/points for triangulation and BA), `registration` (`register_image`: `solvePnPRansac` with SQPnP, seeded, + `solvePnPRefineLM`; `next_best_view`: most 2D–3D links), `bundle_adjustment` (`bundle_adjust`: own vectorised Rodrigues projection, `least_squares` TRF with `jac_sparsity`, soft-L1 loss), `incremental` (`reconstruct`, `refine_structure`). Pipeline stage `reconstruct`; CLI `python -m src.cli reconstruct <dir>`; `evaluation.metrics.camera_pose_errors`. Decisions and measurements:
+> - Failed registrations are retried after the next success (new landmarks may give enough links); the loop ends when no remaining image can be added.
+> - BA: local after each registration (newest `local_window` = 5 cameras and their points free), global every `global_every` = 5 registrations and at the end. The gauge is fixed by the first camera; with one fixed camera the scale is left free during optimisation and restored afterwards (pinning a coordinate creates a curved valley the solver zig-zags along). `soft_l1` converges in ~30 evaluations; SciPy's `huber` crawls. `ftol` 1e-6 (as Ceres): 1e-8 takes ~15× longer for < 0.01°.
+> - After every adjustment `refine_structure` re-attaches track keypoints that now fit (mostly PnP outliers), drops **individual** observations > `max_reprojection_error_px` (the Phase 6 note: one bad observation no longer costs a long track its landmark), drops landmarks left with < 2 views or a ray angle < `min_angle_deg`, and re-triangulates tracks without a landmark. The final global BA alternates with it until nothing changes (≤ `max_refinements` = 3). Test: with 5 % of keypoints shifted 3.5 px (inside PnP's 4 px, outside triangulation's 2 px) every final observation is ≤ 2 px; without refinement errors reach 4.2 px. Shifts along the epipolar line of 2–3-view tracks stay undetectable (~1 % survive).
+> - Synthetic: all cameras registered; BA halves the worst drift over a 200° arc and reaches the noise floor.
+> - **Real data (templeRing):** 47/47 registered, camera rotation error median 0.15° (max 0.41°), centre error median 0.18 % of the ring's extent, reprojection mean 0.23 px — exit criteria met. 13.6 s, dominated by BA.
+> - Known limit: re-triangulating a dropped landmark still uses the Phase 6 all-or-nothing filter, so a track with one bad keypoint stays without a landmark.
 
 ### Tasks
 1. **Pairwise graph** — verified matches for all candidate pairs (Phases 3–4), stored as a view graph.

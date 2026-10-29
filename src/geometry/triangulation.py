@@ -46,6 +46,8 @@ class Observations:
 
     def by_view(self) -> list[tuple[int, np.ndarray]]:
         """(view, observation indices) for every view that has observations."""
+        if not len(self.view):
+            return []  # np.split would still return one empty chunk
         order = np.argsort(self.view, kind="stable")
         views, starts = np.unique(self.view[order], return_index=True)
         return list(zip(views.tolist(), np.split(order, starts[1:]), strict=True))

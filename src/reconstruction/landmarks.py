@@ -106,6 +106,13 @@ class Landmarks:
         self.obs_landmark = new_id[self.obs_landmark[obs]]
         self.obs_image, self.obs_keypoint = self.obs_image[obs], self.obs_keypoint[obs]
 
+    def keep_observations(self, mask: np.ndarray) -> None:
+        """Keep only the observations where ``mask`` is true. Landmarks stay, even if
+        left with fewer than two observations."""
+        mask = np.asarray(mask, bool)
+        self.obs_landmark, self.obs_image = self.obs_landmark[mask], self.obs_image[mask]
+        self.obs_keypoint = self.obs_keypoint[mask]
+
     def _append_observations(self, landmark, image, keypoint) -> None:
         self.obs_landmark = np.concatenate([self.obs_landmark, np.asarray(landmark, _INT)])
         self.obs_image = np.concatenate([self.obs_image, np.asarray(image, _INT)])
