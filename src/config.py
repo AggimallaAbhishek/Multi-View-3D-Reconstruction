@@ -132,8 +132,12 @@ class BundleAdjustmentConfig:
 
 @dataclass(frozen=True)
 class FilteringConfig:
+    max_reprojection_error_px: float = 1.0
+    min_track_length: int = 2
     statistical_nb_neighbors: int = 20
     statistical_std_ratio: float = 2.0
+    radius_nb_points: int = 4
+    radius_scale: float = 5.0
 
 
 @dataclass(frozen=True)

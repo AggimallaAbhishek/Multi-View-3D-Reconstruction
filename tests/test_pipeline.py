@@ -232,6 +232,15 @@ def test_reconstruct_stage_registers_every_view(scene_dir):
     cameras, obs, X = lm.as_problem(rec.registry, result.features)
     assert np.median(reprojection_errors(cameras, obs, X)) < 0.5
     assert lm.color.shape == (len(lm), 3) and lm.color.std() > 5  # sampled from the images
+    assert result.filtering is None  # the "filter" stage did not run
+
+
+def test_filter_stage_keeps_a_subset_of_the_landmarks(scene_dir):
+    _, images, config = scene_dir
+    result = run_pipeline(images, config, until="filter")
+    keep = result.filtering.keep
+    assert keep.shape == (len(result.reconstruction.landmarks),)
+    assert 0.8 < keep.mean() <= 1.0
 
 
 def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
@@ -239,6 +248,7 @@ def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
 
     from src.cli import main
     from src.pointcloud.export import read_cameras_json, read_ply
+    from src.pointcloud.filtering import FILTER_STEPS
 
     _, images, _ = scene_dir
     config = tmp_path / "config.yaml"
@@ -263,3 +273,17 @@ def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
     cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "multi_view_cameras.json")
     assert sorted(names) == sorted(p.name for p in images.glob("*.png"))
     assert all((c.project(points)[1] > 0).mean() > 0.9 for c in cameras)
+
+    # filtered.ply: the kept subset of multi_view.ply, exactly, with the counts logged.
+    filtering = summary["filtering"]
+    assert filtering["points"] == len(points)
+    assert [s["name"] for s in filtering["steps"]] == list(FILTER_STEPS)
+    filtered, filtered_colors = read_ply(run_dir / "point_clouds" / "filtered.ply")
+    assert (
+        len(filtered)
+        == filtering["kept"]
+        == filtering["steps"][-1]["before"] - filtering["steps"][-1]["removed"]
+    )
+    assert 0.8 * len(points) < len(filtered) <= len(points)
+    np.testing.assert_array_equal(filtered, points[np.isin(points, filtered).all(axis=1)])
+    assert filtered_colors is not None

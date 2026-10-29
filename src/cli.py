@@ -45,10 +45,17 @@ from src.geometry.verification import (
     write_verification_statistics,
 )
 from src.pipeline import PipelineResult, Stage, run_pipeline, stages_until
-from src.pointcloud.export import read_cameras_json, read_ply, save_cloud
+from src.pointcloud.export import read_cameras_json, read_ply, save_cloud, write_ply
 from src.reconstruction.incremental import FRAME as MULTI_VIEW_FRAME
 from src.reconstruction.two_view import FRAME as TWO_VIEW_FRAME
-from src.run import atomic_savez, create_run_dir, write_csv, write_json, write_run_metadata
+from src.run import (
+    atomic_savez,
+    create_run_dir,
+    read_json,
+    write_csv,
+    write_json,
+    write_run_metadata,
+)
 from src.visualization.cameras import plot_cameras, plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
@@ -147,9 +154,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser(
         "reconstruct",
         parents=[common, detector, verification],
-        help="register every image (tracks, PnP, bundle adjustment) -> multi-view cloud",
+        help="register every image (tracks, PnP, bundle adjustment) -> multi-view and "
+        "filtered clouds",
     )
-    p.set_defaults(func=_stage_command, stage="reconstruct", draw=0)
+    p.set_defaults(func=_stage_command, stage="filter", draw=0)
 
     p = sub.add_parser("view", help="open a point cloud (PLY) with its cameras in a 3-D viewer")
     p.add_argument("ply", type=Path, help="point cloud, e.g. .../point_clouds/sparse.ply")
@@ -492,8 +500,6 @@ def _save_cloud(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | Non
 
 def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
     """Multi-view cloud, cameras, registration log, summary and figures."""
-    from src.visualization.viewer import RenderUnavailable, render_scene
-
     rec = r.reconstruction
     if rec is None:  # no initial pair: _save_poses already reported it
         return None, 0
@@ -558,15 +564,44 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
     if unregistered:
         print(f"[WARNING] not registered: {', '.join(unregistered)}")
     print(f"Sparse cloud: {len(X)} coloured points -> {files.ply}")
+    return json_path, 0
+
+
+def _save_filtered(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    """filtered.ply, the filter counts (added to reconstruction.json) and a render."""
+    from src.visualization.viewer import RenderUnavailable, render_scene
+
+    if r.filtering is None:
+        return None, 0
+    rec, keep = r.reconstruction, r.filtering.keep
+    lm, images = rec.landmarks, rec.registry.images
+    X, colors = lm.position[keep], lm.color[keep] / 255.0
+    ply = write_ply(run_dir / "point_clouds" / "filtered.ply", X, colors)
+    json_path = run_dir / "reconstruction" / "reconstruction.json"
+    summary = read_json(json_path)
+    summary["filtering"] = {
+        **r.filtering.summary(), "settings": r.config.to_dict()["filtering"]
+    }  # fmt: skip
+    write_json(json_path, summary)
+
+    removed = ", ".join(f"{s.name} {s.removed}" for s in r.filtering.steps if s.removed)
+    print(
+        f"Filtered cloud: {len(X)} of {len(keep)} points kept"
+        + (f" (removed: {removed})" if removed else "")
+        + f" -> {ply}"
+    )
+    cameras = [rec.registry.camera(m) for m in images]
+    sizes = [(r.images[m].width, r.images[m].height) for m in images]
     try:
         render = render_scene(
-            X, colors, cameras, sizes, run_dir / "figures" / "multi_view.png", focus="points"
+            X, colors, cameras, sizes, run_dir / "figures" / "filtered.png", focus="points"
         )
         print(f"Render: {render}")
     except RenderUnavailable as exc:
         print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
-    print(f"View it: python -m src.cli view {files.ply} --cameras {files.cameras}")
-    return json_path, 0
+    cameras_json = run_dir / "camera_poses" / "multi_view_cameras.json"
+    print(f"View it: python -m src.cli view {ply} --cameras {cameras_json}")
+    return ply, 0
 
 
 _SAVERS = {
@@ -577,6 +612,7 @@ _SAVERS = {
     "triangulate": _save_triangulation,
     "cloud": _save_cloud,
     "reconstruct": _save_reconstruction,
+    "filter": _save_filtered,
 }
 
 

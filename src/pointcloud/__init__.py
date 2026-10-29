@@ -1,1 +1,1 @@
-"""Point-cloud colouring, export and (later) filtering."""
+"""Point-cloud colouring, filtering and export."""

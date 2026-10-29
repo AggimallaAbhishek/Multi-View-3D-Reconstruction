@@ -89,9 +89,14 @@ bundle_adjustment:             # joint refinement of camera poses and points (K 
   max_refinements: 3           # final rounds of global BA + filtering / re-triangulation,
                                # stopping early once a round changes no observation
 
-filtering:
-  statistical_nb_neighbors: 20
-  statistical_std_ratio: 2.0
+filtering:                     # cleaning the multi-view cloud before export (filtered.ply)
+  max_reprojection_error_px: 1.0  # drop points whose mean reprojection error is higher
+  min_track_length: 2          # drop points seen in fewer images (3 drops ~35 % on templeRing)
+  statistical_nb_neighbors: 20 # statistical outlier removal (0 disables): mean distance to
+  statistical_std_ratio: 2.0   # this many neighbours above average + ratio * std
+  radius_nb_points: 4          # radius outlier removal (0 disables): fewer neighbours than
+  radius_scale: 5.0            # this within radius_scale * median distance to the
+                               # radius_nb_points-th neighbour (relative: SfM has no scale)
 
 output:
   root: outputs

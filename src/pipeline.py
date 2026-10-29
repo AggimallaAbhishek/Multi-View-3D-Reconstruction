@@ -1,7 +1,8 @@
 """The reconstruction pipeline as library code.
 
 dataset -> features -> matches -> verify -> pose -> triangulate (initial structure) -> cloud
--> reconstruct (every image: tracks, incremental registration, bundle adjustment).
+-> reconstruct (every image: tracks, incremental registration, bundle adjustment)
+-> filter (outlier removal on the multi-view cloud).
 
 Each stage reads and extends one ``PipelineResult``. The CLI and notebooks call these
 functions and decide what to write or plot; nothing here touches the filesystem except
@@ -44,11 +45,14 @@ from src.geometry.pose_estimation import (
 )
 from src.geometry.verification import VerificationStats, verify_matches
 from src.pointcloud.coloring import color_points
+from src.pointcloud.filtering import CloudFilterResult, filter_cloud
 from src.reconstruction.incremental import Reconstruction, reconstruct
 from src.reconstruction.tracks import Tracks, ViewGraph, build_tracks
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
-Stage = Literal["features", "matches", "verify", "pose", "triangulate", "cloud", "reconstruct"]
+Stage = Literal[
+    "features", "matches", "verify", "pose", "triangulate", "cloud", "reconstruct", "filter"
+]
 STAGES: tuple[Stage, ...] = get_args(Stage)
 
 
@@ -77,6 +81,7 @@ class PipelineResult:
     colors: np.ndarray | None = None  # "cloud": RGB in [0, 1] of the structure's valid points
     tracks: Tracks | None = None  # "reconstruct", from the verified matches
     reconstruction: Reconstruction | None = None  # "reconstruct", if an initial pair exists
+    filtering: CloudFilterResult | None = None  # "filter": which landmarks to export
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -182,6 +187,18 @@ def reconstruct_scene(result: PipelineResult) -> PipelineResult:
     return result
 
 
+def filter_landmarks(result: PipelineResult) -> PipelineResult:
+    """Decide which landmarks of the reconstruction survive the outlier filters."""
+    rec = result.reconstruction
+    if rec is not None:
+        lm = rec.landmarks
+        result.filtering = filter_cloud(
+            lm.position, result.config.filtering, errors=lm.error,
+            track_lengths=np.bincount(lm.obs_landmark, minlength=len(lm)),
+        )  # fmt: skip
+    return result
+
+
 _STEPS = {
     "features": extract,
     "matches": match,
@@ -190,6 +207,7 @@ _STEPS = {
     "triangulate": triangulate,
     "cloud": color_cloud,
     "reconstruct": reconstruct_scene,
+    "filter": filter_landmarks,
 }
 
 

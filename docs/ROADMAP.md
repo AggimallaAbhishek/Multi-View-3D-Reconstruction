@@ -330,9 +330,16 @@ Drift, bad initial pair, scale/sign convention bugs, slow BA. Mitigate with synt
 
 ---
 
-## Phase 9 — Filtering, Export & Optional Dense ★ Milestone M2
+## Phase 9 — Filtering, Export & Optional Dense ★ Milestone M2 ✅
 
 **Goal:** Clean final outputs, optionally densified.
+
+> **Status — done, M2 reached** (the optional COLMAP dense step is not started). `src.pointcloud.filtering.filter_cloud(points, config, errors=, track_lengths=)` → `CloudFilterResult` (keep mask + one `FilterStep` per filter: points seen, points removed). Pipeline stage `filter` after `reconstruct`; `python -m src.cli reconstruct` runs it and writes `point_clouds/filtered.ply` next to `multi_view.ply`, the counts and settings under `filtering` in `reconstruction/reconstruction.json`, and `figures/filtered.png`. Decisions:
+> - Order: non-finite → mean reprojection error (> 1 px) → track length → Open3D statistical outlier removal (20 neighbours, 2σ) → radius outlier removal; each step sees only the survivors of the previous one.
+> - **Scale-relative radius:** SfM has no metric scale, so the radius is `radius_scale` (5) × the median distance to the `radius_nb_points`-th (4th) neighbour. Neighbourhood filters run on a centred, unit-RMS copy in float32, so results are the same at any reconstruction scale (tested at ×10³ and ×10⁻³).
+> - `min_track_length` defaults to 2 (off): on templeRing 35 % of landmarks are 2-view, and removing them thins the cloud more than it cleans it. Raise to 3 for a sparser, more reliable cloud.
+> - Filters that are disabled (0 neighbours) or have too few points to work on remove nothing instead of failing.
+> - **Real data (templeRing):** 6365 of 6454 points kept (reprojection 60, statistical 19, radius 10); the statistical filter catches all 12 points more than 2 units from the median, up to 13 units out.
 
 ### Tasks
 - `pointcloud/filtering.py`: remove non-finite, high-error, low-track-length points; Open3D statistical outlier removal and radius outlier removal; log counts before/after each filter.
