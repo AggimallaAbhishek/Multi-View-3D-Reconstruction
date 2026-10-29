@@ -32,7 +32,7 @@ from src.data.loader import (
 from src.data.preprocessing import resize_max_side, to_gray, undistort
 from src.data.validation import ImageStats, ValidationReport, image_stats, validate
 from src.geometry.calibration import Intrinsics, load_camera_file, resolve_intrinsics
-from src.run import atomic_savez
+from src.run import atomic_savez, write_json
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +79,7 @@ class Dataset:
     directory: Path
     images: list[PreparedImage]
     report: ValidationReport
+    calibration_file: Path | None = None  # the camera file used, if any
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,14 +98,12 @@ class Dataset:
                 }
                 for im in self.images
             ],
+            "calibration_file": str(self.calibration_file) if self.calibration_file else None,
             "report": self.report.to_dict(),
         }
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
-        return path
+        return write_json(path, self.to_dict())
 
 
 class ImageCache:
@@ -115,9 +114,8 @@ class ImageCache:
     parameters, OpenCV version), so a change in any of them recomputes.
     """
 
-    def __init__(self, directory: str | Path, config: Config):
+    def __init__(self, directory: str | Path, config: Config, calibration: Path | None):
         self.directory = Path(directory)
-        calibration = config.camera.calibration_file
         settings = {
             "preprocessing": config.to_dict()["preprocessing"],
             "camera": config.to_dict()["camera"],
@@ -183,6 +181,16 @@ class ImageCache:
         )
 
 
+def find_calibration_file(directory: str | Path, config: Config) -> Path | None:
+    """The camera file to use: ``camera.calibration_file`` if configured, otherwise a
+    ``camera.yaml`` next to the images (as written by ``cli calibrate`` or
+    ``scripts/download_middlebury.py``), otherwise None (EXIF or fallback intrinsics)."""
+    if config.camera.calibration_file:
+        return Path(config.camera.calibration_file)
+    beside = Path(directory) / "camera.yaml"
+    return beside if beside.is_file() else None
+
+
 def prepare_dataset(directory: str | Path, config: Config | None = None) -> Dataset:
     """Discover, decode, validate and preprocess every image in ``directory``.
 
@@ -197,11 +205,10 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
             f"no images with extensions {list(config.dataset.extensions)} found in {directory}"
         )
 
-    calibration = (
-        load_camera_file(config.camera.calibration_file) if config.camera.calibration_file else None
-    )
+    calibration_file = find_calibration_file(directory, config)
+    calibration = load_camera_file(calibration_file) if calibration_file else None
     cache_dir = config.cache_path("images")
-    cache = ImageCache(cache_dir, config) if cache_dir else None
+    cache = ImageCache(cache_dir, config, calibration_file) if cache_dir else None
 
     prepared, stats, skipped = [], [], []
     for path in paths:
@@ -231,7 +238,7 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
         log.debug("%s: %s", issue.code, issue.message)
     if not report.ok:
         raise DatasetError(f"dataset validation failed for {directory}", report=report)
-    return Dataset(directory=directory, images=prepared, report=report)
+    return Dataset(directory, prepared, report, calibration_file)
 
 
 def _prepare_image(

@@ -17,14 +17,21 @@ if TYPE_CHECKING:
 def project_observations(
     cameras: Sequence[Camera], obs: Observations, X: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Projected pixels (M, 2) and depths (M,) of each observation's 3-D point."""
-    P = np.stack([c.P for c in cameras])[obs.view]  # (M, 3, 4)
-    Rt = np.stack([np.hstack([c.R, c.t.reshape(3, 1)]) for c in cameras])[obs.view]
-    X_h = np.hstack([X[obs.point], np.ones((len(obs.point), 1))])
-    p = np.einsum("mij,mj->mi", P, X_h)
-    depths = np.einsum("mj,mj->m", Rt[:, 2], X_h)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return p[:, :2] / p[:, 2:3], depths
+    """Projected pixels (M, 2) and depths (M,) of each observation's 3-D point.
+
+    Works view by view (at most a few hundred cameras), so no per-observation copies of
+    the camera matrices are built.
+    """
+    pixels = np.empty((len(obs), 2))
+    depths = np.empty(len(obs))
+    for v, idx in obs.by_view():
+        cam = cameras[v]
+        X_cam = X[obs.point[idx]] @ cam.R.T + cam.t
+        p = X_cam @ cam.K.T
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pixels[idx] = p[:, :2] / p[:, 2:3]
+        depths[idx] = X_cam[:, 2]
+    return pixels, depths
 
 
 def reprojection_errors(cameras: Sequence[Camera], obs: Observations, X: np.ndarray) -> np.ndarray:
@@ -34,11 +41,19 @@ def reprojection_errors(cameras: Sequence[Camera], obs: Observations, X: np.ndar
 
 
 def per_point_mean(values: np.ndarray, point: np.ndarray, n_points: int) -> np.ndarray:
-    """Mean of per-observation ``values`` for each point (nan for unobserved points)."""
-    total = np.bincount(point, weights=values, minlength=n_points)
-    count = np.bincount(point, minlength=n_points)
+    """Mean of per-observation ``values`` ((M,) or (M, k)) for each point.
+
+    Unobserved points get nan.
+    """
+    values = np.asarray(values, dtype=float)
+    columns = values.reshape(len(values), -1)
+    count = np.bincount(point, minlength=n_points).astype(float)
+    totals = np.stack(
+        [np.bincount(point, weights=c, minlength=n_points) for c in columns.T], axis=1
+    )
     with np.errstate(divide="ignore", invalid="ignore"):
-        return total / count
+        mean = totals / count[:, None]
+    return mean.reshape((n_points, *values.shape[1:]))
 
 
 @dataclass(frozen=True)

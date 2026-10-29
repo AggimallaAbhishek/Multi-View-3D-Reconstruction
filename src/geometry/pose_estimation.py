@@ -22,6 +22,7 @@ from src.features.matcher import Matches
 from src.geometry.epipolar import (
     TwoViewGeometry,
     angle_between_deg,
+    cos_to_deg,
     enforce_essential,
     essential_from_fundamental,
     homogeneous,
@@ -40,8 +41,7 @@ _W = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 
 def rotation_angle_deg(R: np.ndarray) -> float:
     """Angle of a rotation matrix, in degrees."""
-    cos = (np.trace(R) - 1.0) / 2.0
-    return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+    return float(cos_to_deg((np.trace(R) - 1.0) / 2.0))
 
 
 # --- essential matrix decomposition --------------------------------------------------------
@@ -72,12 +72,6 @@ def essential_factors(E: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray
     if np.linalg.det(Vt) < 0:
         Vt = -Vt
     return U @ _W @ Vt, U @ _W.T @ Vt, U[:, 2]
-
-
-def decompose_essential(E: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
-    """The four (R, t) pairs consistent with E."""
-    R1, R2, t = essential_factors(E)
-    return [(R1, t), (R1, -t), (R2, t), (R2, -t)]
 
 
 def _depths(R: np.ndarray, t: np.ndarray, n_i: np.ndarray, n_j: np.ndarray):
@@ -280,17 +274,6 @@ def select_initial_pair(stats: Sequence[PoseStats]) -> PoseStats | None:
     return max(candidates, key=lambda s: (s.n_valid, s.median_parallax_deg))
 
 
-def triangulate_pose_points(
-    pose: RelativePose, x_i: np.ndarray, x_j: np.ndarray, K_i: np.ndarray, K_j: np.ndarray
-) -> np.ndarray:
-    """Valid points of a two-view pose in camera-i coordinates (baseline length 1)."""
-    if pose.R is None or pose.t is None:  # "too_few_points": no pose was estimated
-        return np.empty((0, 3))
-    n_i, n_j = normalize_points(x_i, K_i), normalize_points(x_j, K_j)
-    X, _, _ = _depths(pose.R, pose.t, n_i[pose.valid_mask], n_j[pose.valid_mask])
-    return X
-
-
 @dataclass(frozen=True, eq=False)
 class InitialPair:
     """The pair the reconstruction starts from, with its two-view structure."""
@@ -301,7 +284,6 @@ class InitialPair:
     geometry: TwoViewGeometry
     x_i: np.ndarray  # (M, 2) verified inlier pixels in image i
     x_j: np.ndarray  # (M, 2) the corresponding pixels in image j
-    points: np.ndarray  # (N, 3) points passing cheirality, camera-i coordinates, |t| = 1
 
     def to_dict(self, names: Sequence[str]) -> dict[str, Any]:
         p = self.pose
@@ -330,16 +312,15 @@ def initial_pair(
     poses: Sequence[RelativePose | None],
     stats: Sequence[PoseStats],
 ) -> InitialPair | None:
-    """Select the initial pair and triangulate its points (lists aligned with ``matches``)."""
+    """Select the initial pair and collect its verified correspondences (lists aligned with
+    ``matches``). Its points are triangulated by ``reconstruction.two_view``."""
     best = select_initial_pair(stats)
     if best is None:
         return None
     k = next(n for n, m in enumerate(matches) if (m.i, m.j) == (best.i, best.j))
     m, g, pose = matches[k], geometries[k], poses[k]
     x_i, x_j = m.points(features[m.i], features[m.j])
-    x_i, x_j = x_i[g.inlier_mask], x_j[g.inlier_mask]
-    X = triangulate_pose_points(pose, x_i, x_j, views[m.i].K, views[m.j].K)
-    return InitialPair(m.i, m.j, pose, g, x_i, x_j, X)
+    return InitialPair(m.i, m.j, pose, g, x_i[g.inlier_mask], x_j[g.inlier_mask])
 
 
 def write_pose_statistics(

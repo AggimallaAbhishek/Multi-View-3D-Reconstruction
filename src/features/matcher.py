@@ -314,8 +314,7 @@ def save_matches(matches: Sequence[Matches], path: str | Path) -> Path:
     for m in matches:
         arrays[f"idx_{m.i}_{m.j}"] = np.column_stack([m.idx_i, m.idx_j]).astype(np.int32)
         arrays[f"dist_{m.i}_{m.j}"] = m.distances
-    np.savez_compressed(path, **arrays)
-    return path
+    return atomic_savez(path, compressed=True, **arrays)
 
 
 def load_matches(path: str | Path) -> list[Matches]:

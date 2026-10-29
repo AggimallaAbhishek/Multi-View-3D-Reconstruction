@@ -50,9 +50,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    camera = args.images / "camera.yaml"
-    if camera.exists() and not config.camera.calibration_file:
-        config = config.with_overrides({"camera.calibration_file": str(camera)})
     gt = load_cameras_json(args.images / "gt_cameras.json")
 
     result = run_pipeline(args.images, config)

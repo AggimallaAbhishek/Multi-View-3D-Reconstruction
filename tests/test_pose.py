@@ -8,7 +8,7 @@ from src.geometry.epipolar import normalize_points, skew, verify_pair
 from src.geometry.pose_estimation import (
     PoseStats,
     RelativePose,
-    decompose_essential,
+    essential_factors,
     essential_for_pose,
     estimate_pair_poses,
     estimate_relative_pose,
@@ -50,10 +50,10 @@ def test_rotation_metrics():
     )
 
 
-def test_decompose_essential_contains_true_pose(scene):
+def test_essential_factors_contain_true_pose(scene):
     R_true, t_true = scene.relative_pose(0, 1)
-    candidates = decompose_essential(_true_E(scene, 0, 1))
-    assert len(candidates) == 4
+    R1, R2, t = essential_factors(_true_E(scene, 0, 1))
+    candidates = [(R1, t), (R1, -t), (R2, t), (R2, -t)]
     for R, t in candidates:
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-10)
         assert np.linalg.det(R) == pytest.approx(1.0)
@@ -355,13 +355,3 @@ def test_all_points_far_still_picks_the_right_candidate():
     assert rotation_error_deg(pose.R, R_true) < 1e-3
     assert pose.reason == "low_parallax"
     assert pose.median_parallax_deg < 1.0
-
-
-def test_triangulate_pose_points_of_failed_pose_is_empty(scene):
-    from src.geometry.pose_estimation import triangulate_pose_points
-
-    x_i, x_j = scene.pair(0, 1)
-    pose = estimate_relative_pose(x_i[:5], x_j[:5], scene.K, scene.K, _true_E(scene, 0, 1), CFG)
-    assert pose.reason == "too_few_points"
-    X = triangulate_pose_points(pose, x_i[:5], x_j[:5], scene.K, scene.K)
-    assert X.shape == (0, 3)

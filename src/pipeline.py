@@ -1,6 +1,6 @@
 """The reconstruction pipeline as library code.
 
-dataset -> features -> matches -> verify -> pose -> triangulate (initial structure).
+dataset -> features -> matches -> verify -> pose -> triangulate (initial structure) -> cloud.
 
 Each stage reads and extends one ``PipelineResult``. The CLI and notebooks call these
 functions and decide what to write or plot; nothing here touches the filesystem except
@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+import numpy as np
 
 from src.config import Config
 from src.data.dataset import Dataset, PreparedImage, prepare_dataset
@@ -40,10 +42,11 @@ from src.geometry.pose_estimation import (
     initial_pair,
 )
 from src.geometry.verification import VerificationStats, verify_matches
+from src.pointcloud.coloring import color_points
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
-Stage = Literal["features", "matches", "verify", "pose", "triangulate"]
-STAGES: tuple[Stage, ...] = ("features", "matches", "verify", "pose", "triangulate")
+Stage = Literal["features", "matches", "verify", "pose", "triangulate", "cloud"]
+STAGES: tuple[Stage, ...] = ("features", "matches", "verify", "pose", "triangulate", "cloud")
 
 
 @dataclass
@@ -63,6 +66,7 @@ class PipelineResult:
     pose_stats: list[PoseStats] | None = None
     initial_pair: InitialPair | None = None
     structure: TwoViewStructure | None = None  # set by "triangulate" if an initial pair exists
+    colors: np.ndarray | None = None  # "cloud": RGB in [0, 1] of the structure's valid points
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -140,12 +144,24 @@ def triangulate(result: PipelineResult) -> PipelineResult:
     return result
 
 
+def color_cloud(result: PipelineResult) -> PipelineResult:
+    """Colour each valid point by the mean of the two images at its observations."""
+    s = result.structure
+    if s is not None:
+        images = [result.images[s.i].image, result.images[s.j].image]  # decoded once each
+        result.colors = color_points(images, s.observations, len(s.triangulation.valid))[
+            s.triangulation.valid
+        ]
+    return result
+
+
 _STEPS = {
     "features": extract,
     "matches": match,
     "verify": verify,
     "pose": estimate_poses,
     "triangulate": triangulate,
+    "cloud": color_cloud,
 }
 
 

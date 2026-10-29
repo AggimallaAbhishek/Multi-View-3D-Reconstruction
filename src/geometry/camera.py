@@ -19,9 +19,14 @@ class Camera:
     t: np.ndarray  # (3,)
 
     @property
+    def Rt(self) -> np.ndarray:
+        """Extrinsics [R | t], (3, 4)."""
+        return np.hstack([self.R, self.t.reshape(3, 1)])
+
+    @property
     def P(self) -> np.ndarray:
         """Projection matrix K [R | t], (3, 4)."""
-        return self.K @ np.hstack([self.R, self.t.reshape(3, 1)])
+        return self.K @ self.Rt
 
     @property
     def centre(self) -> np.ndarray:

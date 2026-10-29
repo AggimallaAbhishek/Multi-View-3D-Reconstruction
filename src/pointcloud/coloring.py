@@ -7,6 +7,7 @@ from collections.abc import Sequence
 import cv2
 import numpy as np
 
+from src.geometry.reprojection import per_point_mean
 from src.geometry.triangulation import Observations
 
 
@@ -31,9 +32,7 @@ def color_points(
     use. Points without observations are black.
     """
     n = obs.n_points if n_points is None else n_points
-    totals = np.zeros((n, 3))
-    for v in np.unique(obs.view):
-        sel = obs.view == v
-        np.add.at(totals, obs.point[sel], sample_colors(images_bgr[v], obs.xy[sel]))
-    counts = np.bincount(obs.point, minlength=n)[:, None]
-    return np.divide(totals, counts, out=np.zeros_like(totals), where=counts > 0)
+    samples = np.empty((len(obs), 3))
+    for v, idx in obs.by_view():
+        samples[idx] = sample_colors(images_bgr[v], obs.xy[idx])
+    return np.nan_to_num(per_point_mean(samples, obs.point, n))

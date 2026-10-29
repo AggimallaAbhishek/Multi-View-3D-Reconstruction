@@ -8,7 +8,6 @@ images are drawn only for the last stage a command runs.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from collections import Counter
@@ -19,7 +18,7 @@ import cv2
 import numpy as np
 
 from src.config import Config, load_config
-from src.data.dataset import prepare_dataset
+from src.data.dataset import Dataset, prepare_dataset
 from src.data.loader import DatasetError, ImageRecord, discover_images, iter_images
 from src.data.validation import format_report
 from src.features.extractor import weak_images, write_feature_statistics
@@ -44,10 +43,10 @@ from src.geometry.verification import (
     verification_matrix,
     write_verification_statistics,
 )
-from src.pipeline import PipelineResult, Stage, run_pipeline
-from src.pointcloud.export import read_cameras_json, read_ply
-from src.reconstruction.two_view import colored_points, save_two_view
-from src.run import create_run_dir, write_run_metadata
+from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
+from src.pointcloud.export import read_cameras_json, read_ply, save_cloud
+from src.reconstruction.two_view import FRAME as TWO_VIEW_FRAME
+from src.run import atomic_savez, create_run_dir, write_json, write_run_metadata
 from src.visualization.cameras import plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
@@ -136,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         parents=[common, detector, method],
         help="initial pair -> coloured sparse point cloud (PLY), cameras.json and a render",
     )
-    p.set_defaults(func=_stage_command, stage="triangulate", draw=0, two_view=True)
+    p.set_defaults(func=_stage_command, stage="cloud", draw=0)
 
     p = sub.add_parser("view", help="open a point cloud (PLY) with its cameras in a 3-D viewer")
     p.add_argument("ply", type=Path, help="point cloud, e.g. .../point_clouds/sparse.ply")
@@ -160,18 +159,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _config_from_args(args: argparse.Namespace) -> Config:
-    """The YAML config with every dotted-key option given on the command line applied.
-
-    If no calibration file is configured and the image folder contains ``camera.yaml``
-    (as written by ``calibrate`` or ``scripts/download_middlebury.py``), it is used.
-    """
+    """The YAML config with every dotted-key option given on the command line applied."""
     overrides = {key: value for key, value in vars(args).items() if "." in key}
-    config = load_config(args.config).with_overrides(overrides)
-    found = Path(args.images) / "camera.yaml"
-    if config.camera.calibration_file is None and found.is_file():
-        print(f"Using calibration {found} (found next to the images)")
-        config = config.with_overrides({"camera.calibration_file": str(found)})
-    return config
+    return load_config(args.config).with_overrides(overrides)
+
+
+def _report_calibration(config: Config, dataset: Dataset) -> None:
+    if dataset.calibration_file and not config.camera.calibration_file:
+        print(f"Using calibration {dataset.calibration_file} (found next to the images)")
 
 
 def _print_dataset_error(exc: DatasetError) -> None:
@@ -208,6 +203,7 @@ def _validate(args: argparse.Namespace) -> int:
         _print_dataset_error(exc)
         return 1
 
+    _report_calibration(config, dataset)
     run_dir = create_run_dir(config.output.root, "validate")
     dataset.save(run_dir / "dataset.json")
     write_run_metadata(run_dir, config)
@@ -225,7 +221,7 @@ def _validate(args: argparse.Namespace) -> int:
 
 def _stage_command(args: argparse.Namespace) -> int:
     """features, matches, verify, pose, triangulate and two-view: run the pipeline up to
-    ``args.stage`` and write the outputs of every stage that ran."""
+    ``args.stage`` and write the outputs of every stage that ran (see ``_SAVERS``)."""
     config = _config_from_args(args)
     stage: Stage = args.stage
     try:
@@ -234,25 +230,16 @@ def _stage_command(args: argparse.Namespace) -> int:
         _print_dataset_error(exc)
         return 1
 
+    _report_calibration(config, result.dataset)
     label = args.command.replace("-", "_")
     run_dir = create_run_dir(config.output.root, f"{label}_{result.extractor.name}")
     write_run_metadata(run_dir, config)
 
-    def draw_for(s: Stage) -> int:
-        return max(args.draw, 0) if s == stage else 0
-
-    written = _save_features(result, run_dir, draw_for("features"))
-    if result.matches is not None:
-        written = _save_matches(result, run_dir, draw_for("matches"))
-    if result.geometries is not None:
-        written = _save_verification(result, run_dir, draw_for("verify"))
-    status = 0
-    if result.poses is not None:
-        written, status = _save_poses(result, run_dir)
-    if stage == "triangulate" and result.structure is not None:
-        written = _save_triangulation(result, run_dir)
-        if getattr(args, "two_view", False):
-            written = _save_two_view(result, run_dir)
+    written, status = None, 0
+    for s in STAGES[: STAGES.index(stage) + 1]:
+        draw = max(args.draw, 0) if s == stage else 0
+        path, stage_status = _SAVERS[s](result, run_dir, draw)
+        written, status = path or written, max(status, stage_status)
     print(f"Wrote {written}")
     return status
 
@@ -260,7 +247,7 @@ def _stage_command(args: argparse.Namespace) -> int:
 # --- per-stage outputs and summaries ------------------------------------------------------
 
 
-def _save_features(r: PipelineResult, run_dir: Path, draw: int) -> Path:
+def _save_features(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path, int]:
     out = run_dir / "features"
     csv_path = write_feature_statistics(r.feature_stats, out / "feature_statistics.csv")
     for im, f in list(zip(r.images, r.features, strict=True))[:draw]:
@@ -284,10 +271,10 @@ def _save_features(r: PipelineResult, run_dir: Path, draw: int) -> Path:
             f"[WARNING] {s.image}: {s.n_features} features, coverage {s.coverage:.2f} "
             "- too little texture or features concentrated in one region"
         )
-    return csv_path
+    return csv_path, 0
 
 
-def _save_matches(r: PipelineResult, run_dir: Path, draw: int) -> Path:
+def _save_matches(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path, int]:
     out, names, stats, cfg = run_dir / "matches", r.names, r.match_stats, r.config.matching
     csv_path = write_match_statistics(stats, names, out / "match_statistics.csv")
     save_matches(r.matches, out / "matches.npz")
@@ -314,10 +301,10 @@ def _save_matches(r: PipelineResult, run_dir: Path, draw: int) -> Path:
             f"[WARNING] {names[k]}: best pair has only {best[k]} matches - "
             "it will probably not be registered"
         )
-    return csv_path
+    return csv_path, 0
 
 
-def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> Path:
+def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path, int]:
     out, names, stats, cfg = (
         run_dir / "verification", r.names, r.verification_stats, r.config.verification
     )  # fmt: skip
@@ -334,12 +321,13 @@ def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> Path:
         a, b = r.images[m.i], r.images[m.j]
         stem = _pair_stem(a.name, b.name)
         fi, fj = r.features[m.i], r.features[m.j]
-        canvas = draw_matches(a.image, b.image, fi, fj, m, inlier_mask=g.inlier_mask)
+        image_a, image_b = a.image, b.image  # each access decodes from disk: do it once
+        canvas = draw_matches(image_a, image_b, fi, fj, m, inlier_mask=g.inlier_mask)
         cv2.imwrite(str(out / f"{stem}_inliers.png"), canvas)
         if g.F is not None and g.n_inliers:
             x_i, x_j = m.points(fi, fj)
             canvas = draw_epipolar_lines(
-                a.image, b.image, x_i[g.inlier_mask], x_j[g.inlier_mask], g.F
+                image_a, image_b, x_i[g.inlier_mask], x_j[g.inlier_mask], g.F
             )
             cv2.imwrite(str(out / f"{stem}_epipolar.png"), canvas)
 
@@ -362,10 +350,10 @@ def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> Path:
         )
     for k in unverified_images(stats, len(names)):
         print(f"[WARNING] {names[k]}: no verified pair - it cannot be registered")
-    return csv_path
+    return csv_path, 0
 
 
-def _save_poses(r: PipelineResult, run_dir: Path) -> tuple[Path, int]:
+def _save_poses(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path, int]:
     out, names, stats, cfg = run_dir / "pose", r.names, r.pose_stats, r.config
     csv_path = write_pose_statistics(stats, names, out / "relative_poses.csv")
 
@@ -390,14 +378,12 @@ def _save_poses(r: PipelineResult, run_dir: Path) -> tuple[Path, int]:
         return csv_path, 1
 
     a, b, pose, g = names[init.i], names[init.j], init.pose, init.geometry
-    plot_two_view(
-        pose.R, pose.t, init.points, (a, b), out / "initial_pair.png",
-        title=f"Initial pair {a} - {b}: {len(init.points)} points, "
+    plot_two_view(  # camera arrangement; the filtered points are in triangulation/structure.png
+        pose.R, pose.t, np.empty((0, 3)), (a, b), out / "initial_pair.png",
+        title=f"Initial pair {a} - {b}: rotation {pose.rotation_deg:.1f} deg, "
         f"parallax {pose.median_parallax_deg:.1f} deg",
     )  # fmt: skip
-    (out / "initial_pair.json").write_text(
-        json.dumps(init.to_dict(names), indent=2), encoding="utf-8"
-    )
+    write_json(out / "initial_pair.json", init.to_dict(names))
     print(
         f"Initial pair: {a} - {b}: {pose.n_valid} points, "
         f"parallax {pose.median_parallax_deg:.1f} deg, rotation {pose.rotation_deg:.1f} deg, "
@@ -406,7 +392,9 @@ def _save_poses(r: PipelineResult, run_dir: Path) -> tuple[Path, int]:
     return csv_path, 0
 
 
-def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
+def _save_triangulation(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    if r.structure is None:  # no initial pair: _save_poses already reported it
+        return None, 0
     out, s, cfg = run_dir / "triangulation", r.structure, r.config.triangulation
     tri = s.triangulation
     out.mkdir(parents=True, exist_ok=True)
@@ -416,12 +404,12 @@ def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
         "image_j": names[s.j],
         **tri.summary(),
         "settings": r.config.to_dict()["triangulation"],
-        "frame": "camera i at the origin, baseline length 1 (scale unknown)",
+        "frame": TWO_VIEW_FRAME,
     }
-    json_path = out / "triangulation.json"
-    json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    np.savez_compressed(
+    json_path = write_json(out / "triangulation.json", summary)
+    atomic_savez(
         out / "points.npz",
+        compressed=True,
         points=tri.points,
         valid=tri.valid,
         rejected_by=tri.rejected_by.astype(str),
@@ -457,27 +445,40 @@ def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
             f"Triangulation angle: median {angles['median']:.1f} deg, "
             f"min {angles['min']:.1f} deg (threshold {cfg.min_angle_deg} deg)"
         )
-    return json_path
+    return json_path, 0
 
 
-def _save_two_view(r: PipelineResult, run_dir: Path) -> Path:
-    """Coloured sparse cloud, cameras and renders of the initial structure."""
+def _save_cloud(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    """Coloured sparse cloud, cameras and renders of the initial structure (two-view)."""
     s = r.structure
-    image_i, image_j = r.images[s.i], r.images[s.j]
-    colors = colored_points(s, image_i.image, image_j.image)
-    files = save_two_view(s, image_i, image_j, run_dir, colors=colors)
+    if s is None:
+        return None, 0
+    a, b = r.images[s.i], r.images[s.j]
+    sizes = [(a.width, a.height), (b.width, b.height)]
+    files = save_cloud(
+        run_dir, s.points, r.colors, s.cameras, [a.name, b.name], sizes, TWO_VIEW_FRAME
+    )
     print(f"Sparse cloud: {len(s.points)} coloured points -> {files.ply}")
     print(f"Cameras: {files.cameras}")
-    sizes = [(image_i.width, image_i.height), (image_j.width, image_j.height)]
     try:
         figures = run_dir / "figures"
         for focus, name in (("cameras", "two_view.png"), ("points", "two_view_closeup.png")):
-            render = render_scene(s.points, colors, s.cameras, sizes, figures / name, focus=focus)
+            render = render_scene(s.points, r.colors, s.cameras, sizes, figures / name, focus=focus)
             print(f"Render: {render}")
     except RenderUnavailable as exc:
         print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
     print(f"View it: python -m src.cli view {files.ply} --cameras {files.cameras}")
-    return files.ply
+    return files.ply, 0
+
+
+_SAVERS = {
+    "features": _save_features,
+    "matches": _save_matches,
+    "verify": _save_verification,
+    "pose": _save_poses,
+    "triangulate": _save_triangulation,
+    "cloud": _save_cloud,
+}
 
 
 def _view(args: argparse.Namespace) -> int:

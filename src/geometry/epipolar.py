@@ -45,11 +45,17 @@ def skew(v: np.ndarray) -> np.ndarray:
     return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
 
 
+def cos_to_deg(cos: np.ndarray | float) -> np.ndarray | float:
+    """arccos in degrees, clipped so rounding just outside [-1, 1] stays finite."""
+    return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+
+
 def angle_between_deg(a: np.ndarray, b: np.ndarray) -> np.ndarray | float:
     """Angle in degrees between vectors a and b (row-wise for (N, 3) arrays)."""
     a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
-    cos = np.sum(a * b, axis=-1) / (np.linalg.norm(a, axis=-1) * np.linalg.norm(b, axis=-1))
-    return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+    return cos_to_deg(
+        np.sum(a * b, axis=-1) / (np.linalg.norm(a, axis=-1) * np.linalg.norm(b, axis=-1))
+    )
 
 
 def homogeneous(points: np.ndarray) -> np.ndarray:

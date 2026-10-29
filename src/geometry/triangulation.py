@@ -14,11 +14,8 @@ import numpy as np
 
 from src.config import TriangulationConfig
 from src.geometry.camera import Camera
-from src.geometry.reprojection import (
-    ReprojectionStats,
-    project_observations,
-    reprojection_errors,
-)
+from src.geometry.epipolar import cos_to_deg, normalize_points
+from src.geometry.reprojection import ReprojectionStats, project_observations
 
 
 @dataclass(frozen=True, eq=False)
@@ -47,6 +44,12 @@ class Observations:
     def subset(self, mask: np.ndarray) -> Observations:
         return Observations(self.view[mask], self.point[mask], self.xy[mask])
 
+    def by_view(self) -> list[tuple[int, np.ndarray]]:
+        """(view, observation indices) for every view that has observations."""
+        order = np.argsort(self.view, kind="stable")
+        views, starts = np.unique(self.view[order], return_index=True)
+        return list(zip(views.tolist(), np.split(order, starts[1:]), strict=True))
+
 
 # --- linear triangulation --------------------------------------------------------------
 
@@ -63,23 +66,26 @@ def triangulate_dlt(
     number of observations are solved together in one batched eigendecomposition.
     """
     n_points = obs.n_points if n_points is None else n_points
-    K_inv = np.stack([np.linalg.inv(c.K) for c in cameras])[obs.view]
-    Rt = np.stack([np.hstack([c.R, c.t.reshape(3, 1)]) for c in cameras])[obs.view]
-    x = np.einsum("mij,mj->mi", K_inv, np.hstack([obs.xy, np.ones((len(obs), 1))]))
-    x = x[:, :2] / x[:, 2:3]
+    rows, owners = [], []
+    for v, idx in obs.by_view():
+        Rt = cameras[v].Rt
+        x = normalize_points(obs.xy[idx], cameras[v].K)
+        rows += [x[:, :1] * Rt[2] - Rt[0], x[:, 1:2] * Rt[2] - Rt[1]]
+        owners += [obs.point[idx], obs.point[idx]]
+    A = np.concatenate(rows) if rows else np.empty((0, 4))
+    owner = np.concatenate(owners) if owners else np.empty(0, dtype=np.int64)
+    A /= np.linalg.norm(A, axis=1, keepdims=True)
 
-    rows = np.concatenate(
-        [x[:, :1] * Rt[:, 2] - Rt[:, 0], x[:, 1:2] * Rt[:, 2] - Rt[:, 1]]
-    )  # (2M, 4)
-    rows /= np.linalg.norm(rows, axis=1, keepdims=True)
+    # A^T A per point is symmetric: accumulate its 10 distinct entries with bincount.
     normal = np.zeros((n_points, 4, 4))
-    np.add.at(normal, np.concatenate([obs.point, obs.point]), rows[:, :, None] * rows[:, None])
+    for a, b in zip(*np.triu_indices(4), strict=True):
+        entry = np.bincount(owner, weights=A[:, a] * A[:, b], minlength=n_points)
+        normal[:, a, b] = normal[:, b, a] = entry
 
     X = np.full((n_points, 3), np.nan)
     solvable = obs.views_per_point(n_points) >= 2
     _, vectors = np.linalg.eigh(normal[solvable])
-    X_h = vectors[:, :, 0]  # eigenvalues ascending: the first is the null vector
-    X[solvable] = _dehomogenise(X_h)
+    X[solvable] = _dehomogenise(vectors[:, :, 0])  # eigenvalues ascending: null vector first
     return X
 
 
@@ -115,6 +121,25 @@ def _dehomogenise(X_h: np.ndarray) -> np.ndarray:
 # --- nonlinear refinement --------------------------------------------------------------
 
 
+def _residuals_and_jacobians(
+    cameras: Sequence[Camera], obs: Observations, X: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pixel residuals (M, 2) and their derivatives with respect to the point (M, 2, 3)."""
+    residual = np.empty((len(obs), 2))
+    J = np.empty((len(obs), 2, 3))
+    for v, idx in obs.by_view():
+        cam = cameras[v]
+        KR = cam.K @ cam.R  # dp/dX for the homogeneous pixel p = K (R X + t)
+        p = X[obs.point[idx]] @ KR.T + cam.K @ cam.t
+        with np.errstate(divide="ignore", invalid="ignore"):
+            residual[idx] = p[:, :2] / p[:, 2:3] - obs.xy[idx]
+            # u = p0 / p2, v = p1 / p2  ->  du/dX = (KR[0] p2 - p0 KR[2]) / p2^2, same for v.
+            J[idx] = (KR[None, :2] * p[:, 2, None, None] - p[:, :2, None] * KR[2]) / (
+                p[:, 2, None, None] ** 2
+            )
+    return residual, J
+
+
 def refine_points(
     cameras: Sequence[Camera], obs: Observations, X: np.ndarray, iterations: int = 5
 ) -> np.ndarray:
@@ -122,43 +147,46 @@ def refine_points(
 
     DLT minimises an algebraic error; this minimises the geometric one with cameras
     fixed (each point is an independent 3-parameter problem, solved in a batch). An
-    update is kept only for points whose total squared error decreases.
+    update is kept only for points whose total squared error decreases, and iteration
+    stops early once no point improves. One projection per iteration.
     """
     X = X.copy()
     n = len(X)
     ok = np.isfinite(X).all(axis=1)
-    K = np.stack([c.K for c in cameras])[obs.view]
-    KR = np.einsum("mij,mjk->mik", K, np.stack([c.R for c in cameras])[obs.view])
+    residual, J = _residuals_and_jacobians(cameras, obs, X)
 
-    Kt = np.stack([c.K @ c.t for c in cameras])[obs.view]
-
-    def cost(points: np.ndarray) -> np.ndarray:
-        e = reprojection_errors(cameras, obs, points) ** 2
+    def point_cost(r: np.ndarray) -> np.ndarray:
+        e = np.sum(r**2, axis=1)
         return np.bincount(obs.point, weights=np.where(np.isfinite(e), e, 1e30), minlength=n)
 
-    current = cost(X)
+    cost = point_cost(residual)
     for _ in range(iterations):
-        pixels, _ = project_observations(cameras, obs, X)
-        residual = pixels - obs.xy  # (M, 2)
-        p = np.einsum("mij,mj->mi", KR, X[obs.point]) + Kt  # homogeneous pixel K(RX + t)
-        # d(u, v)/dX for u = p0/p2, v = p1/p2, with dp/dX = K R.
-        J = (KR[:, :2] * p[:, 2, None, None] - p[:, :2, None] * KR[:, 2][:, None]) / (
-            p[:, 2, None, None] ** 2
-        )  # (M, 2, 3)
-        JtJ = np.zeros((n, 3, 3))
-        Jtr = np.zeros((n, 3))
         good = np.isfinite(residual).all(axis=1) & np.isfinite(J).all(axis=(1, 2))
-        np.add.at(JtJ, obs.point[good], np.einsum("mki,mkj->mij", J[good], J[good]))
-        np.add.at(Jtr, obs.point[good], np.einsum("mki,mk->mi", J[good], residual[good]))
-        damping = 1e-9 * np.trace(JtJ, axis1=1, axis2=2)[:, None, None] * np.eye(
-            3
-        ) + 1e-12 * np.eye(3)
+        pts, Jg, rg = obs.point[good], J[good], residual[good]
+        JtJ = np.zeros((n, 3, 3))
+        for a, b in zip(*np.triu_indices(3), strict=True):
+            entry = np.bincount(pts, weights=np.sum(Jg[:, :, a] * Jg[:, :, b], axis=1), minlength=n)
+            JtJ[:, a, b] = JtJ[:, b, a] = entry
+        Jtr = np.stack(
+            [
+                np.bincount(pts, weights=np.sum(Jg[:, :, a] * rg, axis=1), minlength=n)
+                for a in range(3)
+            ],
+            axis=1,
+        )
+        damping = (1e-9 * np.trace(JtJ, axis1=1, axis2=2) + 1e-12)[:, None, None] * np.eye(3)
         step = np.zeros_like(X)
         step[ok] = -np.linalg.solve(JtJ[ok] + damping[ok], Jtr[ok][:, :, None])[:, :, 0]
+
         candidate = X + step
-        new = cost(candidate)
-        better = ok & (new < current)
-        X[better], current[better] = candidate[better], new[better]
+        residual_c, J_c = _residuals_and_jacobians(cameras, obs, candidate)
+        new = point_cost(residual_c)
+        better = ok & (new < cost)
+        if not better.any():
+            break
+        X[better], cost[better] = candidate[better], new[better]
+        moved = better[obs.point]
+        residual[moved], J[moved] = residual_c[moved], J_c[moved]
     return X
 
 
@@ -187,8 +215,7 @@ def triangulation_angles_deg(
         pts = np.flatnonzero(counts == length)
         idx = order[starts[pts][:, None] + np.arange(length)]  # (n_L, L)
         r = rays[idx]  # (n_L, L, 3)
-        cos = np.einsum("pai,pbi->pab", r, r).reshape(len(pts), -1).min(axis=1)
-        angles[pts] = np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+        angles[pts] = cos_to_deg(np.einsum("pai,pbi->pab", r, r).reshape(len(pts), -1).min(axis=1))
     return angles
 
 
@@ -198,12 +225,16 @@ FILTER_ORDER = ("too_few_views", "non_finite", "behind_camera", "reprojection", 
 @dataclass(frozen=True, eq=False)
 class TriangulationResult:
     points: np.ndarray  # (N, 3); invalid points are kept so indices stay aligned
-    valid: np.ndarray  # (N,) passed every filter
     rejected_by: np.ndarray  # (N,) object: first failed filter name, or "" if valid
     angles_deg: np.ndarray  # (N,) largest ray angle
     max_errors: np.ndarray  # (N,) largest reprojection error over the point's observations
     errors: np.ndarray  # (M,) reprojection error per observation
     reprojection: ReprojectionStats  # over observations of valid points
+
+    @property
+    def valid(self) -> np.ndarray:
+        """(N,) passed every filter."""
+        return self.rejected_by == ""
 
     def summary(self) -> dict:
         """Counts per filter, reprojection statistics and triangulation angles (valid points)."""
@@ -243,8 +274,8 @@ def triangulate_and_filter(
     if config.refine:
         X = refine_points(cameras, obs, X, config.refine_iterations)
 
-    _, depths = project_observations(cameras, obs, X)
-    errors = reprojection_errors(cameras, obs, X)
+    pixels, depths = project_observations(cameras, obs, X)
+    errors = np.linalg.norm(pixels - obs.xy, axis=1)
     behind = np.bincount(obs.point, weights=~(depths > 0), minlength=n) > 0
     max_errors = np.full(n, -np.inf)
     np.maximum.at(max_errors, obs.point, np.where(np.isfinite(errors), errors, np.inf))
@@ -263,7 +294,6 @@ def triangulate_and_filter(
     valid = rejected_by == ""
     return TriangulationResult(
         points=X,
-        valid=valid,
         rejected_by=rejected_by,
         angles_deg=angles,
         max_errors=max_errors,

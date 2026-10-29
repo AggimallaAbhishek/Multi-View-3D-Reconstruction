@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 
 from src.geometry.camera import Camera
+from src.run import read_json, write_json
 
 
 def to_open3d(points: np.ndarray, colors: np.ndarray | None = None) -> o3d.t.geometry.PointCloud:
@@ -49,8 +50,6 @@ def write_cameras_json(
     sizes: Sequence[tuple[int, int]],
     frame: str = "reconstruction frame (world -> camera: x_c = R X + t)",
 ) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "frame": frame,
         "cameras": [
@@ -67,13 +66,38 @@ def write_cameras_json(
             for k, (cam, name, size) in enumerate(zip(cameras, names, sizes, strict=True))
         ],
     }
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return path
+    return write_json(path, data)
 
 
 def read_cameras_json(
     path: str | Path,
 ) -> tuple[list[Camera], list[str], list[tuple[int, int]]]:
-    entries = json.loads(Path(path).read_text(encoding="utf-8"))["cameras"]
+    entries = read_json(path)["cameras"]
     cameras = [Camera(np.array(e["K"]), np.array(e["R"]), np.array(e["t"])) for e in entries]
     return cameras, [e["name"] for e in entries], [(e["width"], e["height"]) for e in entries]
+
+
+@dataclass(frozen=True)
+class SavedCloud:
+    ply: Path
+    cameras: Path
+
+
+def save_cloud(
+    directory: str | Path,
+    points: np.ndarray,
+    colors: np.ndarray | None,
+    cameras: Sequence[Camera],
+    names: Sequence[str],
+    sizes: Sequence[tuple[int, int]],
+    frame: str,
+    name: str = "sparse",
+) -> SavedCloud:
+    """``point_clouds/<name>.ply`` and ``camera_poses/cameras.json`` under ``directory``."""
+    directory = Path(directory)
+    return SavedCloud(
+        ply=write_ply(directory / "point_clouds" / f"{name}.ply", points, colors),
+        cameras=write_cameras_json(
+            directory / "camera_poses" / "cameras.json", cameras, names, sizes, frame=frame
+        ),
+    )

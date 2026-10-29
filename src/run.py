@@ -61,7 +61,7 @@ def parallel_map[T, U](fn: Callable[[T], U], items: Iterable[T], workers: int) -
         return list(pool.map(fn, items))
 
 
-def atomic_savez(path: str | Path, **arrays) -> Path:
+def atomic_savez(path: str | Path, compressed: bool = False, **arrays) -> Path:
     """``np.savez`` into ``path`` atomically: readers never see a partial file.
 
     Writes to a uniquely named temporary file in the same directory and renames it into
@@ -73,12 +73,23 @@ def atomic_savez(path: str | Path, **arrays) -> Path:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
-            np.savez(f, **arrays)
+            (np.savez_compressed if compressed else np.savez)(f, **arrays)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
     return path
+
+
+def write_json(path: str | Path, data) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return path
+
+
+def read_json(path: str | Path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def write_csv(path: str | Path, header: Sequence[str], rows: Iterable[Sequence]) -> Path:
@@ -95,9 +106,7 @@ def write_csv(path: str | Path, header: Sequence[str], rows: Iterable[Sequence])
 def write_run_metadata(run_dir: Path, config: Config) -> None:
     with (run_dir / "config.yaml").open("w", encoding="utf-8") as f:
         yaml.safe_dump(config.to_dict(), f, sort_keys=False)
-    (run_dir / "environment.json").write_text(
-        json.dumps(environment_info(), indent=2), encoding="utf-8"
-    )
+    write_json(run_dir / "environment.json", environment_info())
 
 
 def environment_info() -> dict:

@@ -140,3 +140,23 @@ def test_colour_image_is_rebuilt_on_demand(image_dir):
     expected = cv2.resize(read_image(im.path), (320, 240), interpolation=cv2.INTER_AREA)
     np.testing.assert_array_equal(im.image, expected)
     np.testing.assert_array_equal(cv2.cvtColor(im.image, cv2.COLOR_BGR2GRAY), im.gray)
+
+
+def test_camera_yaml_next_to_images_is_used(image_dir, tmp_path):
+    # Library behaviour, so the CLI, scripts and notebooks calibrate identically.
+    save_camera_file(fallback_intrinsics(640, 480, 2.0), image_dir / "camera.yaml")
+    dataset = prepare_dataset(image_dir, CFG)
+    assert dataset.calibration_file == image_dir / "camera.yaml"
+    assert {im.intrinsics_source for im in dataset.images} == {"file"}
+    np.testing.assert_allclose(dataset.images[0].K[0, 0], 2.0 * 640 * 0.5)
+
+
+def test_configured_calibration_file_wins(image_dir, tmp_path):
+    save_camera_file(fallback_intrinsics(640, 480, 2.0), image_dir / "camera.yaml")
+    other = save_camera_file(fallback_intrinsics(640, 480, 3.0), tmp_path / "other.yaml")
+    cfg = config_from_dict(
+        {"preprocessing": {"max_side": 320}, "camera": {"calibration_file": str(other)}}
+    )
+    dataset = prepare_dataset(image_dir, cfg)
+    assert dataset.calibration_file == other
+    np.testing.assert_allclose(dataset.images[0].K[0, 0], 3.0 * 640 * 0.5)

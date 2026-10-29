@@ -55,8 +55,7 @@ def test_pipeline_end_to_end_recovers_true_initial_pose(scene_dir):
     R_true, t_true = scene.relative_pose(init.i, init.j)
     assert rotation_error_deg(init.pose.R, R_true) < 0.5
     assert translation_direction_error_deg(init.pose.t, t_true) < 2.0
-    assert init.points.shape == (init.pose.n_valid, 3)
-    assert np.all(init.points[:, 2] > 0)  # in front of camera i
+    assert len(init.x_i) == len(init.x_j) == init.geometry.n_inliers
     assert init.to_dict(result.names)["image_i"] == result.names[init.i]
 
 
@@ -163,21 +162,26 @@ def test_structure_metric_is_resolution_independent(scene_dir):
     assert abs(metric.scale_ratio - 1) < 0.05
 
 
-def test_two_view_export_is_available_from_the_library(scene_dir, tmp_path):
-    from src.pointcloud.export import read_cameras_json, read_ply
-    from src.reconstruction.two_view import save_two_view
+def test_two_view_cloud_is_available_from_the_library(scene_dir, tmp_path):
+    from src.pointcloud.export import read_cameras_json, read_ply, save_cloud
+    from src.reconstruction.two_view import FRAME
 
     _, images, config = scene_dir
-    result = run_pipeline(images, config)
+    result = run_pipeline(images, config, until="cloud")
     s = result.structure
-    files = save_two_view(s, result.images[s.i], result.images[s.j], tmp_path)
+    assert result.colors.shape == s.points.shape
+    a, b = result.images[s.i], result.images[s.j]
+    files = save_cloud(
+        tmp_path, s.points, result.colors, s.cameras, [a.name, b.name],
+        [(a.width, a.height), (b.width, b.height)], FRAME,
+    )  # fmt: skip
     points, colors = read_ply(files.ply)
     np.testing.assert_array_equal(points, s.points)
-    assert colors.shape == points.shape
-    assert read_cameras_json(files.cameras)[1] == [result.names[s.i], result.names[s.j]]
+    np.testing.assert_allclose(colors, result.colors, atol=1e-6)
+    assert read_cameras_json(files.cameras)[1] == [a.name, b.name]
 
 
-def test_cli_records_out_and_uses_camera_yaml_next_to_images(scene_dir, tmp_path, capsys):
+def test_cli_records_out_and_camera_yaml_next_to_images_is_used(scene_dir, tmp_path, capsys):
     import shutil
 
     import yaml
@@ -199,6 +203,5 @@ def test_cli_records_out_and_uses_camera_yaml_next_to_images(scene_dir, tmp_path
     (run_dir,) = out.glob("*_pose_sift")
     recorded = yaml.safe_load((run_dir / "config.yaml").read_text())
     assert recorded["output"]["root"] == str(out)
-    assert recorded["camera"]["calibration_file"] == str(folder / "camera.yaml")
     stats = (run_dir / "verification" / "verification_statistics.csv").read_text()
     assert ",essential," in stats  # calibrated intrinsics -> auto picks the essential matrix
