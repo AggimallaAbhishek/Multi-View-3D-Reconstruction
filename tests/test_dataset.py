@@ -178,3 +178,32 @@ def test_configured_calibration_file_wins(image_dir, tmp_path):
     dataset = prepare_dataset(image_dir, cfg)
     assert dataset.calibration_file == other
     np.testing.assert_allclose(dataset.images[0].K[0, 0], 3.0 * 640 * 0.5)
+
+
+def test_max_images_keeps_an_evenly_spaced_subset(tmp_path):
+    directory = tmp_path / "ring"
+    write_textured_images(directory, 10, size=(160, 120))
+    cfg = config_from_dict({"dataset": {"max_images": 4}})
+    names = [im.name for im in prepare_dataset(directory, cfg).images]
+    assert names == [f"image_{i:03d}.jpg" for i in (1, 4, 7, 10)]  # linspace(0, 9, 4)
+    assert len(prepare_dataset(directory, config_from_dict({})).images) == 10
+    cfg = config_from_dict({"dataset": {"max_images": 50}})
+    assert len(prepare_dataset(directory, cfg).images) == 10
+
+
+def test_focal_scale_simulates_a_focal_length_error(image_dir):
+    save_camera_file(fallback_intrinsics(640, 480, 2.0), image_dir / "camera.yaml")
+    cfg = config_from_dict({"preprocessing": {"max_side": 320}, "camera": {"focal_scale": 1.1}})
+    K = prepare_dataset(image_dir, cfg).images[0].K
+    np.testing.assert_allclose([K[0, 0], K[1, 1]], 1.1 * 2.0 * 640 * 0.5)
+    np.testing.assert_allclose(K[:2, 2], prepare_dataset(image_dir, CFG).images[0].K[:2, 2])
+
+
+def test_camera_yaml_next_to_images_can_be_ignored(image_dir):
+    save_camera_file(fallback_intrinsics(640, 480, 2.0), image_dir / "camera.yaml")
+    cfg = config_from_dict(
+        {"preprocessing": {"max_side": 320}, "camera": {"auto_calibration_file": False}}
+    )
+    dataset = prepare_dataset(image_dir, cfg)
+    assert dataset.calibration_file is None
+    assert {im.intrinsics_source for im in dataset.images} == {"fallback"}

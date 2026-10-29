@@ -1,0 +1,8 @@
+# Quality gain from bundle adjustment (and the structure refinement that follows it).
+name: e5_bundle_adjustment
+question: E5 - what does bundle adjustment gain?
+vary:
+  bundle_adjustment.enabled: [true, false]
+plot:
+  y: [rotation_error_median_deg, rotation_error_max_deg, centre_error_median,
+      reprojection_mean_px, completeness, time_total_s]

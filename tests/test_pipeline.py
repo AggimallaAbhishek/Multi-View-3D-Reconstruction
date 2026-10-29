@@ -4,7 +4,7 @@ import pytest
 from src.config import config_from_dict
 from src.data.loader import DatasetError
 from src.evaluation.metrics import rotation_error_deg, translation_direction_error_deg
-from src.pipeline import run_pipeline
+from src.pipeline import run_pipeline, stages_until
 from tests.images import write_image
 from tests.render import render_box_scene
 
@@ -40,6 +40,8 @@ def scene_dir(tmp_path_factory):
 def test_pipeline_stops_after_requested_stage(scene_dir, until, filled, empty):
     _, images, config = scene_dir
     result = run_pipeline(images, config, until=until)
+    assert list(result.timings) == ["dataset", *stages_until(until)]
+    assert all(t >= 0 for t in result.timings.values())
     assert all(getattr(result, name) is not None for name in filled)
     assert all(getattr(result, name) is None for name in empty)
 

@@ -9,6 +9,7 @@ The principal point of estimated intrinsics is the image centre, ((w - 1) / 2, (
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,13 +98,21 @@ def resolve_intrinsics(
     config: CameraConfig,
     calibration: Intrinsics | None = None,
 ) -> Intrinsics:
+    """Calibration file, else EXIF, else the fallback guess; fx and fy are then
+    multiplied by ``config.focal_scale`` (1 in normal use; experiments set it to
+    simulate a focal-length error)."""
     if calibration is not None:
-        return calibration.scaled_to(width, height, config.aspect_tolerance)
-    if config.use_exif:
-        from_exif = intrinsics_from_exif(exif, width, height)
-        if from_exif is not None:
-            return from_exif
-    return fallback_intrinsics(width, height, config.fallback_focal_factor)
+        intrinsics = calibration.scaled_to(width, height, config.aspect_tolerance)
+    elif config.use_exif and (exif_K := intrinsics_from_exif(exif, width, height)) is not None:
+        intrinsics = exif_K
+    else:
+        intrinsics = fallback_intrinsics(width, height, config.fallback_focal_factor)
+    if config.focal_scale == 1.0:
+        return intrinsics
+    K = intrinsics.K.copy()
+    K[0, 0] *= config.focal_scale
+    K[1, 1] *= config.focal_scale
+    return dataclasses.replace(intrinsics, K=K)
 
 
 def load_camera_file(path: str | Path) -> Intrinsics:

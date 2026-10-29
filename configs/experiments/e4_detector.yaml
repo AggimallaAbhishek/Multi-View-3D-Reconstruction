@@ -1,0 +1,8 @@
+# RQ4: SIFT vs ORB with the same feature cap, resolution, pairs and RANSAC settings.
+name: e4_detector
+question: RQ4 - how do SIFT and ORB differ in the reliable 3-D points they produce?
+vary:
+  features.detector: [sift, orb]
+plot:
+  y: [features_mean, inlier_ratio_mean, registered_fraction, filtered_points,
+      mean_track_length, completeness]

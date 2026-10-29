@@ -32,6 +32,7 @@ class DatasetConfig:
     blur_working_side: int = 800
     dhash_size: int = 32
     duplicate_max_fraction: float = 0.04
+    max_images: int | None = None
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,11 @@ class PreprocessingConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     calibration_file: str | None = None
+    auto_calibration_file: bool = True
     use_exif: bool = True
     fallback_focal_factor: float = 1.2
     aspect_tolerance: float = 0.01
+    focal_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,11 @@ class FilteringConfig:
 
 
 @dataclass(frozen=True)
+class EvaluationConfig:
+    completeness_tolerance: float = 0.01
+
+
+@dataclass(frozen=True)
 class OutputConfig:
     root: str = "outputs"
     cache_dir: str | None = "outputs/cache"
@@ -165,6 +173,7 @@ class Config:
     registration: RegistrationConfig = field(default_factory=RegistrationConfig)
     bundle_adjustment: BundleAdjustmentConfig = field(default_factory=BundleAdjustmentConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
 

@@ -1,0 +1,9 @@
+# RQ1: evenly spaced subsets of the ring (templeRing: 47 views, ~7.7 deg apart).
+name: e1_image_count
+question: RQ1 - how does the number of input images affect completeness?
+vary:
+  dataset.max_images: [8, 12, 16, 24, 32, 47]
+plot:
+  x: dataset.max_images
+  y: [registered_fraction, filtered_points, mean_track_length, completeness,
+      rotation_error_median_deg, time_total_s]

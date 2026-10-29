@@ -9,6 +9,7 @@ dataset:
   blur_working_side: 800       # blur is measured with the longest side capped here
   dhash_size: 32               # difference hash on a 33x32 thumbnail (1024 bits)
   duplicate_max_fraction: 0.04 # near-duplicates: at most this share of hash bits differ
+  max_images: null             # keep only this many images, evenly spaced in name order
 
 preprocessing:
   max_side: 1600               # longest image side in px after resizing; null keeps original
@@ -16,9 +17,11 @@ preprocessing:
 
 camera:
   calibration_file: null       # path to configs/camera.yaml when calibrated
+  auto_calibration_file: true  # otherwise use a camera.yaml found next to the images
   use_exif: true               # derive K from the EXIF 35 mm-equivalent focal length if present
   fallback_focal_factor: 1.2   # f = factor * max(width, height) when K is unknown
   aspect_tolerance: 0.01       # relative x/y scale mismatch allowed when rescaling a calibration
+  focal_scale: 1.0             # multiplies fx, fy whatever their source (experiments: focal error)
 
 calibration:                   # checkerboard calibration (python -m src.cli calibrate)
   min_views: 3                 # images in which the board must be found
@@ -97,6 +100,10 @@ filtering:                     # cleaning the multi-view cloud before export (fi
   radius_nb_points: 4          # radius outlier removal (0 disables): fewer neighbours than
   radius_scale: 5.0            # this within radius_scale * median distance to the
                                # radius_nb_points-th neighbour (relative: SfM has no scale)
+
+evaluation:                    # experiments against a reference cloud (src/evaluation)
+  completeness_tolerance: 0.01 # a reference point is recovered if a reconstructed point lies
+                               # within this fraction of the reference's extent (bbox diagonal)
 
 output:
   root: outputs

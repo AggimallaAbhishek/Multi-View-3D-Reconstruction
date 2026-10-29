@@ -184,9 +184,12 @@ class ImageCache:
 def find_calibration_file(directory: str | Path, config: Config) -> Path | None:
     """The camera file to use: ``camera.calibration_file`` if configured, otherwise a
     ``camera.yaml`` next to the images (as written by ``cli calibrate`` or
-    ``scripts/download_middlebury.py``), otherwise None (EXIF or fallback intrinsics)."""
+    ``scripts/download_middlebury.py``) unless ``camera.auto_calibration_file`` is off,
+    otherwise None (EXIF or fallback intrinsics)."""
     if config.camera.calibration_file:
         return Path(config.camera.calibration_file)
+    if not config.camera.auto_calibration_file:
+        return None
     beside = Path(directory) / "camera.yaml"
     return beside if beside.is_file() else None
 
@@ -204,6 +207,9 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
         raise DatasetError(
             f"no images with extensions {list(config.dataset.extensions)} found in {directory}"
         )
+    n = config.dataset.max_images
+    if n is not None and n < len(paths):  # evenly spaced, first and last included
+        paths = [paths[k] for k in np.round(np.linspace(0, len(paths) - 1, n)).astype(int)]
 
     calibration_file = find_calibration_file(directory, config)
     calibration = load_camera_file(calibration_file) if calibration_file else None

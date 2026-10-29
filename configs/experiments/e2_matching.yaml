@@ -1,0 +1,11 @@
+# RQ2: Lowe ratio threshold and the mutual nearest-neighbour check.
+name: e2_matching
+question: RQ2 - how does feature-matching quality affect the final point cloud?
+vary:
+  matching.ratio: [0.6, 0.7, 0.8, 0.9]
+  matching.mutual: [true, false]
+plot:
+  x: matching.ratio
+  hue: matching.mutual
+  y: [verified_pairs, inlier_ratio_mean, filtered_points, mean_track_length,
+      reprojection_mean_px, completeness]

@@ -1,5 +1,5 @@
 """Accuracy metrics against ground truth: relative poses, camera poses of a
-reconstruction and two-view structure."""
+reconstruction, two-view structure, point clouds against a reference, metric scale."""
 
 from __future__ import annotations
 
@@ -55,6 +55,7 @@ class PoseErrors:
     rotation_deg: np.ndarray  # (M,) per camera, after alignment
     centre: np.ndarray  # (M,) camera-centre distance after alignment, fraction of extent
     scale: float  # of the aligning similarity: true units per reconstruction unit
+    similarity: Similarity  # maps the reconstruction onto the ground-truth frame
 
 
 def camera_pose_errors(estimated: Sequence[Camera], truth: Sequence[Camera]) -> PoseErrors:
@@ -73,7 +74,43 @@ def camera_pose_errors(estimated: Sequence[Camera], truth: Sequence[Camera]) -> 
     rotation = np.array(
         [rotation_error_deg(e.R @ sim.R.T, t.R) for e, t in zip(estimated, truth, strict=True)]
     )
-    return PoseErrors(rotation, centre, sim.scale)
+    return PoseErrors(rotation, centre, sim.scale, sim)
+
+
+@dataclass(frozen=True)
+class CloudErrors:
+    completeness: float  # share of reference points with a reconstructed point within tolerance
+    accuracy_median: float  # median distance reconstructed -> nearest reference point
+    chamfer: float  # mean of both directions' mean nearest-neighbour distances
+    # distances are fractions of the reference's extent (bounding-box diagonal)
+
+
+def cloud_errors(points: np.ndarray, reference: np.ndarray, tolerance: float) -> CloudErrors:
+    """Compare a point cloud with a reference cloud in the same frame (align first).
+
+    ``tolerance`` is a fraction of the reference's extent: a reference point counts as
+    recovered if a reconstructed point lies that close. An empty cloud has completeness
+    0 and nan distances.
+    """
+    from scipy.spatial import cKDTree
+
+    extent = float(np.linalg.norm(np.ptp(reference, axis=0)))
+    if not len(points):
+        return CloudErrors(0.0, np.nan, np.nan)
+    to_ref = cKDTree(reference).query(points)[0] / extent
+    from_ref = cKDTree(points).query(reference)[0] / extent
+    return CloudErrors(
+        float(np.mean(from_ref <= tolerance)),
+        float(np.median(to_ref)),
+        float((to_ref.mean() + from_ref.mean()) / 2),
+    )
+
+
+def metric_scale(a: np.ndarray, b: np.ndarray, measured: float) -> float:
+    """Factor turning reconstruction units into real units, from one distance measured
+    between two reconstructed points ``a`` and ``b`` (e.g. two camera centres or two
+    marked object points). A monocular reconstruction has no scale of its own."""
+    return float(measured / np.linalg.norm(np.asarray(b, float) - np.asarray(a, float)))
 
 
 @dataclass(frozen=True, eq=False)

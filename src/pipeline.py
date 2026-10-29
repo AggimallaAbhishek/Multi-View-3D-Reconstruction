@@ -11,7 +11,8 @@ the feature cache.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
@@ -67,6 +68,7 @@ class PipelineResult:
 
     config: Config
     dataset: Dataset
+    timings: dict[str, float] = field(default_factory=dict)  # seconds per stage, run order
     extractor: FeatureExtractor | None = None
     features: list[Features] | None = None
     feature_stats: list[FeatureStats] | None = None
@@ -218,7 +220,11 @@ def run_pipeline(
 
     Raises ``DatasetError`` if the image folder is unusable.
     """
+    start = time.perf_counter()
     result = PipelineResult(config=config, dataset=prepare_dataset(images, config))
+    result.timings["dataset"] = time.perf_counter() - start
     for stage in stages_until(until):
+        start = time.perf_counter()
         _STEPS[stage](result)
+        result.timings[stage] = time.perf_counter() - start
     return result
