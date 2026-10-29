@@ -89,15 +89,15 @@ $$\min_{\{R_c, t_c\}, \{X_p\}} \sum_{(c,p)} \rho\!\left(\left\lVert \pi\!\left(K
 - **Gauge:** a reconstruction is defined up to a similarity (7 DoF). The first camera is held fixed (6 DoF). The scale is left free during optimisation — pinning one translation coordinate instead creates a curved valley the solver zig-zags along — and restored afterwards exactly, by scaling about the fixed camera so the next camera keeps its distance. That scaling changes no projection.
 - **Schedule:** a local adjustment after every registration (the newest 5 cameras and the points they see free), a global one every 5 registrations, and at the end. The cost tolerance is 1e-6 relative (as in Ceres); 1e-8 took ~15× longer for < 0.01°.
 
-E5: bundle adjustment cuts pose errors 4× and raises completeness from 0.38 to 0.92, at ~90 % of the runtime.
+E5: bundle adjustment cuts pose errors 4× and raises completeness from 0.38 to 0.92, at ~90 % of the runtime; the structure refinement of §9 (switchable separately, `bundle_adjustment.refine_structure`) removes every observation beyond 2 px and trims pose errors a further ~12 %.
 
-## 9. Structure refinement after each adjustment (ours)
+## 9. Structure refinement after each registration (ours)
 
 1. **Complete tracks:** attach keypoints of a landmark's track (in registered images) that now reproject within 2 px — mostly links PnP rejected at registration.
 2. **Filter observations, not points:** drop single observations that reproject farther than 2 px or lie behind their camera, then landmarks left with < 2 views or a triangulation angle < 1.5°. At triangulation one bad observation rejects a whole point, which grows stricter with track length; after adjustment a long track keeps its landmark.
 3. **Re-triangulate** tracks left without a landmark.
 
-The final global adjustment alternates with this refinement until nothing changes (at most 3 rounds). Tested: with 5 % of keypoints shifted 3.5 px (inside PnP's 4 px, outside triangulation's 2 px) every final observation is within 2 px; without refinement errors reach 4.2 px.
+It runs after every registration (after its adjustment, when bundle adjustment is on), and the final global adjustment alternates with it until nothing changes (at most 3 rounds). It can be switched off independently (`bundle_adjustment.refine_structure`). Tested, with or without bundle adjustment: with 5 % of keypoints shifted 3.5 px (inside PnP's 4 px, outside triangulation's 2 px) every final observation is within 2 px; without refinement the shifted links stay in.
 
 ## 10. Point-cloud filtering and export
 

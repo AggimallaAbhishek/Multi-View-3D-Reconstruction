@@ -87,14 +87,22 @@ Subsets evenly spaced **in file-name order** (`dataset.max_images`). templeRing'
 
 Neither detector reaches the 8000-feature cap: SIFT's contrast threshold keeps ~870 features per image on the smooth plaster, ORB's FAST detector ~3500. **RQ4:** ORB yields 3× more points but shorter tracks and less reliable ones — 4× the pose error, nearly twice the reprojection error and much lower completeness (0.57 vs 0.92) despite the denser cloud; its binary descriptors are less distinctive and its keypoints less precisely localised. It is also 4× slower overall, because the extra features make matching (11 s vs 0.2 s) and bundle adjustment (50 s vs 14 s) more expensive. SIFT is the right default; ORB's only advantage on this data is raw point count. (Phase 2 measured ORB failing entirely on blurred images, where SIFT still found 265 features.)
 
-### E5 — bundle adjustment
+### E5 — bundle adjustment and structure refinement
 
-| bundle adjustment | rotation error (median / max) | centre error | reprojection | completeness | metric scale error | runtime |
-|---|---|---|---|---|---|---|
-| on | **0.15° / 0.41°** | **0.18 %** | **0.23 px** | **0.92** | −0.7 % | 15.4 s |
-| off | 0.62° / 1.09° | 0.76 % | 0.43 px | 0.38 | −5.6 % | 2.3 s |
+Both switched independently (`bundle_adjustment.enabled`, `bundle_adjustment.refine_structure`); refinement = re-attach track keypoints that fit, drop observations beyond 2 px, re-triangulate, after every registration.
 
-Bundle adjustment (with the structure refinement that follows it) cuts pose errors 4×, halves the reprojection error and raises completeness from 0.38 to 0.92 — without it, small PnP errors accumulate around the ring. It costs nearly 90 % of the runtime (13.5 of 15.4 s).
+| bundle adjustment | refinement | rotation error (median / max) | centre error | reprojection (mean) | observations > 2 px | completeness | runtime |
+|---|---|---|---|---|---|---|---|
+| on | on | **0.15° / 0.41°** | **0.18 %** | **0.23 px** | **0** | **0.92** | 15.6 s |
+| on | off | 0.17° / 0.47° | 0.19 % | 0.25 px | 0.52 % (max 5.7 px) | 0.92 | 14.8 s |
+| off | on | 0.62° / 1.09° | 0.76 % | 0.34 px | 0 | 0.38 | 2.7 s |
+| off | off | 0.62° / 1.09° | 0.76 % | 0.43 px | 3.82 % (max 4.0 px) | 0.38 | 2.3 s |
+
+![E5 results](images/e5_bundle_adjustment.png)
+
+**Bundle adjustment does the work:** it cuts pose errors 4× and raises completeness from 0.38 to 0.92 — without it, small PnP errors accumulate around the ring — at nearly 90 % of the runtime. **Refinement is a cleaning step:** it removes every observation beyond 2 px (without it, 0.5 % remain with bundle adjustment and 3.8 % without — mostly PnP links accepted at 4 px), which lowers the reprojection error and, by giving bundle adjustment cleaner input, trims pose errors by ~12 % (0.17° → 0.15° median, 0.47° → 0.41° max). Alone it cannot move cameras, so without bundle adjustment the poses and completeness are unchanged.
+
+![E5 reprojection errors](images/e5_reprojection.png)
 
 ### Metric scale from one measured distance
 
@@ -112,7 +120,7 @@ E6 (our sparse reconstruction vs COLMAP's sparse and dense reconstructions on th
 | **Wrong focal length** | Every image registers, reprojection error stays ~0.25 px, but completeness falls to 0.44 (−5 %) and 0.08 (−20 %) | A wrong `K` stretches depth against width — a distortion no similarity removes and bundle adjustment (fixed `K`) cannot absorb; the internal diagnostics do not notice | E3, figure below |
 | **No calibration at all** | 20° rotation error, 24 % centre error, completeness 0 | Fallback `f` = 768 px vs the true 1520 px (−49 %); the essential-matrix path is skipped, and poses from `F` with a wrong `K` are badly biased | E3 |
 | **ORB on low texture** | 3× the points but 4× the pose error, short tracks | less distinctive binary descriptors and less precise keypoints | E4 |
-| **No bundle adjustment** | pose errors 4× larger, completeness 0.38 | small PnP errors accumulate around the ring | E5 |
+| **No bundle adjustment** | pose errors 4× larger, completeness 0.38 (with or without refinement) | small PnP errors accumulate around the ring; refinement cleans observations but cannot move cameras | E5 |
 | **Undetectable wrong matches** | ~1 % of deliberately shifted keypoints survive in the final model | a shift along the epipolar line of a 2–3-view track leaves no reprojection error | `tests/test_incremental.py` |
 
 ![E3 failure case](images/e3_calibration_failure.png)

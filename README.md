@@ -3,7 +3,7 @@
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
 ![status](https://img.shields.io/badge/status-complete%20%C2%B7%20M3-brightgreen)
-![tests](https://img.shields.io/badge/tests-313%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -501,7 +501,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | E2 Matching thresholds | Ratio 0.6–0.9, mutual on/off | Images, detector | RQ2 |
 | E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF) | Images, detector | RQ3 |
 | E4 Detector | SIFT vs ORB | Resolution, pairs, RANSAC settings | RQ4 |
-| E5 Bundle adjustment | On vs off | Everything else | quality gain |
+| E5 Bundle adjustment × structure refinement | Each on / off | Everything else | quality gain |
 | E6 Baseline | Ours vs COLMAP sparse (and dense) — *not run: needs COLMAP* | Same image set | RQ5 |
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
@@ -521,7 +521,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-313 tests run in ~17 s (`pytest -q`). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+315 tests run in ~18 s (`pytest -q`). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 

@@ -62,13 +62,13 @@ def make_report(experiment_dir: str | Path) -> list[Path]:
         if (path := directory / run["directory"] / "reprojection_errors.npy").is_file()
     }
     if errors:
-        files.append(_reprojection_figure(errors, title, directory / "reprojection.png"))
+        files.append(_reprojection_figure(errors, meta["name"], directory / "reprojection.png"))
     return files
 
 
 def _reprojection_figure(errors: dict[str, np.ndarray], title: str, path):
     """One step histogram (share of observations) of the final reprojection errors per
-    setting, over a common range."""
+    setting, over a common range; the last bin collects everything beyond it."""
     from matplotlib import colormaps
     from matplotlib.figure import Figure
 
@@ -82,7 +82,7 @@ def _reprojection_figure(errors: dict[str, np.ndarray], title: str, path):
         median = float(np.median(e)) if len(e) else float("nan")
         ax.hist(np.minimum(e, limit), bins=bins, weights=weights, histtype="step", lw=1.6,
                 color=colour, label=f"{label} (median {median:.2f} px)")  # fmt: skip
-    ax.set_xlabel("reprojection error (px)")
+    ax.set_xlabel(f"reprojection error (px; last bin: ≥ {limit:.2g} px)")
     ax.set_ylabel("share of observations")
     ax.set_title(f"Reprojection error - {title}", fontsize=10)
     ax.legend(fontsize=7)
