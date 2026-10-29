@@ -10,12 +10,12 @@ Full datasets live in `data/raw/<name>/` (git-ignored) and are fetched by script
 
 The download script writes `camera.yaml` (shared intrinsics, for `camera.calibration_file`) and `gt_cameras.json` (per-image ground truth) next to the images.
 
-## Results on templeRing (Phases 1–5)
+## Results on templeRing (Phases 1–6)
 
 ```bash
 python scripts/download_middlebury.py templeRing
 python -m src.cli validate data/raw/templeRing
-python scripts/evaluate_relative_poses.py data/raw/templeRing
+python scripts/evaluate_against_ground_truth.py data/raw/templeRing
 ```
 
 | Stage | Result |
@@ -25,6 +25,7 @@ python scripts/evaluate_relative_poses.py data/raw/templeRing
 | Matching (exhaustive, 1081 pairs) | 235 pairs verified with the essential matrix |
 | Relative poses | 229 pairs; rotation error median **0.61°** (90 % < 2.05°), translation direction median **0.55°** (90 % < 1.90°) |
 | Initial pair | `templeR0033`–`templeR0034`: 626 points, 8.3° parallax, errors 0.47° / 0.57° |
+| Triangulation (Phase 6) | 626/626 points valid; reprojection median 0.04 px; 3-D shape error after similarity alignment median 0.094 % of scene size; scale vs true baseline 1.059 |
 | Runtime (M-series Mac) | 3.0 s cold, 0.8 s with caches |
 
 Three of the 229 pairwise poses err by 5–12°: wide baselines (23–38°) with 75–169 inliers, where E is poorly conditioned. Error grows as inliers fall (median 0.32° above 250 inliers, ~1° below 120). Incremental SfM (Phase 8) should therefore register views by PnP and refine with bundle adjustment rather than chain pairwise poses.

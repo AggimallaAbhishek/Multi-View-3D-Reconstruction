@@ -51,8 +51,10 @@ pose:
   init_min_parallax_deg: 4.0   # the initial reconstruction pair needs at least this median angle
 
 triangulation:
-  max_reprojection_error_px: 2.0
-  min_angle_deg: 1.5
+  max_reprojection_error_px: 2.0  # reject a point if any observation reprojects farther than this
+  min_angle_deg: 1.5           # reject points whose largest ray angle is smaller (depth is unreliable)
+  refine: true                 # Gauss-Newton refinement of each point's reprojection error after DLT
+  refine_iterations: 5
 
 filtering:
   statistical_nb_neighbors: 20

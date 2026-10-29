@@ -7,7 +7,7 @@ Multi-view 3D reconstruction (classical SfM) in Python with OpenCV, NumPy/SciPy,
 - Work one phase at a time, in order. Check `docs/ROADMAP.md` for the current phase's tasks and exit criteria; tick the README checklist when a phase is done.
 - Geometry code is test-first against ground truth: `tests/synthetic.py` (3D points + cameras, exact or noisy observations) and `tests/render.py` (rendered images of a textured box on a ground plane from known cameras, for image-based tests with real parallax). `tests/images.make_view_sequence` gives planar views with known homographies. Don't touch real photos for a module until its ground-truth tests pass.
 - All thresholds live in `configs/default.yaml`, never hard-coded.
-- Real-data check: `python scripts/download_middlebury.py templeRing` then `python scripts/evaluate_relative_poses.py data/raw/templeRing` (ground-truth poses). Re-run it after changing any pipeline stage.
+- Real-data check: `python scripts/download_middlebury.py templeRing` then `python scripts/evaluate_against_ground_truth.py data/raw/templeRing` (ground-truth poses). Re-run it after changing any pipeline stage.
 - Tests run in a per-test temporary working directory (`tests/conftest.py`), so default relative caches never touch the repository.
 - Conventions: world→camera `x_c = R X + t`; camera center `C = -R.T @ t`; points `(N, 3)` / `(N, 2)` float64; images BGR uint8. Resizing an image must rescale `K`.
 - Python 3.12 venv in `.venv` (managed with `uv`). Only `opencv-contrib-python`, never mixed OpenCV wheels.

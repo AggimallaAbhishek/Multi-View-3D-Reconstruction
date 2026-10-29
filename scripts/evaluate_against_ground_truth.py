@@ -1,12 +1,13 @@
-"""Compare the pipeline's relative poses with ground-truth cameras.
+"""Compare the pipeline's relative poses and initial structure with ground truth.
 
 Usage:
-    python scripts/evaluate_relative_poses.py data/raw/templeRing [--config CONFIG]
+    python scripts/evaluate_against_ground_truth.py data/raw/templeRing [--config CONFIG]
 
 The folder must contain ``gt_cameras.json`` (see scripts/download_middlebury.py) and,
 for calibrated runs, ``camera.yaml``. Prints rotation and translation-direction errors
-over all successfully estimated pairs and the initial pair, and writes a per-pair CSV
-into the folder's run directory under outputs/.
+over all successfully estimated pairs and for the initial pair, and the 3-D error of the
+initial pair's triangulated points relative to the scene size. Writes per-pair and
+per-point CSVs into a run directory under outputs/.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from src.evaluation.ground_truth import load_cameras_json, relative_pose  # noqa
 from src.evaluation.metrics import (  # noqa: E402
     rotation_error_deg,
     translation_direction_error_deg,
+    two_view_structure_errors,
 )
 from src.pipeline import run_pipeline  # noqa: E402
 from src.run import create_run_dir, write_csv, write_run_metadata  # noqa: E402
@@ -57,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         print("no pair produced a relative pose")
         return 1
 
-    run_dir = create_run_dir(config.output.root, "evaluate_poses")
+    run_dir = create_run_dir(config.output.root, "evaluate_ground_truth")
     write_run_metadata(run_dir, config)
     csv_path = write_csv(
         run_dir / "relative_pose_errors.csv",
@@ -82,6 +84,33 @@ def main(argv: list[str] | None = None) -> int:
             f"{rotation_error_deg(init.pose.R, R_true):.2f} deg, translation direction error "
             f"{translation_direction_error_deg(init.pose.t, t_true):.2f} deg"
         )
+    s = result.structure
+    if s is not None:
+        tri = s.triangulation
+        structure = two_view_structure_errors(s, gt[names[s.i]], gt[names[s.j]])
+        errors = structure.errors
+        counts = tri.counts
+        print(
+            f"initial structure: {counts['valid']} of {counts['points']} points valid; "
+            f"reprojection median {tri.reprojection.median:.2f} px, "
+            f"90th percentile {tri.reprojection.p90:.2f} px"
+        )
+        print(
+            f"3-D shape error vs ground truth after similarity alignment (fraction of scene "
+            f"size): median {np.median(errors):.3%}, 90th percentile "
+            f"{np.percentile(errors, 90):.3%}; scale vs true baseline {structure.scale_ratio:.3f}"
+        )
+        write_csv(
+            run_dir / "structure_errors.csv",
+            ["point", "relative_3d_error", "angle_deg", "max_reprojection_px"],
+            (
+                [k, f"{e:.6f}", f"{a:.3f}", f"{r:.4f}"]
+                for k, e, a, r in zip(
+                    np.flatnonzero(tri.valid), errors, tri.angles_deg[tri.valid],
+                    tri.max_errors[tri.valid], strict=True,
+                )
+            ),
+        )  # fmt: skip
     print(f"Wrote {csv_path}")
     return 0
 

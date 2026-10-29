@@ -90,6 +90,8 @@ class PoseConfig:
 class TriangulationConfig:
     max_reprojection_error_px: float = 2.0
     min_angle_deg: float = 1.5
+    refine: bool = True
+    refine_iterations: int = 5
 
 
 @dataclass(frozen=True)

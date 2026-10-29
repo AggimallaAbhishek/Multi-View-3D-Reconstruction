@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%206%20%E2%80%94%20Triangulation-blue)
+![status](https://img.shields.io/badge/status-Phase%207%20%E2%80%94%20Two--view%20cloud-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -139,7 +139,8 @@ flowchart TD
 | `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
 | `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; homography ratio for planar/low-parallax pairs | Verified matches + model |
 | `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection. *Planned (Phase 8): PnP for new views* | Relative poses, initial pair |
-| `geometry/triangulation.py` | Two-view linear (DLT) triangulation. *Planned (Phase 6): N-view DLT, depth / reprojection-error / angle filters* | 3D landmarks |
+| `geometry/camera.py`, `geometry/triangulation.py`, `geometry/reprojection.py` | `Camera(K, R, t)`; observation-list N-view DLT (own, batched), Gauss-Newton point refinement, filters (≥ 2 views, finite, in front of every camera, max reprojection error, triangulation angle); reprojection statistics | 3D landmarks |
+| `reconstruction/two_view.py` | Initial structure: the initial pair's verified matches triangulated and filtered | `TwoViewStructure` |
 | `geometry/reprojection.py` | Project points, per-observation and mean reprojection error | Error statistics |
 | `reconstruction/` | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
 | `pointcloud/` | Remove invalid / statistical outliers, assign colors, export PLY | `sparse.ply`, `filtered.ply` |
@@ -218,7 +219,7 @@ Use **one** OpenCV wheel only (`opencv-contrib-python`). Do not mix it with `ope
 
 ```bash
 python scripts/download_middlebury.py templeRing        # 47 real photos + true K, R, t → data/raw/templeRing/
-python scripts/evaluate_relative_poses.py data/raw/templeRing   # pipeline vs ground truth
+python scripts/evaluate_against_ground_truth.py data/raw/templeRing   # pipeline vs ground truth
 ```
 
 See [`data/sample/README.md`](data/sample/README.md) for sources, licences and current results.
@@ -251,6 +252,11 @@ python -m src.cli verify data/raw/sample_scene --method fundamental --threshold 
 # relative pose of every verified pair and the initial pair for reconstruction → .../pose/
 #   relative_poses.csv, initial_pair.json (R, unit t), initial_pair.png (top + side view)
 python -m src.cli pose data/raw/sample_scene
+
+# triangulate and filter the initial pair → .../triangulation/
+#   triangulation.json (counts per filter, reprojection stats), points.npz,
+#   reprojection_histogram.png, structure.png
+python -m src.cli triangulate data/raw/sample_scene
 ```
 
 Calibrate if you can: on rendered views the initial-pair pose is exact with the true `K` (0.00° rotation error) but off by 1.75° with a guessed focal length 20 % too long.
@@ -315,9 +321,10 @@ Multi-View-3D-Reconstruction/
 │   ├── cli.py
 │   ├── data/          loader.py · validation.py · preprocessing.py · dataset.py
 │   ├── features/      extractor.py · matcher.py
-│   ├── geometry/      calibration.py · epipolar.py · verification.py · pose_estimation.py · triangulation.py
-│   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py
-│   ├── reconstruction/ (planned) sfm.py · tracks.py · landmarks.py · bundle_adjustment.py
+│   ├── geometry/      calibration.py · epipolar.py · verification.py · pose_estimation.py
+│   │                  camera.py · triangulation.py · reprojection.py
+│   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py · reprojection.py
+│   ├── reconstruction/ two_view.py · (planned) sfm.py · tracks.py · bundle_adjustment.py
 │   ├── pointcloud/    (planned) filtering.py · coloring.py · export.py
 │   └── evaluation/    metrics.py · ground_truth.py · (planned) experiments.py · reports.py
 ├── tests/
@@ -335,7 +342,7 @@ Multi-View-3D-Reconstruction/
 └── scripts/
     ├── verify_setup.py
     ├── download_middlebury.py    # real dataset + ground-truth cameras
-    └── evaluate_relative_poses.py
+    └── evaluate_against_ground_truth.py
 ```
 
 ---
@@ -399,7 +406,8 @@ outputs/<timestamp>_pose_sift/
 ├── matches/       match_statistics.csv · matches.npz · match_matrix.png · <a>_<b>_matches.png
 ├── verification/  verification_statistics.csv · verified_matches.npz · verified_matrix.png
 │                  <a>_<b>_inliers.png · <a>_<b>_epipolar.png
-└── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
+├── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
+└── triangulation/ triangulation.json · points.npz · reprojection_histogram.png · structure.png
 ```
 
 Planned with later phases: `point_clouds/` (sparse.ply, filtered.ply, (dense.ply)), `camera_poses/cameras.json`, `meshes/`, `reports/`, `figures/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
@@ -510,7 +518,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 3** Feature matching
 - [x] **Phase 4** Geometric verification
 - [x] **Phase 5** Relative camera pose
-- [ ] **Phase 6** Triangulation
+- [x] **Phase 6** Triangulation
 - [ ] **Phase 7** Two-view sparse cloud + viewer — *M1*
 - [ ] **Phase 8** Multi-view incremental SfM + BA
 - [ ] **Phase 9** Filtering & export (+ optional dense) — *M2*

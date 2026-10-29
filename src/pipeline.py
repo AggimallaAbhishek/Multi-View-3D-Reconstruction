@@ -1,4 +1,6 @@
-"""The reconstruction pipeline as library code: dataset -> features -> matches -> verify -> pose.
+"""The reconstruction pipeline as library code.
+
+dataset -> features -> matches -> verify -> pose -> triangulate (initial structure).
 
 Each stage reads and extends one ``PipelineResult``. The CLI and notebooks call these
 functions and decide what to write or plot; nothing here touches the filesystem except
@@ -38,9 +40,10 @@ from src.geometry.pose_estimation import (
     initial_pair,
 )
 from src.geometry.verification import VerificationStats, verify_matches
+from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
-Stage = Literal["features", "matches", "verify", "pose"]
-STAGES: tuple[Stage, ...] = ("features", "matches", "verify", "pose")
+Stage = Literal["features", "matches", "verify", "pose", "triangulate"]
+STAGES: tuple[Stage, ...] = ("features", "matches", "verify", "pose", "triangulate")
 
 
 @dataclass
@@ -59,6 +62,7 @@ class PipelineResult:
     poses: list[RelativePose | None] | None = None
     pose_stats: list[PoseStats] | None = None
     initial_pair: InitialPair | None = None
+    structure: TwoViewStructure | None = None  # set by "triangulate" if an initial pair exists
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -127,10 +131,27 @@ def estimate_poses(result: PipelineResult) -> PipelineResult:
     return result
 
 
-_STEPS = {"features": extract, "matches": match, "verify": verify, "pose": estimate_poses}
+def triangulate(result: PipelineResult) -> PipelineResult:
+    pair = result.initial_pair
+    if pair is not None:
+        result.structure = build_two_view_structure(
+            pair, result.images[pair.i].K, result.images[pair.j].K, result.config.triangulation
+        )
+    return result
 
 
-def run_pipeline(images: str | Path, config: Config, until: Stage = "pose") -> PipelineResult:
+_STEPS = {
+    "features": extract,
+    "matches": match,
+    "verify": verify,
+    "pose": estimate_poses,
+    "triangulate": triangulate,
+}
+
+
+def run_pipeline(
+    images: str | Path, config: Config, until: Stage = "triangulate"
+) -> PipelineResult:
     """Prepare the dataset and run every stage up to and including ``until``.
 
     Raises ``DatasetError`` if the image folder is unusable.

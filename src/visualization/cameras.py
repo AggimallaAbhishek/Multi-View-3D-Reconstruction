@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from src.geometry.pose_estimation import camera_centre
+from src.geometry.camera import camera_centre
 
 
 def plot_two_view(

@@ -44,11 +44,6 @@ def rotation_angle_deg(R: np.ndarray) -> float:
     return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
 
-def camera_centre(R: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """Centre C = -R^T t of a camera with world -> camera transform (R, t)."""
-    return -R.T @ t
-
-
 # --- essential matrix decomposition --------------------------------------------------------
 
 
@@ -299,7 +294,9 @@ class InitialPair:
     j: int
     pose: RelativePose
     geometry: TwoViewGeometry
-    points: np.ndarray  # (N, 3) valid points in camera-i coordinates, baseline length 1
+    x_i: np.ndarray  # (M, 2) verified inlier pixels in image i
+    x_j: np.ndarray  # (M, 2) the corresponding pixels in image j
+    points: np.ndarray  # (N, 3) points passing cheirality, camera-i coordinates, |t| = 1
 
     def to_dict(self, names: Sequence[str]) -> dict[str, Any]:
         p = self.pose
@@ -335,10 +332,9 @@ def initial_pair(
     k = next(n for n, m in enumerate(matches) if (m.i, m.j) == (best.i, best.j))
     m, g, pose = matches[k], geometries[k], poses[k]
     x_i, x_j = m.points(features[m.i], features[m.j])
-    X = triangulate_pose_points(
-        pose, x_i[g.inlier_mask], x_j[g.inlier_mask], views[m.i].K, views[m.j].K
-    )
-    return InitialPair(m.i, m.j, pose, g, X)
+    x_i, x_j = x_i[g.inlier_mask], x_j[g.inlier_mask]
+    X = triangulate_pose_points(pose, x_i, x_j, views[m.i].K, views[m.j].K)
+    return InitialPair(m.i, m.j, pose, g, x_i, x_j, X)
 
 
 def write_pose_statistics(

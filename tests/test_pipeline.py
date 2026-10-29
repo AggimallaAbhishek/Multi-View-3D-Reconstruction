@@ -63,3 +63,55 @@ def test_pipeline_end_to_end_recovers_true_initial_pose(scene_dir):
 def test_pipeline_rejects_unusable_folder(tmp_path):
     with pytest.raises(DatasetError):
         run_pipeline(tmp_path, config_from_dict({}))
+
+
+def test_pipeline_triangulates_accurate_initial_structure(scene_dir):
+    from src.evaluation.ground_truth import GroundTruthCamera
+    from src.evaluation.metrics import two_view_structure_errors
+
+    scene, images, config = scene_dir
+    result = run_pipeline(images, config, until="triangulate")
+    s = result.structure
+    assert (s.i, s.j) == (result.initial_pair.i, result.initial_pair.j)
+    counts = s.triangulation.counts
+    assert counts["valid"] > 0.8 * counts["points"]
+    assert s.triangulation.reprojection.median < 0.5
+    assert np.all(s.triangulation.angles_deg[s.triangulation.valid] >= 1.5)
+
+    gt = [
+        GroundTruthCamera(scene.K, R, t)
+        for R, t in zip(scene.rotations, scene.translations, strict=True)
+    ]
+    result = two_view_structure_errors(s, gt[s.i], gt[s.j])
+    assert np.median(result.errors) < 0.005  # shape error under 0.5 % of the scene size
+    assert abs(result.scale_ratio - 1) < 0.05
+
+
+def test_pose_stage_leaves_structure_empty(scene_dir):
+    _, images, config = scene_dir
+    assert run_pipeline(images, config, until="pose").structure is None
+
+
+def test_cli_triangulate_writes_outputs(scene_dir, tmp_path):
+    import json
+
+    from src.cli import main
+
+    _, images, _ = scene_dir
+    camera = images.parent / "camera.yaml"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"camera:\n  calibration_file: {camera}\noutput:\n  cache_dir: {tmp_path / 'cache'}\n"
+        "features:\n  max_features: 3000\n"
+    )
+    out = tmp_path / "outputs"
+    assert main(["triangulate", str(images), "--config", str(config), "--out", str(out)]) == 0
+    (run_dir,) = out.glob("*_triangulate_sift")
+    tri = run_dir / "triangulation"
+    for name in ["triangulation.json", "points.npz", "reprojection_histogram.png", "structure.png"]:
+        assert (tri / name).is_file(), name
+    summary = json.loads((tri / "triangulation.json").read_text())
+    assert summary["counts"]["valid"] > 0
+    assert summary["reprojection_valid_points"]["median_px"] < 0.5
+    points = np.load(tri / "points.npz")
+    assert points["valid"].sum() == summary["counts"]["valid"]

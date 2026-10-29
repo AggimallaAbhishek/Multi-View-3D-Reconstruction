@@ -10,7 +10,7 @@ Each phase must be **working and tested before the next starts**. Every phase fo
 
 Legend: 🧪 tests · 📦 deliverable · ✅ exit criteria · ⚠️ risks · 🧰 skills
 
-> **Validation status (Phases 1–5):** verified against synthetic and rendered ground truth (`tests/synthetic.py`, `tests/render.py`, `tests/images.py`) **and on real photos with ground-truth cameras**: Middlebury *templeRing* (47 views; `scripts/download_middlebury.py`, `scripts/evaluate_relative_poses.py`). Real-data results — relative-pose errors median 0.61° rotation / 0.55° translation direction, initial pair 0.47° / 0.57° — are in [`data/sample/README.md`](../data/sample/README.md). The real data exposed and fixed two Phase 1 validation false-positive classes (see Phase 1).
+> **Validation status (Phases 1–5):** verified against synthetic and rendered ground truth (`tests/synthetic.py`, `tests/render.py`, `tests/images.py`) **and on real photos with ground-truth cameras**: Middlebury *templeRing* (47 views; `scripts/download_middlebury.py`, `scripts/evaluate_against_ground_truth.py`). Real-data results — relative-pose errors median 0.61° rotation / 0.55° translation direction, initial pair 0.47° / 0.57° — are in [`data/sample/README.md`](../data/sample/README.md). The real data exposed and fixed two Phase 1 validation false-positive classes (see Phase 1).
 
 ---
 
@@ -241,9 +241,16 @@ Plausible relative pose on a real pair (camera 2 displaced in the expected direc
 
 ---
 
-## Phase 6 — Triangulation
+## Phase 6 — Triangulation ✅
 
 **Goal:** 3D points from verified correspondences with quality filtering.
+
+> **Status — done.** `src.geometry.camera.Camera(K, R, t)` (P, centre, project); `src.geometry.triangulation`: `Observations` (observation list: view, point, pixel — any number of views per point, the structure Phase 8 tracks and BA reuse), `triangulate_dlt` (own N-view DLT: normalised coordinates, unit-row scaling, per-point 4×4 normal matrices accumulated with `np.add.at`, one batched `eigh`), `refine_points` (batched Gauss-Newton on pixel reprojection error, per-point acceptance), `triangulation_angles_deg` (largest pairwise ray angle, vectorised by track length), `triangulate_and_filter` → `TriangulationResult` (first failed filter per point: `too_few_views`, `non_finite`, `behind_camera`, `reprojection`, `low_angle`). `src.geometry.reprojection`: errors, `ReprojectionStats`. `src.reconstruction.two_view.build_two_view_structure`; pipeline stage `triangulate`; CLI `python -m src.cli triangulate <dir>`. `src.evaluation.metrics.align_similarity` (Umeyama) and `two_view_structure_errors`. Measurements:
+> - Exact (1e-8) for noise-free data, equal to `cv2.triangulatePoints` for two views; 5 views halve the 3-D error vs 2 under noise; 200 k observations (20 k points × 10 views) in 0.13 s, 0.47 s with refinement.
+> - **Real data (templeRing initial pair):** 626/626 points valid, reprojection median 0.04 px (90 % < 0.19 px, max 0.99 px); 3-D shape error after similarity alignment median **0.094 %** of the scene size (90 % < 0.27 %); scale vs true baseline 1.059.
+> - Finding (systematic debugging): a structure metric that fixes scale to the true baseline reported a uniform 13 % "error" — a 0.57° translation-direction error with the scene ~7 baselines away is a 6 % depth-scale change. Monocular structure is defined up to similarity, so the metric aligns first (sanity: ground-truth pose → 0 %).
+> - Two-view triangulation cannot detect an error *along* the epipolar line (it becomes a wrong depth with zero residual); the test perturbs across the line.
+> - Phase 8 note: the reprojection filter rejects a whole point if any observation exceeds the threshold, which grows stricter with track length (≈ 8 % of good 10-view points at 0.7 px noise). For long tracks, drop individual observations instead (as COLMAP does).
 
 ### Tasks
 - `geometry/triangulation.py`: build `P = K[R|t]`; `cv2.triangulatePoints` + own linear DLT for N views (needed in Phase 8); dehomogenize safely.

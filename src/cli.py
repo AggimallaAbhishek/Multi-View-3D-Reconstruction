@@ -50,6 +50,7 @@ from src.visualization.cameras import plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
+from src.visualization.reprojection import plot_reprojection_histogram
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,6 +120,13 @@ def main(argv: list[str] | None = None) -> int:
         help="relative pose of verified pairs; pick the initial pair",
     )
     p.set_defaults(func=_stage_command, stage="pose", draw=0)
+
+    p = sub.add_parser(
+        "triangulate",
+        parents=[common, detector, method],
+        help="triangulate and filter the initial pair's points",
+    )
+    p.set_defaults(func=_stage_command, stage="triangulate", draw=0)
 
     p = sub.add_parser("calibrate", help="calibrate a camera from checkerboard photos")
     p.add_argument("images", type=Path, help="directory of checkerboard photos")
@@ -215,6 +223,8 @@ def _stage_command(args: argparse.Namespace) -> int:
     status = 0
     if result.poses is not None:
         written, status = _save_poses(result, run_dir)
+    if stage == "triangulate" and result.structure is not None:
+        written = _save_triangulation(result, run_dir)
     print(f"Wrote {written}")
     return status
 
@@ -366,6 +376,65 @@ def _save_poses(r: PipelineResult, run_dir: Path) -> tuple[Path, int]:
         f"H/F {g.homography_ratio:.2f} ({g.model})"
     )
     return csv_path, 0
+
+
+def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
+    out, s, cfg = run_dir / "triangulation", r.structure, r.config.triangulation
+    tri = s.triangulation
+    out.mkdir(parents=True, exist_ok=True)
+    names = r.names
+    valid_angles = tri.angles_deg[tri.valid]
+    summary = {
+        "image_i": names[s.i],
+        "image_j": names[s.j],
+        "counts": tri.counts,
+        "reprojection_valid_points": tri.reprojection.to_dict(),
+        "triangulation_angle_deg": {
+            "median": float(np.median(valid_angles)) if valid_angles.size else None,
+            "min": float(valid_angles.min()) if valid_angles.size else None,
+        },
+        "settings": r.config.to_dict()["triangulation"],
+        "frame": "camera i at the origin, baseline length 1 (scale unknown)",
+    }
+    json_path = out / "triangulation.json"
+    json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    np.savez_compressed(
+        out / "points.npz",
+        points=tri.points,
+        valid=tri.valid,
+        rejected_by=tri.rejected_by.astype(str),
+        angles_deg=tri.angles_deg,
+        max_errors_px=tri.max_errors,
+    )
+    plot_reprojection_histogram(
+        tri.errors, cfg.max_reprojection_error_px, out / "reprojection_histogram.png",
+        title=f"{names[s.i]} - {names[s.j]}",
+    )  # fmt: skip
+    pose = r.initial_pair.pose
+    plot_two_view(
+        pose.R, pose.t, s.points, (names[s.i], names[s.j]), out / "structure.png",
+        title=f"Filtered structure: {len(s.points)} points",
+    )  # fmt: skip
+
+    counts = tri.counts
+    rejected = ", ".join(
+        f"{k} {v}" for k, v in counts.items() if k not in ("points", "valid") and v
+    )
+    print(
+        f"Triangulated {counts['points']} correspondences of {names[s.i]} - {names[s.j]}: "
+        f"{counts['valid']} valid" + (f" (rejected: {rejected})" if rejected else "")
+    )
+    rp = tri.reprojection
+    print(
+        f"Reprojection error of valid points: median {rp.median:.2f} px, "
+        f"90th percentile {rp.p90:.2f} px, max {rp.max:.2f} px"
+    )
+    if valid_angles.size:
+        print(
+            f"Triangulation angle: median {np.median(valid_angles):.1f} deg, "
+            f"min {valid_angles.min():.1f} deg (threshold {cfg.min_angle_deg} deg)"
+        )
+    return json_path
 
 
 def _calibrate(args: argparse.Namespace) -> int:
