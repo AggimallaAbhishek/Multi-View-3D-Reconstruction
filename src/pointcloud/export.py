@@ -13,10 +13,14 @@ from src.geometry.camera import Camera
 
 
 def to_open3d(points: np.ndarray, colors: np.ndarray | None = None) -> o3d.t.geometry.PointCloud:
-    """Tensor point cloud (Float32 positions, colours in [0, 1]) on the CPU."""
+    """Tensor point cloud (Float64 positions, Float32 colours in [0, 1]) on the CPU.
+
+    Positions stay float64, the project's convention for 3-D points (docs/architecture.md),
+    so a PLY round trip is exact.
+    """
     if colors is not None and len(colors) != len(points):
         raise ValueError(f"{len(points)} points but {len(colors)} colors")
-    cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(np.asarray(points, dtype=np.float32)))
+    cloud = o3d.t.geometry.PointCloud(o3d.core.Tensor(np.asarray(points, dtype=np.float64)))
     if colors is not None:
         cloud.point.colors = o3d.core.Tensor(np.asarray(colors, dtype=np.float32))
     return cloud

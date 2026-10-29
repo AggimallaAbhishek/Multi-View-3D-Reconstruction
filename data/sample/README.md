@@ -27,7 +27,7 @@ python scripts/evaluate_against_ground_truth.py data/raw/templeRing
 | Initial pair | `templeR0033`–`templeR0034`: 626 points, 8.3° parallax, errors 0.47° / 0.57° |
 | Two-view cloud (Phase 7, M1) | 626 coloured points in `sparse.ply`; the close-up render shows the temple's entablature, three columns and base, as in the photos |
 | Triangulation (Phase 6) | 626/626 points valid; reprojection median 0.04 px; 3-D shape error after similarity alignment median 0.094 % of scene size; scale vs true baseline 1.059 |
-| Runtime (M-series Mac) | 3.0 s cold, 0.8 s with caches |
+| Runtime (Apple M4, `evaluate_against_ground_truth.py`) | 3.4 s cold, 1.1 s with caches (re-measured after the Phase 7 review) |
 
 Three of the 229 pairwise poses err by 5–12°: wide baselines (23–38°) with 75–169 inliers, where E is poorly conditioned. Error grows as inliers fall (median 0.32° above 250 inliers, ~1° below 120). Incremental SfM (Phase 8) should therefore register views by PnP and refine with bundle adjustment rather than chain pairwise poses.
 

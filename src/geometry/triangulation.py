@@ -130,6 +130,8 @@ def refine_points(
     K = np.stack([c.K for c in cameras])[obs.view]
     KR = np.einsum("mij,mjk->mik", K, np.stack([c.R for c in cameras])[obs.view])
 
+    Kt = np.stack([c.K @ c.t for c in cameras])[obs.view]
+
     def cost(points: np.ndarray) -> np.ndarray:
         e = reprojection_errors(cameras, obs, points) ** 2
         return np.bincount(obs.point, weights=np.where(np.isfinite(e), e, 1e30), minlength=n)
@@ -138,7 +140,6 @@ def refine_points(
     for _ in range(iterations):
         pixels, _ = project_observations(cameras, obs, X)
         residual = pixels - obs.xy  # (M, 2)
-        Kt = np.stack([c.K @ c.t for c in cameras])[obs.view]
         p = np.einsum("mij,mj->mi", KR, X[obs.point]) + Kt  # homogeneous pixel K(RX + t)
         # d(u, v)/dX for u = p0/p2, v = p1/p2, with dp/dX = K R.
         J = (KR[:, :2] * p[:, 2, None, None] - p[:, :2, None] * KR[:, 2][:, None]) / (
@@ -203,6 +204,18 @@ class TriangulationResult:
     max_errors: np.ndarray  # (N,) largest reprojection error over the point's observations
     errors: np.ndarray  # (M,) reprojection error per observation
     reprojection: ReprojectionStats  # over observations of valid points
+
+    def summary(self) -> dict:
+        """Counts per filter, reprojection statistics and triangulation angles (valid points)."""
+        angles = self.angles_deg[self.valid]
+        return {
+            "counts": self.counts,
+            "reprojection_valid_points": self.reprojection.to_dict(),
+            "triangulation_angle_deg": {
+                "median": float(np.median(angles)) if angles.size else None,
+                "min": float(angles.min()) if angles.size else None,
+            },
+        }
 
     @property
     def counts(self) -> dict[str, int]:

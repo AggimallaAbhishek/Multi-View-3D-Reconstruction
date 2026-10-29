@@ -20,7 +20,7 @@ import numpy as np
 
 from src.config import MatchConfig
 from src.features.extractor import Features
-from src.run import write_csv
+from src.run import atomic_savez, write_csv
 
 _FLOAT_DETECTORS = {"sift", "rootsift"}
 _BINARY_DETECTORS = {"orb"}
@@ -166,7 +166,10 @@ class DescriptorMatcher:
         cached = self._flann.get(id(train))
         if cached is None or cached[0] is not train:
             cv2.setRNGSeed(0)  # FLANN's randomised k-d trees use OpenCV's RNG
-            index = cv2.FlannBasedMatcher({"algorithm": 1, "trees": 5}, {"checks": 64})
+            index = cv2.FlannBasedMatcher(
+                {"algorithm": 1, "trees": self.config.flann_trees},
+                {"checks": self.config.flann_checks},
+            )
             index.add([train])
             index.train()
             cached = (train, index)
@@ -194,36 +197,31 @@ class MatchCache:
         return h.hexdigest()
 
     def path_for(self, digest_i: str, digest_j: str, config: MatchConfig) -> Path:
-        settings = f"{config.ratio}|{config.mutual}|{config.method}|cv{cv2.__version__}"
+        settings = (
+            f"{config.ratio}|{config.mutual}|{config.method}|"
+            f"{config.flann_trees}|{config.flann_checks}|cv{cv2.__version__}"
+        )
         key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
         return self.directory / f"{key[:24]}.npz"
 
-    def load(self, path: Path, i: int, j: int, n_i: int, n_j: int, start: float):
+    def load(self, path: Path, i: int, j: int) -> tuple[Matches, int, int] | None:
+        """(matches, raw count, count after the ratio test), or None if unreadable."""
         try:
             with np.load(path, allow_pickle=False) as data:
                 m = Matches(i, j, data["idx_i"], data["idx_j"], data["distances"])
-                raw, after_ratio = int(data["raw"]), int(data["after_ratio"])
+                return m, int(data["raw"]), int(data["after_ratio"])
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             return None  # unreadable entry: recompute
-        stats = MatchStats(
-            i, j, n_i, n_j, raw, after_ratio, len(m), (time.perf_counter() - start) * 1000,
-            cached=True,
-        )  # fmt: skip
-        return m, stats
 
     def save(self, path: Path, matches: Matches, stats: MatchStats) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("wb") as f:
-            np.savez(
-                f,
-                idx_i=matches.idx_i,
-                idx_j=matches.idx_j,
-                distances=matches.distances,
-                raw=stats.raw,
-                after_ratio=stats.after_ratio,
-            )
-        tmp.replace(path)
+        atomic_savez(
+            path,
+            idx_i=matches.idx_i,
+            idx_j=matches.idx_j,
+            distances=matches.distances,
+            raw=stats.raw,
+            after_ratio=stats.after_ratio,
+        )
 
 
 def resolve_pair_mode(n_images: int, config: MatchConfig) -> str:
@@ -259,8 +257,13 @@ def match_pairs(
         if cache is not None:
             start = time.perf_counter()
             path = cache.path_for(digests[i], digests[j], matcher.config)
-            if path.exists():
-                result = cache.load(path, i, j, len(features[i]), len(features[j]), start)
+            entry = cache.load(path, i, j) if path.exists() else None
+            if entry is not None:
+                m, raw, after_ratio = entry
+                elapsed = (time.perf_counter() - start) * 1000
+                n_i, n_j = len(features[i]), len(features[j])
+                stats = MatchStats(i, j, n_i, n_j, raw, after_ratio, len(m), elapsed, cached=True)
+                result = (m, stats)
         if result is None:
             result = matcher.match(features[i], features[j], i, j)
             if cache is not None:

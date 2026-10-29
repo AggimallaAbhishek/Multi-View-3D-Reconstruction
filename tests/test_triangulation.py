@@ -203,3 +203,17 @@ def test_low_angle_points_are_rejected(scene):
     assert result.angles_deg[0] < CFG.min_angle_deg
     assert not result.valid[0]
     assert result.counts["low_angle"] == 1
+
+
+def test_noisy_reprojection_stays_below_noise_level(scene):
+    # Roadmap Phase 6: "noisy: mean reprojection < noise level x ~1.5". Fitted points
+    # absorb part of the noise, so the residual is below the per-observation noise
+    # magnitude E|N(0, s^2 I)| = s * sqrt(pi / 2).
+    sigma = 1.0
+    result = triangulate_and_filter(
+        _cameras(scene),
+        _observations(scene, noise_px=sigma),
+        TriangulationConfig(max_reprojection_error_px=10.0),
+    )
+    assert result.reprojection.mean < 1.5 * sigma
+    assert result.reprojection.mean < sigma * np.sqrt(np.pi / 2)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,16 @@ from src.pipeline import run_pipeline  # noqa: E402
 from src.run import create_run_dir, write_csv, write_run_metadata  # noqa: E402
 
 
+@dataclass(frozen=True)
+class PairError:
+    image_i: str
+    image_j: str
+    inliers: int
+    parallax_deg: float
+    rotation_error_deg: float
+    translation_error_deg: float
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("images", type=Path)
@@ -46,14 +57,17 @@ def main(argv: list[str] | None = None) -> int:
 
     result = run_pipeline(args.images, config)
     names = result.names
-    rows = []
+    rows: list[PairError] = []
     for m, g, pose in zip(result.matches, result.geometries, result.poses, strict=True):
         if pose is None or not pose.success:
             continue
         R_true, t_true = relative_pose(gt[names[m.i]], gt[names[m.j]])
         rows.append(
-            [names[m.i], names[m.j], g.n_inliers, pose.median_parallax_deg,
-             rotation_error_deg(pose.R, R_true), translation_direction_error_deg(pose.t, t_true)]
+            PairError(
+                names[m.i], names[m.j], g.n_inliers, pose.median_parallax_deg,
+                rotation_error_deg(pose.R, R_true),
+                translation_direction_error_deg(pose.t, t_true),
+            )
         )  # fmt: skip
     if not rows:
         print("no pair produced a relative pose")
@@ -65,11 +79,15 @@ def main(argv: list[str] | None = None) -> int:
         run_dir / "relative_pose_errors.csv",
         ["image_i", "image_j", "inliers", "parallax_deg", "rotation_error_deg",
          "translation_error_deg"],
-        ([a, b, n, f"{p:.3f}", f"{r:.4f}", f"{t:.4f}"] for a, b, n, p, r, t in rows),
+        (
+            [e.image_i, e.image_j, e.inliers, f"{e.parallax_deg:.3f}",
+             f"{e.rotation_error_deg:.4f}", f"{e.translation_error_deg:.4f}"]
+            for e in rows
+        ),
     )  # fmt: skip
 
-    rot = np.array([r[4] for r in rows])
-    trans = np.array([r[5] for r in rows])
+    rot = np.array([e.rotation_error_deg for e in rows])
+    trans = np.array([e.translation_error_deg for e in rows])
     verified = sum(g.success for g in result.geometries)
     print(f"{len(names)} images, {len(result.matches)} pairs, {verified} verified, "
           f"{len(rows)} with a pose")  # fmt: skip
@@ -87,7 +105,10 @@ def main(argv: list[str] | None = None) -> int:
     s = result.structure
     if s is not None:
         tri = s.triangulation
-        structure = two_view_structure_errors(s, gt[names[s.i]], gt[names[s.j]])
+        structure = two_view_structure_errors(
+            s, gt[names[s.i]], gt[names[s.j]],
+            scale_i=result.images[s.i].scale, scale_j=result.images[s.j].scale,
+        )  # fmt: skip
         errors = structure.errors
         counts = tri.counts
         print(

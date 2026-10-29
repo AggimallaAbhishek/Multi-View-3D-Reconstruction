@@ -23,7 +23,7 @@ import numpy as np
 from src.config import FeatureConfig
 from src.data.dataset import PreparedImage
 from src.data.preprocessing import to_gray
-from src.run import parallel_map, write_csv
+from src.run import atomic_savez, parallel_map, write_csv
 
 log = logging.getLogger(__name__)
 
@@ -51,22 +51,15 @@ class Features:
         )
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Write to a temporary file first so an interrupted run never leaves a partial entry.
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("wb") as f:
-            np.savez(
-                f,
-                points=self.points,
-                descriptors=self.descriptors,
-                sizes=self.sizes,
-                angles=self.angles,
-                responses=self.responses,
-                detector=np.array(self.detector),
-            )
-        tmp.replace(path)
-        return path
+        return atomic_savez(
+            path,
+            points=self.points,
+            descriptors=self.descriptors,
+            sizes=self.sizes,
+            angles=self.angles,
+            responses=self.responses,
+            detector=np.array(self.detector),
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> Features:

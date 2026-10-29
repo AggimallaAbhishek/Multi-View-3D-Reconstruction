@@ -45,8 +45,8 @@ from src.geometry.verification import (
     write_verification_statistics,
 )
 from src.pipeline import PipelineResult, Stage, run_pipeline
-from src.pointcloud.coloring import color_points
-from src.pointcloud.export import read_cameras_json, read_ply, write_cameras_json, write_ply
+from src.pointcloud.export import read_cameras_json, read_ply
+from src.reconstruction.two_view import colored_points, save_two_view
 from src.run import create_run_dir, write_run_metadata
 from src.visualization.cameras import plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("images", type=Path, help="directory of input photos")
     common.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
-    common.add_argument("--out", type=Path, help="output root (default: config output.root)")
+    common.add_argument("--out", dest="output.root", help="output.root (run directories go here)")
     detector = argparse.ArgumentParser(add_help=False)
     # Options that override config keys use the dotted key as their argparse ``dest``;
     # _config_from_args applies all of them through the validated Config.with_overrides.
@@ -160,9 +160,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _config_from_args(args: argparse.Namespace) -> Config:
-    """The YAML config with every dotted-key option given on the command line applied."""
+    """The YAML config with every dotted-key option given on the command line applied.
+
+    If no calibration file is configured and the image folder contains ``camera.yaml``
+    (as written by ``calibrate`` or ``scripts/download_middlebury.py``), it is used.
+    """
     overrides = {key: value for key, value in vars(args).items() if "." in key}
-    return load_config(args.config).with_overrides(overrides)
+    config = load_config(args.config).with_overrides(overrides)
+    found = Path(args.images) / "camera.yaml"
+    if config.camera.calibration_file is None and found.is_file():
+        print(f"Using calibration {found} (found next to the images)")
+        config = config.with_overrides({"camera.calibration_file": str(found)})
+    return config
 
 
 def _print_dataset_error(exc: DatasetError) -> None:
@@ -192,14 +201,14 @@ def _pair_stem(name_i: str, name_j: str) -> str:
 
 
 def _validate(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
+    config = _config_from_args(args)
     try:
         dataset = prepare_dataset(args.images, config)
     except DatasetError as exc:
         _print_dataset_error(exc)
         return 1
 
-    run_dir = create_run_dir(args.out or config.output.root, "validate")
+    run_dir = create_run_dir(config.output.root, "validate")
     dataset.save(run_dir / "dataset.json")
     write_run_metadata(run_dir, config)
 
@@ -215,7 +224,8 @@ def _validate(args: argparse.Namespace) -> int:
 
 
 def _stage_command(args: argparse.Namespace) -> int:
-    """features / matches / verify / pose: run the pipeline up to ``args.stage``."""
+    """features, matches, verify, pose, triangulate and two-view: run the pipeline up to
+    ``args.stage`` and write the outputs of every stage that ran."""
     config = _config_from_args(args)
     stage: Stage = args.stage
     try:
@@ -225,7 +235,7 @@ def _stage_command(args: argparse.Namespace) -> int:
         return 1
 
     label = args.command.replace("-", "_")
-    run_dir = create_run_dir(args.out or config.output.root, f"{label}_{result.extractor.name}")
+    run_dir = create_run_dir(config.output.root, f"{label}_{result.extractor.name}")
     write_run_metadata(run_dir, config)
 
     def draw_for(s: Stage) -> int:
@@ -341,7 +351,7 @@ def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> Path:
     )
     print(f"Verified pairs: {len(ok)} of {len(stats)} (>= {cfg.min_inliers} inliers)")
     if ok:
-        planar = sum(s.homography_ratio > cfg.planar_ratio for s in ok)
+        planar = sum(g.planar for g in r.geometries)
         print(
             f"Inlier ratio: {_spread([s.inlier_ratio for s in ok], '{:.2f}')}; "
             f"median residual {np.median([s.median_residual for s in ok]):.2f} px"
@@ -401,16 +411,10 @@ def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
     tri = s.triangulation
     out.mkdir(parents=True, exist_ok=True)
     names = r.names
-    valid_angles = tri.angles_deg[tri.valid]
     summary = {
         "image_i": names[s.i],
         "image_j": names[s.j],
-        "counts": tri.counts,
-        "reprojection_valid_points": tri.reprojection.to_dict(),
-        "triangulation_angle_deg": {
-            "median": float(np.median(valid_angles)) if valid_angles.size else None,
-            "min": float(valid_angles.min()) if valid_angles.size else None,
-        },
+        **tri.summary(),
         "settings": r.config.to_dict()["triangulation"],
         "frame": "camera i at the origin, baseline length 1 (scale unknown)",
     }
@@ -447,32 +451,24 @@ def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
         f"Reprojection error of valid points: median {rp.median:.2f} px, "
         f"90th percentile {rp.p90:.2f} px, max {rp.max:.2f} px"
     )
-    if valid_angles.size:
+    angles = summary["triangulation_angle_deg"]
+    if angles["median"] is not None:
         print(
-            f"Triangulation angle: median {np.median(valid_angles):.1f} deg, "
-            f"min {valid_angles.min():.1f} deg (threshold {cfg.min_angle_deg} deg)"
+            f"Triangulation angle: median {angles['median']:.1f} deg, "
+            f"min {angles['min']:.1f} deg (threshold {cfg.min_angle_deg} deg)"
         )
     return json_path
 
 
 def _save_two_view(r: PipelineResult, run_dir: Path) -> Path:
-    """Coloured sparse cloud, cameras and an overview render of the initial structure."""
+    """Coloured sparse cloud, cameras and renders of the initial structure."""
     s = r.structure
     image_i, image_j = r.images[s.i], r.images[s.j]
-    colors = color_points(
-        [image_i.image, image_j.image], s.observations, len(s.triangulation.valid)
-    )
-    colors = colors[s.triangulation.valid]
-    names = [image_i.name, image_j.name]
+    colors = colored_points(s, image_i.image, image_j.image)
+    files = save_two_view(s, image_i, image_j, run_dir, colors=colors)
+    print(f"Sparse cloud: {len(s.points)} coloured points -> {files.ply}")
+    print(f"Cameras: {files.cameras}")
     sizes = [(image_i.width, image_i.height), (image_j.width, image_j.height)]
-
-    ply = write_ply(run_dir / "point_clouds" / "sparse.ply", s.points, colors)
-    cameras = write_cameras_json(
-        run_dir / "camera_poses" / "cameras.json", s.cameras, names, sizes,
-        frame=f"camera of {names[0]} at the origin, baseline length 1 (scale unknown)",
-    )  # fmt: skip
-    print(f"Sparse cloud: {len(s.points)} coloured points -> {ply}")
-    print(f"Cameras: {cameras}")
     try:
         figures = run_dir / "figures"
         for focus, name in (("cameras", "two_view.png"), ("points", "two_view_closeup.png")):
@@ -480,8 +476,8 @@ def _save_two_view(r: PipelineResult, run_dir: Path) -> Path:
             print(f"Render: {render}")
     except RenderUnavailable as exc:
         print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
-    print(f"View it: python -m src.cli view {ply} --cameras {cameras}")
-    return ply
+    print(f"View it: python -m src.cli view {files.ply} --cameras {files.cameras}")
+    return files.ply
 
 
 def _view(args: argparse.Namespace) -> int:

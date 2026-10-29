@@ -43,3 +43,10 @@ def test_render_scene_writes_image(scene, tmp_path):
     image = cv2.imread(str(path))
     assert image.shape == (240, 320, 3)
     assert image.std() > 1  # not a blank frame
+
+
+def test_scene_without_cameras_is_just_the_cloud(scene):
+    # Regression: `cli view x.ply` without --cameras crashed (vstack of an empty list).
+    points, colors, _, _ = scene
+    geometries = scene_geometries(points, colors, [], [])
+    assert [name for name, _ in geometries] == ["points"]

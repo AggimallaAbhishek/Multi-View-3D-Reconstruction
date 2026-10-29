@@ -265,7 +265,7 @@ Calibrate if you can: on rendered views the initial-pair pose is exact with the 
 
 Matching costs ~0.1–0.16 s per pair at 8000 SIFT features on an M-series Mac. `pair_mode: auto` (default) matches every pair up to 50 images and switches to a sequential window above that; force either with `--pairs exhaustive|sequential`. Extraction and verification use all CPU cores (`performance.workers`).
 
-Prepared images, features and matches are cached under `outputs/cache/` (`output.cache_dir`; `null` disables), keyed by content and every relevant setting, so repeat commands skip work and any change recomputes automatically. Every command-line option maps to a config key and is validated like the YAML file.
+Prepared images, features and matches are cached under `outputs/cache/` (`output.cache_dir`; `null` disables), keyed by content and every relevant setting, so repeat commands skip work and any change recomputes automatically. Options that change the pipeline (`--detector`, `--ratio`, `--pairs`, `--method`, `--threshold`, `--out`) map to config keys, are validated like the YAML file and are recorded in each run's `config.yaml`; `--config` selects the file and `--draw` only controls diagnostic images. If no calibration file is configured and the image folder contains `camera.yaml` (as written by `calibrate` or the Middlebury downloader), it is used automatically.
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
@@ -275,7 +275,7 @@ Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-e
 
 ```bash
 # initial pair -> coloured sparse cloud, cameras and renders
-python -m src.cli two-view data/raw/templeRing --config my_config.yaml   # camera.calibration_file set
+python -m src.cli two-view data/raw/templeRing   # uses data/raw/templeRing/camera.yaml
 #   .../point_clouds/sparse.ply · camera_poses/cameras.json
 #   .../figures/two_view.png (overview with camera frusta) · two_view_closeup.png
 
@@ -400,10 +400,10 @@ measured in pixels. Bundle adjustment minimizes the (robustified) sum of squared
 
 ## 11. Outputs
 
-Each command writes `outputs/<timestamp>_<command>_<detector>/`, containing every stage it ran. Diagnostic images are drawn for the command's own stage only (`--draw N` pairs or images):
+Each command writes `outputs/<timestamp>_<command>_<detector>/`, containing every stage it ran — `features` writes only `features/`, `pose` stops after `pose/`, `triangulate` adds `triangulation/`, and `two-view` adds the cloud, cameras and renders. Diagnostic images are drawn for the command's own stage only (`--draw N` pairs or images). A full `two-view` run:
 
 ```text
-outputs/<timestamp>_pose_sift/
+outputs/<timestamp>_two_view_sift/
 ├── config.yaml                   # exact config used
 ├── environment.json              # versions, hardware, git commit
 ├── features/      feature_statistics.csv · <image>_keypoints.png
@@ -412,9 +412,9 @@ outputs/<timestamp>_pose_sift/
 │                  <a>_<b>_inliers.png · <a>_<b>_epipolar.png
 ├── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
 ├── triangulation/ triangulation.json · points.npz · reprojection_histogram.png · structure.png
-├── point_clouds/  sparse.ply                       (two-view)
-├── camera_poses/  cameras.json                     (two-view)
-└── figures/       two_view.png · two_view_closeup.png   (two-view)
+├── point_clouds/  sparse.ply
+├── camera_poses/  cameras.json
+└── figures/       two_view.png · two_view_closeup.png
 ```
 
 Planned with later phases: `point_clouds/filtered.ply`, `(dense.ply)`, `meshes/`, `reports/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.

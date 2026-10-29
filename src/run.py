@@ -7,12 +7,14 @@ import json
 import os
 import platform
 import subprocess
+import tempfile
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from src.config import Config
@@ -57,6 +59,26 @@ def parallel_map[T, U](fn: Callable[[T], U], items: Iterable[T], workers: int) -
         return [fn(x) for x in items]
     with ThreadPoolExecutor(max_workers=min(n, len(items))) as pool:
         return list(pool.map(fn, items))
+
+
+def atomic_savez(path: str | Path, **arrays) -> Path:
+    """``np.savez`` into ``path`` atomically: readers never see a partial file.
+
+    Writes to a uniquely named temporary file in the same directory and renames it into
+    place, so concurrent writers of the same path (threads, processes) cannot clash; the
+    last complete write wins.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            np.savez(f, **arrays)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
 
 
 def write_csv(path: str | Path, header: Sequence[str], rows: Iterable[Sequence]) -> Path:

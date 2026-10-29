@@ -30,8 +30,9 @@ from src.data.loader import (
     read_exif,
 )
 from src.data.preprocessing import resize_max_side, to_gray, undistort
-from src.data.validation import DHASH_SIZE, ImageStats, ValidationReport, image_stats, validate
+from src.data.validation import ImageStats, ValidationReport, image_stats, validate
 from src.geometry.calibration import Intrinsics, load_camera_file, resolve_intrinsics
+from src.run import atomic_savez
 
 log = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ class ImageCache:
             "camera": config.to_dict()["camera"],
             "calibration": Path(calibration).read_text("utf-8") if calibration else None,
             "blur_working_side": config.dataset.blur_working_side,
-            "dhash_size": DHASH_SIZE,
+            "dhash_size": config.dataset.dhash_size,
             "opencv": cv2.__version__,
             "version": 1,
         }
@@ -142,7 +143,7 @@ class ImageCache:
                     width=original[0],
                     height=original[1],
                     blur=float(d["blur"]),
-                    dhash=int.from_bytes(d["dhash"].tobytes(), "big"),
+                    dhash=d["dhash"],
                 )
                 prepared = PreparedImage(
                     index=index,
@@ -165,27 +166,21 @@ class ImageCache:
         return stats, prepared
 
     def save(self, path: Path, stats: ImageStats, im: PreparedImage) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("wb") as f:
-            np.savez(
-                f,
-                gray=im.gray,
-                K=im.K,
-                dist=im.dist,
-                original_size=np.array(im.original_size),
-                scale=np.array(im.scale),
-                intrinsics_source=np.array(im.intrinsics_source),
-                source_K=im.source_K,
-                source_dist=im.source_dist,
-                undistorted=np.array(im.undistorted),
-                max_side=np.array(im.max_side or 0),
-                blur=np.array(stats.blur),
-                dhash=np.frombuffer(
-                    stats.dhash.to_bytes(DHASH_SIZE * DHASH_SIZE // 8, "big"), np.uint8
-                ),
-            )
-        tmp.replace(path)
+        atomic_savez(
+            path,
+            gray=im.gray,
+            K=im.K,
+            dist=im.dist,
+            original_size=np.array(im.original_size),
+            scale=np.array(im.scale),
+            intrinsics_source=np.array(im.intrinsics_source),
+            source_K=im.source_K,
+            source_dist=im.source_dist,
+            undistorted=np.array(im.undistorted),
+            max_side=np.array(im.max_side or 0),
+            blur=np.array(stats.blur),
+            dhash=stats.dhash,
+        )
 
 
 def prepare_dataset(directory: str | Path, config: Config | None = None) -> Dataset:
@@ -223,7 +218,7 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
                 continue
             record = ImageRecord(len(prepared), path, image, read_exif(path))
             entry = (
-                image_stats(record, config.dataset.blur_working_side),
+                image_stats(record, config.dataset),
                 _prepare_image(record, calibration, config),
             )
             if cache:

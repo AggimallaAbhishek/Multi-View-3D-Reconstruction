@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from src.config import DatasetConfig
@@ -104,7 +105,13 @@ def test_mixed_resolutions_are_a_warning():
 
 def _with_blur(scores):
     return [
-        ImageStats(name=f"im{k}", width=640, height=480, blur=b, dhash=k)
+        ImageStats(
+            name=f"im{k}",
+            width=640,
+            height=480,
+            blur=b,
+            dhash=np.random.default_rng(k).integers(0, 256, 128, dtype=np.uint8),
+        )  # fmt: skip
         for k, b in enumerate(scores)
     ]
 
@@ -147,7 +154,7 @@ def test_image_stats_from_record(tmp_path):
 
     path = write_image(tmp_path / "a.png", make_texture(0, 64, 48))
     (record,) = iter_images([path])
-    stats = image_stats(record)
+    stats = image_stats(record, CFG)
     assert (stats.name, stats.width, stats.height) == ("a.png", 64, 48)
     assert stats.blur > 0
 

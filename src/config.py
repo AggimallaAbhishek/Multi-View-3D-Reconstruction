@@ -30,6 +30,7 @@ class DatasetConfig:
     blur_threshold: float = 30.0
     blur_relative: float = 0.35
     blur_working_side: int = 800
+    dhash_size: int = 32
     duplicate_max_fraction: float = 0.04
 
 
@@ -61,6 +62,8 @@ class MatchConfig:
     ratio: float = 0.75
     mutual: bool = True
     method: Literal["bruteforce", "flann"] = "bruteforce"
+    flann_trees: int = 5
+    flann_checks: int = 64
     pair_mode: Literal["auto", "exhaustive", "sequential"] = "auto"
     exhaustive_max_images: int = 50
     sequential_window: int = 5

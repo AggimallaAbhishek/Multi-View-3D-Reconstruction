@@ -24,8 +24,9 @@ class RenderUnavailable(RuntimeError):
 
 def frustum_scale(points: np.ndarray, cameras: Sequence[Camera]) -> float:
     """Frustum depth: 8 % of the extent of points and camera centres together."""
-    everything = np.vstack([points, [c.centre for c in cameras]]) if len(points) else None
-    extent = np.linalg.norm(np.ptp(everything, axis=0)) if everything is not None else 1.0
+    centres = np.array([c.centre for c in cameras], dtype=float).reshape(-1, 3)
+    everything = np.vstack([np.asarray(points, dtype=float).reshape(-1, 3), centres])
+    extent = np.linalg.norm(np.ptp(everything, axis=0)) if len(everything) else 0.0
     return 0.08 * float(extent or 1.0)
 
 

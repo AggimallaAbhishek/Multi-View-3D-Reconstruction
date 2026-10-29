@@ -66,8 +66,8 @@ def test_pipeline_rejects_unusable_folder(tmp_path):
 
 
 def test_pipeline_triangulates_accurate_initial_structure(scene_dir):
-    from src.evaluation.ground_truth import GroundTruthCamera
     from src.evaluation.metrics import two_view_structure_errors
+    from src.geometry.camera import Camera
 
     scene, images, config = scene_dir
     result = run_pipeline(images, config, until="triangulate")
@@ -78,11 +78,8 @@ def test_pipeline_triangulates_accurate_initial_structure(scene_dir):
     assert s.triangulation.reprojection.median < 0.5
     assert np.all(s.triangulation.angles_deg[s.triangulation.valid] >= 1.5)
 
-    gt = [
-        GroundTruthCamera(scene.K, R, t)
-        for R, t in zip(scene.rotations, scene.translations, strict=True)
-    ]
-    result = two_view_structure_errors(s, gt[s.i], gt[s.j])
+    gt = [Camera(scene.K, R, t) for R, t in zip(scene.rotations, scene.translations, strict=True)]
+    result = two_view_structure_errors(s, gt[s.i], gt[s.j], scale_i=(1.0, 1.0), scale_j=(1.0, 1.0))
     assert np.median(result.errors) < 0.005  # shape error under 0.5 % of the scene size
     assert abs(result.scale_ratio - 1) < 0.05
 
@@ -145,3 +142,63 @@ def test_cli_two_view_exports_cloud_and_cameras(scene_dir, tmp_path):
     np.testing.assert_allclose(np.linalg.norm(cameras[1].t), 1.0)  # unit baseline
     # Points lie in front of both exported cameras.
     assert all((c.project(points)[1] > 0).all() for c in cameras)
+
+
+def test_structure_metric_is_resolution_independent(scene_dir):
+    # Regression: ground-truth K stayed at full resolution while observations were
+    # downscaled, inflating the shape error ~14x and halving the scale ratio.
+    from src.evaluation.metrics import two_view_structure_errors
+    from src.geometry.camera import Camera
+
+    scene, images, config = scene_dir
+    half = config.with_overrides({"preprocessing.max_side": 400})  # 800x600 -> 400x300
+    result = run_pipeline(images, half, until="triangulate")
+    s = result.structure
+    gt = [Camera(scene.K, R, t) for R, t in zip(scene.rotations, scene.translations, strict=True)]
+    metric = two_view_structure_errors(
+        s, gt[s.i], gt[s.j], scale_i=result.images[s.i].scale, scale_j=result.images[s.j].scale
+    )
+    assert result.images[s.i].scale == (0.5, 0.5)
+    assert np.median(metric.errors) < 0.005
+    assert abs(metric.scale_ratio - 1) < 0.05
+
+
+def test_two_view_export_is_available_from_the_library(scene_dir, tmp_path):
+    from src.pointcloud.export import read_cameras_json, read_ply
+    from src.reconstruction.two_view import save_two_view
+
+    _, images, config = scene_dir
+    result = run_pipeline(images, config)
+    s = result.structure
+    files = save_two_view(s, result.images[s.i], result.images[s.j], tmp_path)
+    points, colors = read_ply(files.ply)
+    np.testing.assert_array_equal(points, s.points)
+    assert colors.shape == points.shape
+    assert read_cameras_json(files.cameras)[1] == [result.names[s.i], result.names[s.j]]
+
+
+def test_cli_records_out_and_uses_camera_yaml_next_to_images(scene_dir, tmp_path, capsys):
+    import shutil
+
+    import yaml
+
+    from src.cli import main
+
+    _, images, _ = scene_dir
+    folder = tmp_path / "scene"
+    shutil.copytree(images, folder)
+    shutil.copy(images.parent / "camera.yaml", folder / "camera.yaml")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 2000\n"
+    )
+    out = tmp_path / "runs"
+    assert main(["pose", str(folder), "--config", str(config), "--out", str(out)]) == 0
+    assert "Using calibration" in capsys.readouterr().out
+
+    (run_dir,) = out.glob("*_pose_sift")
+    recorded = yaml.safe_load((run_dir / "config.yaml").read_text())
+    assert recorded["output"]["root"] == str(out)
+    assert recorded["camera"]["calibration_file"] == str(folder / "camera.yaml")
+    stats = (run_dir / "verification" / "verification_statistics.csv").read_text()
+    assert ",essential," in stats  # calibrated intrinsics -> auto picks the essential matrix

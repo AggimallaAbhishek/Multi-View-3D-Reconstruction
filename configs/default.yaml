@@ -7,7 +7,8 @@ dataset:
   blur_threshold: 30.0         # absolute floor on Laplacian variance (catches all-blurry sets)
   blur_relative: 0.35          # ...and blurry if below this fraction of the dataset median
   blur_working_side: 800       # blur is measured with the longest side capped here
-  duplicate_max_fraction: 0.04 # near-duplicates: at most this share of 1024 dHash bits differ
+  dhash_size: 32               # difference hash on a 33x32 thumbnail (1024 bits)
+  duplicate_max_fraction: 0.04 # near-duplicates: at most this share of hash bits differ
 
 preprocessing:
   max_side: 1600               # longest image side in px after resizing; null keeps original
@@ -30,6 +31,8 @@ matching:
   ratio: 0.75                  # Lowe ratio test: keep if d1 < ratio * d2
   mutual: true                 # keep only mutual nearest neighbours (one-to-one)
   method: bruteforce           # bruteforce (exact, deterministic) | flann (approximate, seeded)
+  flann_trees: 5               # flann: randomised k-d trees per index
+  flann_checks: 64             # flann: leaves visited per query (accuracy vs speed)
   pair_mode: auto              # auto | exhaustive (all pairs) | sequential (j - i <= window)
   exhaustive_max_images: 50    # auto: exhaustive up to this many images, sequential above
   sequential_window: 5

@@ -15,13 +15,13 @@ from src.data.loader import ImageRecord, SkippedFile
 from src.data.preprocessing import to_gray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class ImageStats:
     name: str
     width: int
     height: int
     blur: float  # variance of the Laplacian; higher is sharper
-    dhash: int  # 64-bit difference hash
+    dhash: np.ndarray  # packed difference-hash bits (see dhash)
 
 
 @dataclass(frozen=True)
@@ -72,37 +72,34 @@ def blur_score(image: np.ndarray, working_side: int = DatasetConfig.blur_working
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
-# 32x32 difference hash. A 64-bit (8x8) hash is dominated by the background when the
-# object fills only part of the frame: neighbouring views of an object on a black
-# background then differed by 1-2 bits, as much as true duplicates (Middlebury temple).
-# At 1024 bits duplicates differ by <= ~2 % and 7.5 deg neighbours by >= ~9 %.
-DHASH_SIZE = 32
-DHASH_BITS = DHASH_SIZE * DHASH_SIZE
+def dhash(image: np.ndarray, size: int = DatasetConfig.dhash_size) -> np.ndarray:
+    """Difference hash: signs of horizontal gradients on a (size+1) x size thumbnail,
+    packed into size*size/8 bytes.
+
+    The default 32x32 (1024 bits) matters: an 8x8 hash is dominated by the background
+    when the object fills only part of the frame, so neighbouring views of an object on a
+    black background differed by 1-2 bits, as much as true duplicates (Middlebury temple).
+    At 1024 bits duplicates differ by <= ~2 % and 7.5 deg neighbours by >= ~9 %.
+    """
+    thumb = cv2.resize(to_gray(image), (size + 1, size), interpolation=cv2.INTER_AREA)
+    thumb = thumb.astype(np.int16)
+    return np.packbits((thumb[:, 1:] > thumb[:, :-1]).ravel())
 
 
-def dhash(image: np.ndarray) -> int:
-    """1024-bit difference hash: signs of horizontal gradients on a 33x32 thumbnail."""
-    thumb = cv2.resize(
-        to_gray(image), (DHASH_SIZE + 1, DHASH_SIZE), interpolation=cv2.INTER_AREA
-    ).astype(np.int16)
-    bits = (thumb[:, 1:] > thumb[:, :-1]).ravel()
-    return int.from_bytes(np.packbits(bits).tobytes(), "big")
-
-
-def hash_distance(a: int, b: int) -> float:
+def hash_distance(a: np.ndarray, b: np.ndarray) -> float:
     """Fraction of differing hash bits: 0 for identical images, ~0.5 for unrelated ones."""
-    return (a ^ b).bit_count() / DHASH_BITS
+    if a.shape != b.shape:
+        raise ValueError("hashes of different sizes cannot be compared")
+    return float(np.unpackbits(a ^ b).mean())
 
 
-def image_stats(
-    record: ImageRecord, blur_working_side: int = DatasetConfig.blur_working_side
-) -> ImageStats:
+def image_stats(record: ImageRecord, config: DatasetConfig) -> ImageStats:
     return ImageStats(
         name=record.name,
         width=record.width,
         height=record.height,
-        blur=blur_score(record.image, blur_working_side),
-        dhash=dhash(record.image),
+        blur=blur_score(record.image, config.blur_working_side),
+        dhash=dhash(record.image, config.dhash_size),
     )
 
 

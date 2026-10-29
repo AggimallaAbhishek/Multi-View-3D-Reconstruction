@@ -59,10 +59,11 @@ def essential_for_pose(geometry: TwoViewGeometry, K_i: np.ndarray, K_j: np.ndarr
     return enforce_essential(essential_from_fundamental(geometry.F, K_i, K_j))
 
 
-def decompose_essential(E: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
-    """The four (R, t) pairs consistent with E (Hartley & Zisserman, result 9.19).
+def essential_factors(E: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(R1, R2, t): the two rotations and the unit translation (up to sign) in E.
 
-    With E = U diag(1, 1, 0) V^T: R = U W V^T or U W^T V^T, t = +-u3 (last column of U).
+    With E = U diag(1, 1, 0) V^T: R = U W V^T or U W^T V^T, t = +-u3 (last column of U)
+    (Hartley & Zisserman, result 9.19).
     """
     U, _, Vt = np.linalg.svd(E)
     # Flipping the sign of U or V^T leaves E unchanged up to sign but makes R proper.
@@ -70,8 +71,12 @@ def decompose_essential(E: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
         U = -U
     if np.linalg.det(Vt) < 0:
         Vt = -Vt
-    R1, R2 = U @ _W @ Vt, U @ _W.T @ Vt
-    t = U[:, 2]
+    return U @ _W @ Vt, U @ _W.T @ Vt, U[:, 2]
+
+
+def decompose_essential(E: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The four (R, t) pairs consistent with E."""
+    R1, R2, t = essential_factors(E)
     return [(R1, t), (R1, -t), (R2, t), (R2, -t)]
 
 
@@ -163,7 +168,7 @@ def estimate_relative_pose(
 
     n_i, n_j = normalize_points(x_i, K_i), normalize_points(x_j, K_j)
     candidates = []
-    (R1, t), _, (R2, _), _ = decompose_essential(E)
+    R1, R2, t = essential_factors(E)
     for R in (R1, R2):
         with np.errstate(over="ignore", invalid="ignore"):
             _, z_i, z_j = _depths(R, t, n_i, n_j)

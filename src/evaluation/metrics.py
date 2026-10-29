@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.evaluation.ground_truth import GroundTruthCamera, relative_pose
+from src.evaluation.ground_truth import at_working_resolution, relative_pose
 from src.geometry.camera import Camera
 from src.geometry.epipolar import angle_between_deg
 from src.geometry.pose_estimation import rotation_angle_deg
@@ -55,7 +55,12 @@ class StructureErrors:
 
 
 def two_view_structure_errors(
-    structure: TwoViewStructure, gt_i: GroundTruthCamera, gt_j: GroundTruthCamera
+    structure: TwoViewStructure,
+    gt_i: Camera,
+    gt_j: Camera,
+    *,
+    scale_i: tuple[float, float],
+    scale_j: tuple[float, float],
 ) -> StructureErrors:
     """Shape error of the valid points, as a fraction of the scene's size.
 
@@ -65,8 +70,12 @@ def two_view_structure_errors(
     scale to the true baseline instead would turn a sub-degree translation-direction
     error into a large uniform "error" for distant scenes.) ``scale_ratio`` reports how
     far the reconstruction's scale is from unit-baseline-times-true-baseline.
+
+    ``gt_i``/``gt_j`` are at the original image resolution; ``scale_i``/``scale_j`` are
+    the images' ``PreparedImage.scale`` (required: the observations are at working
+    resolution, so ground-truth intrinsics must be rescaled to match).
     """
-    cameras = [Camera(gt_i.K, gt_i.R, gt_i.t), Camera(gt_j.K, gt_j.R, gt_j.t)]
+    cameras = [at_working_resolution(gt_i, scale_i), at_working_resolution(gt_j, scale_j)]
     valid = structure.triangulation.valid
     X_true = triangulate_dlt(cameras, structure.observations, len(valid))[valid]
     sim = align_similarity(structure.points, X_true)

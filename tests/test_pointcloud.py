@@ -77,3 +77,37 @@ def test_cameras_json_round_trip(tmp_path):
     assert names == ["a.png", "b.png"] and sizes == [(800, 600), (800, 600)]
     for c, d in zip(cameras, back, strict=True):
         np.testing.assert_allclose(d.P, c.P)
+
+
+def test_ply_keeps_float64_precision(tmp_path):
+    # Regression: positions were cast to float32 (2e-5 error at |x| ~ 1e3).
+    points = np.array([[1234.5678912345, -0.000123456789, 7.0], [1e6 + 0.123456789, 0, 0]])
+    back, _ = read_ply(write_ply(tmp_path / "p.ply", points))
+    assert back.dtype == np.float64
+    np.testing.assert_array_equal(back, points)
+
+
+def test_concurrent_cache_writes_to_one_path_are_safe(tmp_path):
+    # Regression: every writer used `<path>.tmp`, so concurrent writers renamed each
+    # other's temporary file away (FileNotFoundError).
+    import threading
+
+    from src.run import atomic_savez
+
+    target, errors = tmp_path / "x.npz", []
+
+    def work(k):
+        for _ in range(30):
+            try:
+                atomic_savez(target, value=np.full(1000, k))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+    threads = [threading.Thread(target=work, args=(k,)) for k in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert len(np.load(target)["value"]) == 1000  # a complete file from one writer
+    assert list(tmp_path.iterdir()) == [target]  # no temporary files left behind
