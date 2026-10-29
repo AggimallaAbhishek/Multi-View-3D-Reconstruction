@@ -109,6 +109,27 @@ class TriangulationConfig:
 
 
 @dataclass(frozen=True)
+class RegistrationConfig:
+    reprojection_error_px: float = 4.0
+    confidence: float = 0.999
+    max_iterations: int = 1000
+    min_inliers: int = 30
+    min_inlier_ratio: float = 0.25
+    refine: bool = True
+
+
+@dataclass(frozen=True)
+class BundleAdjustmentConfig:
+    enabled: bool = True
+    loss: Literal["linear", "soft_l1", "huber", "cauchy"] = "soft_l1"
+    loss_scale_px: float = 1.0
+    max_iterations: int = 100
+    function_tolerance: float = 1e-6
+    local_window: int = 5
+    global_every: int = 5
+
+
+@dataclass(frozen=True)
 class FilteringConfig:
     statistical_nb_neighbors: int = 20
     statistical_std_ratio: float = 2.0
@@ -136,6 +157,8 @@ class Config:
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     pose: PoseConfig = field(default_factory=PoseConfig)
     triangulation: TriangulationConfig = field(default_factory=TriangulationConfig)
+    registration: RegistrationConfig = field(default_factory=RegistrationConfig)
+    bundle_adjustment: BundleAdjustmentConfig = field(default_factory=BundleAdjustmentConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)

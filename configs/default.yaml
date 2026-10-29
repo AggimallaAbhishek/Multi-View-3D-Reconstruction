@@ -68,6 +68,25 @@ triangulation:
   refine: true                 # Gauss-Newton refinement of each point's reprojection error after DLT
   refine_iterations: 5
 
+registration:                  # adding an image to the reconstruction from 2D-3D links (PnP)
+  reprojection_error_px: 4.0   # RANSAC: max reprojection error (px) of an inlier link
+  confidence: 0.999
+  max_iterations: 1000
+  min_inliers: 30              # links that must agree with the pose to register the image
+  min_inlier_ratio: 0.25       # ...and at least this share of its links
+  refine: true                 # Levenberg-Marquardt refinement of the pose on the inliers
+
+bundle_adjustment:             # joint refinement of camera poses and points (K stays fixed)
+  enabled: true
+  loss: soft_l1                # linear | soft_l1 | huber | cauchy. soft_l1 (smooth Huber) is robust
+                               # and converges in ~30 evaluations; SciPy's huber crawls (100s)
+  loss_scale_px: 1.0           # reprojection error (px) where the robust loss starts to flatten
+  max_iterations: 100          # function evaluations per adjustment
+  function_tolerance: 1.0e-6   # stop when the cost falls by less than this fraction (as Ceres);
+                               # SciPy's 1e-8 crawls on for ~15x longer for <0.01 deg
+  local_window: 5              # local BA after each registration: newest cameras left free
+  global_every: 5              # global BA after this many registrations (and at the end)
+
 filtering:
   statistical_nb_neighbors: 20
   statistical_std_ratio: 2.0

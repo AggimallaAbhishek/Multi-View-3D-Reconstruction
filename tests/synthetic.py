@@ -60,6 +60,20 @@ class SyntheticScene:
         return t_x @ R
 
 
+def shuffled_keypoints(scene: SyntheticScene, seed: int = 0) -> list[np.ndarray]:
+    """Per image, the scene point behind each keypoint: keypoint k of image m sees point
+    ``point_of[m][k]``. A random permutation of the visible points, so keypoint numbers
+    differ between images as they do with a real detector."""
+    rng = np.random.default_rng(seed)
+    return [rng.permutation(np.flatnonzero(scene.visible[m])) for m in range(scene.n_cameras)]
+
+
+def exact_matches(point_of: list[np.ndarray], i: int, j: int) -> tuple[np.ndarray, np.ndarray]:
+    """Keypoint indices (idx_i, idx_j) of every scene point seen by both images."""
+    common, idx_i, idx_j = np.intersect1d(point_of[i], point_of[j], return_indices=True)
+    return idx_i, idx_j
+
+
 def intrinsics(focal: float, width: int, height: int) -> np.ndarray:
     # Pixel-centre convention (docs/architecture.md): the image centre is ((w-1)/2, (h-1)/2).
     return np.array(
