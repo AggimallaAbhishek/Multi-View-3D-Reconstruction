@@ -144,7 +144,7 @@ flowchart TD
 | `reconstruction/` | View graph → tracks (union-find); camera registry; landmarks ↔ observations; registration by PnP (`solvePnPRansac` + LM refinement); next-best-view loop; bundle adjustment (SciPy `least_squares`, soft-L1 loss, sparse Jacobian; local after each registration, global every k and at the end); after each adjustment track completion, per-observation filtering and re-triangulation | `Reconstruction`: cameras + landmarks |
 | `pointcloud/` | Colours sampled bilinearly at every observation and averaged; filtering (non-finite, mean reprojection error, track length, then Open3D statistical and scale-relative radius outlier removal, counts logged per step); PLY via Open3D's tensor API; `cameras.json` | `sparse.ply`, `multi_view.ply`, `filtered.ply`, `cameras.json` |
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
-| `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment) and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
+| `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct) | In-memory results |
 | `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
 
@@ -297,7 +297,19 @@ python -m src.cli reconstruct data/raw/templeRing
 #   .../figures/filtered.png (close-up render of the cleaned cloud)
 ```
 
-### 7.6 COLMAP (optional, Phase 9–10)
+### 7.6 Experiments (Phase 10)
+
+```bash
+# all experiments in configs/experiments/ on templeRing, then figures and tables (~9 min)
+python scripts/run_experiments.py
+#   outputs/experiments/<run>/<experiment>/experiment_results.csv · results.md · metrics.png · runtime.png
+#   ... one sub-directory per setting: config.yaml · environment.json · metrics.json · filtered.ply
+python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/tables only
+```
+
+Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence and plots: `notebooks/04_reconstruction_analysis.ipynb`.
+
+### 7.7 COLMAP (optional, Phase 9–10)
 
 ```bash
 brew install colmap           # macOS
@@ -321,7 +333,8 @@ Multi-View-3D-Reconstruction/
 ├── .claude/skills/               # project-level Claude Code skills
 ├── configs/
 │   ├── default.yaml              # all thresholds & switches
-│   └── camera.example.yaml       # format of camera.yaml (written by `cli calibrate`)
+│   ├── camera.example.yaml       # format of camera.yaml (written by `cli calibrate`)
+│   └── experiments/              # E1–E5 experiment specs (YAML)
 ├── data/                         # git-ignored except data/sample/
 │   ├── raw/<scene>/              # input photos
 │   ├── processed/
@@ -341,23 +354,26 @@ Multi-View-3D-Reconstruction/
 │   ├── reconstruction/ two_view.py · tracks.py · camera_registry.py · landmarks.py
 │   │                  registration.py · bundle_adjustment.py · incremental.py
 │   ├── pointcloud/    coloring.py · filtering.py · export.py
-│   └── evaluation/    metrics.py · ground_truth.py · (planned) experiments.py · reports.py
+│   └── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
 ├── tests/
 │   ├── synthetic.py              # 3D points + cameras with exact ground truth
 │   ├── render.py                 # rendered textured box scene from known cameras
 │   ├── images.py                 # textures, view sequences with known homographies, checkerboards
 │   ├── conftest.py
 │   └── test_*.py
-├── notebooks/                    # 01_dataset_exploration · 02_feature_matching · 03_two_view_geometry (04 planned)
+├── notebooks/                    # 01_dataset_exploration · 02_feature_matching · 03_two_view_geometry
+│                                 # 04_reconstruction_analysis
 ├── docs/
 │   ├── ROADMAP.md                # detailed phase plans
 │   ├── architecture.md
 │   ├── methodology.md            # (planned)
-│   └── experiments.md            # (planned)
+│   └── experiments.md            # experiment results and answers to RQ1–RQ4
 └── scripts/
     ├── verify_setup.py
     ├── download_middlebury.py    # real dataset + ground-truth cameras
-    └── evaluate_against_ground_truth.py
+    ├── evaluate_against_ground_truth.py
+    ├── run_experiments.py        # all experiments + reports, one command
+    └── evaluate_results.py       # redraw experiment reports
 ```
 
 ---
@@ -458,14 +474,16 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 
 | Experiment | Variable | Held constant | Answers |
 |---|---|---|---|
-| E1 Image count | 10 / 20 / 40 / all images | Detector, thresholds | RQ1 |
+| E1 Image count | 8 / 12 / 16 / 24 / 32 / all 47 images (evenly spaced) | Detector, thresholds | RQ1 |
 | E2 Matching thresholds | Ratio 0.6–0.9, mutual on/off | Images, detector | RQ2 |
-| E3 Calibration | Calibrated vs EXIF vs guessed `K` | Images, detector | RQ3 |
+| E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF) | Images, detector | RQ3 |
 | E4 Detector | SIFT vs ORB | Resolution, pairs, RANSAC settings | RQ4 |
 | E5 Bundle adjustment | On vs off | Everything else | quality gain |
-| E6 Baseline | Ours vs COLMAP sparse (and dense) | Same image set | RQ5 |
+| E6 Baseline | Ours vs COLMAP sparse (and dense) — *not run: needs COLMAP* | Same image set | RQ5 |
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
+
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat (RQ3); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -542,7 +560,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 7** Two-view sparse cloud + viewer — *M1* ✅
 - [x] **Phase 8** Multi-view incremental SfM + BA
 - [x] **Phase 9** Filtering & export — *M2* ✅ (optional dense not done)
-- [ ] **Phase 10** Evaluation & experiments
+- [x] **Phase 10** Evaluation & experiments ✅ (E1–E5; E6 COLMAP baseline pending)
 - [ ] **Phase 11** Documentation & presentation — *M3*
 
 **Definition of success:** reliably turn a suitable set of overlapping photos into a coherent multi-view 3D reconstruction, explain the geometry behind it, and back it with quantitative, reproducible evidence.

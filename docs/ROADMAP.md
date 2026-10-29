@@ -358,9 +358,14 @@ End-to-end `reconstruct` on a real dataset produces a clean, coherent multi-view
 
 ---
 
-## Phase 10 — Evaluation & Experiments
+## Phase 10 — Evaluation & Experiments ✅
 
 **Goal:** Answer RQ1–RQ5 with reproducible numbers.
+
+> **Status — done for E1–E5; E6 (COLMAP baseline, RQ5) pending a COLMAP install.** `src.evaluation.experiments`: YAML specs in `configs/experiments/` (`vary` grid or named `runs`, overrides validated on load) → `run_experiment` (one run directory per setting with config, environment, `metrics.json`, `filtered.ply`; failures recorded, not raised) → `experiment_results.csv` + `experiment.json`. `reference_cloud`: every verified track triangulated with the ground-truth cameras. `src.evaluation.metrics`: `cloud_errors` (completeness, accuracy, Chamfer — fractions of the reference extent), `metric_scale`, `PoseErrors.similarity`. `src.evaluation.reports.make_report` → `metrics.png`, `runtime.png`, `results.md` from the CSV. `run_pipeline` records per-stage timings. New config: `dataset.max_images` (evenly spaced subset), `camera.auto_calibration_file`, `camera.focal_scale` (simulated focal error), `evaluation.completeness_tolerance`. One command: `python scripts/run_experiments.py` (~9 min); `scripts/evaluate_results.py` redraws. Results in [`experiments.md`](experiments.md); `notebooks/04_reconstruction_analysis.ipynb`. Decisions and findings:
+> - Middlebury's ground-truth surface is not public, so completeness is measured against an **internal reference**: our SIFT tracks over all images triangulated with the true cameras. It is independent of our poses but shares our matches; accuracy is therefore biased towards SIFT and E4 compares by completeness and pose error.
+> - RQ1: completeness is limited by view spacing — between ~23° and ~15° spacing registration jumps from 6/16 to 21/24 images. RQ2: ratio 0.7–0.8 + mutual check is best; looser matching yields fewer, worse points. RQ3: a 5 % focal error halves completeness while reprojection error stays flat; guessed K (−49 %) gives a 20° pose error. RQ4: ORB 3× the points, 4× the pose error and runtime. E5: BA cuts pose error 4×, completeness 0.38 → 0.92, ~90 % of runtime. One measured distance fixes the metric scale to within 0.7 %.
+> - Next candidates the results point to: refine the focal length in bundle adjustment (RQ3), intermediate views or a wider-baseline matcher for sparse rings (RQ1).
 
 ### Tasks
 - `evaluation/metrics.py`: all metrics from README §12, including pose error vs synthetic/COLMAP and Chamfer/completeness after Umeyama/ICP alignment.
