@@ -111,3 +111,14 @@ def test_concurrent_cache_writes_to_one_path_are_safe(tmp_path):
     assert errors == []
     assert len(np.load(target)["value"]) == 1000  # a complete file from one writer
     assert list(tmp_path.iterdir()) == [target]  # no temporary files left behind
+
+
+def test_old_cameras_json_format_gives_a_clear_error(tmp_path):
+    # gt_cameras.json used to be {name: {K, R, t}}; files from before the change must say
+    # how to fix them instead of failing with KeyError: 'cameras'.
+    import json
+
+    path = tmp_path / "gt_cameras.json"
+    path.write_text(json.dumps({"a.png": {"K": np.eye(3).tolist()}}))
+    with pytest.raises(ValueError, match="download_middlebury"):
+        read_cameras_json(path)

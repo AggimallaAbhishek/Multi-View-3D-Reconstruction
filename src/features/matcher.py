@@ -7,6 +7,7 @@ randomised k-d trees are seeded so runs are reproducible.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import time
 import zipfile
@@ -24,6 +25,9 @@ from src.run import atomic_savez, write_csv
 
 _FLOAT_DETECTORS = {"sift", "rootsift"}
 _BINARY_DETECTORS = {"orb"}
+# MatchConfig fields that choose or judge pairs rather than change how a pair is matched;
+# every other field is part of the match cache key.
+PAIR_SELECTION_FIELDS = {"pair_mode", "exhaustive_max_images", "sequential_window", "min_matches"}
 
 
 @dataclass(frozen=True, eq=False)
@@ -197,10 +201,10 @@ class MatchCache:
         return h.hexdigest()
 
     def path_for(self, digest_i: str, digest_j: str, config: MatchConfig) -> Path:
-        settings = (
-            f"{config.ratio}|{config.mutual}|{config.method}|"
-            f"{config.flann_trees}|{config.flann_checks}|cv{cv2.__version__}"
-        )
+        settings = {
+            k: v for k, v in dataclasses.asdict(config).items() if k not in PAIR_SELECTION_FIELDS
+        }
+        settings = f"{sorted(settings.items())}|cv{cv2.__version__}"
         key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
         return self.directory / f"{key[:24]}.npz"
 

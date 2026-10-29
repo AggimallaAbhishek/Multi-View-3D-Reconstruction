@@ -36,8 +36,10 @@ def scene_geometries(
     cameras: Sequence[Camera],
     sizes: Sequence[tuple[int, int]],
 ) -> list[tuple[str, o3d.t.geometry.Geometry]]:
-    """The point cloud plus one camera frustum (LineSet) per camera."""
-    geometries: list[tuple[str, o3d.t.geometry.Geometry]] = [("points", to_open3d(points, colors))]
+    """The point cloud (omitted when empty) plus one camera frustum (LineSet) per camera."""
+    geometries: list[tuple[str, o3d.t.geometry.Geometry]] = []
+    if len(points):  # Filament aborts the process on an empty point cloud
+        geometries.append(("points", to_open3d(points, colors)))
     scale = frustum_scale(points, cameras)
     for k, (cam, (w, h)) in enumerate(zip(cameras, sizes, strict=True)):
         extrinsic = np.eye(4)
@@ -95,7 +97,12 @@ def render_scene(
     renderer.scene.view.set_post_processing(False)  # no tone mapping: true colours, white
 
     fov = 55.0
-    target = np.median(points, axis=0) if len(points) else np.zeros(3)
+    if len(points):
+        target = np.median(points, axis=0)
+        # Robust extent of the points: diagonal of their 2nd-98th percentile box.
+        spread = np.linalg.norm(np.ptp(np.percentile(points, [2, 98], axis=0), axis=0))
+    else:
+        target, spread = np.zeros(3), 0.0
     centres = np.array([c.centre for c in cameras])
     up = -np.mean([c.R[1] for c in cameras], axis=0)  # camera y points down in the image
     up /= np.linalg.norm(up)
@@ -105,10 +112,9 @@ def render_scene(
     if focus == "cameras":
         eye = target + 1.6 * distance * back + 0.6 * distance * up
     else:
-        # Fit the points' spread (robust: 2nd-98th percentile) into the field of view and
-        # swing the viewpoint 25 deg sideways and 20 deg up from the cameras' direction.
-        spread = np.linalg.norm(np.ptp(np.percentile(points, [2, 98], axis=0), axis=0))
-        fit = 0.6 * spread / np.tan(np.radians(fov / 2))
+        # Fit the points' spread into the field of view (no spread: stay at the cameras'
+        # distance) and swing the viewpoint 25 deg sideways and 20 deg up from them.
+        fit = 0.6 * spread / np.tan(np.radians(fov / 2)) or distance
         side = np.cross(up, back)
         direction = np.cos(np.radians(25)) * back + np.sin(np.radians(25)) * side
         direction = np.cos(np.radians(20)) * direction + np.sin(np.radians(20)) * up

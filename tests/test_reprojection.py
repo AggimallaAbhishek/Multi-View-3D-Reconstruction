@@ -49,6 +49,13 @@ def test_stats_and_per_point_mean():
     np.testing.assert_allclose(per_point_mean(errors, point, 2), [0.5, 5.0])
 
 
+@pytest.mark.parametrize("shape", [(0,), (0, 3)])
+def test_per_point_mean_without_observations_is_nan(shape):
+    # Regression: reshape(0, -1) raised, so colouring a structure with no points crashed.
+    mean = per_point_mean(np.zeros(shape), np.zeros(0, dtype=int), 2)
+    assert mean.shape == (2, *shape[1:]) and np.isnan(mean).all()
+
+
 def test_stats_of_nothing():
     stats = ReprojectionStats.from_errors(np.empty(0))
     assert stats.n == 0 and np.isnan(stats.mean)

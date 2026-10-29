@@ -25,12 +25,7 @@ def project_observations(
     pixels = np.empty((len(obs), 2))
     depths = np.empty(len(obs))
     for v, idx in obs.by_view():
-        cam = cameras[v]
-        X_cam = X[obs.point[idx]] @ cam.R.T + cam.t
-        p = X_cam @ cam.K.T
-        with np.errstate(divide="ignore", invalid="ignore"):
-            pixels[idx] = p[:, :2] / p[:, 2:3]
-        depths[idx] = X_cam[:, 2]
+        pixels[idx], depths[idx] = cameras[v].project(X[obs.point[idx]])
     return pixels, depths
 
 
@@ -46,14 +41,11 @@ def per_point_mean(values: np.ndarray, point: np.ndarray, n_points: int) -> np.n
     Unobserved points get nan.
     """
     values = np.asarray(values, dtype=float)
-    columns = values.reshape(len(values), -1)
-    count = np.bincount(point, minlength=n_points).astype(float)
-    totals = np.stack(
-        [np.bincount(point, weights=c, minlength=n_points) for c in columns.T], axis=1
-    )
+    totals = np.zeros((n_points, *values.shape[1:]))
+    np.add.at(totals, point, values)
+    count = np.bincount(point, minlength=n_points).reshape(-1, *[1] * (values.ndim - 1))
     with np.errstate(divide="ignore", invalid="ignore"):
-        mean = totals / count[:, None]
-    return mean.reshape((n_points, *values.shape[1:]))
+        return totals / count
 
 
 @dataclass(frozen=True)

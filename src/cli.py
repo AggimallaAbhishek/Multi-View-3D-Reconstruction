@@ -52,7 +52,6 @@ from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
 from src.visualization.reprojection import plot_reprojection_histogram
-from src.visualization.viewer import RenderUnavailable, render_scene, show
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,12 +68,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     draw = argparse.ArgumentParser(add_help=False)
     draw.add_argument("--draw", type=int, default=3, help="diagnostic images to save (3)")
-    method = argparse.ArgumentParser(add_help=False)
-    method.add_argument(
+    matching = argparse.ArgumentParser(add_help=False)
+    matching.add_argument(
+        "--ratio", dest="matching.ratio", type=float, metavar="R", help="matching.ratio"
+    )
+    matching.add_argument(
+        "--pairs",
+        dest="matching.pair_mode",
+        choices=["auto", "exhaustive", "sequential"],
+        help="matching.pair_mode",
+    )
+    # Verification options; commands that verify also match, so this includes matching.
+    verification = argparse.ArgumentParser(add_help=False, parents=[matching])
+    verification.add_argument(
         "--method",
         dest="verification.method",
         choices=["auto", "essential", "fundamental"],
         help="verification.method",
+    )
+    verification.add_argument(
+        "--threshold",
+        dest="verification.ransac_threshold_px",
+        type=float,
+        metavar="PX",
+        help="verification.ransac_threshold_px",
     )
 
     parser = argparse.ArgumentParser(prog="python -m src.cli")
@@ -91,48 +108,36 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=_stage_command, stage="features")
 
     p = sub.add_parser(
-        "matches", parents=[common, detector, draw], help="match features between image pairs"
-    )
-    p.add_argument("--ratio", dest="matching.ratio", type=float, metavar="R", help="matching.ratio")
-    p.add_argument(
-        "--pairs",
-        dest="matching.pair_mode",
-        choices=["auto", "exhaustive", "sequential"],
-        help="matching.pair_mode",
+        "matches",
+        parents=[common, detector, draw, matching],
+        help="match features between image pairs",
     )
     p.set_defaults(func=_stage_command, stage="matches")
 
     p = sub.add_parser(
         "verify",
-        parents=[common, detector, draw, method],
+        parents=[common, detector, draw, verification],
         help="match pairs and verify them with epipolar geometry",
-    )
-    p.add_argument(
-        "--threshold",
-        dest="verification.ransac_threshold_px",
-        type=float,
-        metavar="PX",
-        help="verification.ransac_threshold_px",
     )
     p.set_defaults(func=_stage_command, stage="verify")
 
     p = sub.add_parser(
         "pose",
-        parents=[common, detector, method],
+        parents=[common, detector, verification],
         help="relative pose of verified pairs; pick the initial pair",
     )
     p.set_defaults(func=_stage_command, stage="pose", draw=0)
 
     p = sub.add_parser(
         "triangulate",
-        parents=[common, detector, method],
+        parents=[common, detector, verification],
         help="triangulate and filter the initial pair's points",
     )
     p.set_defaults(func=_stage_command, stage="triangulate", draw=0)
 
     p = sub.add_parser(
         "two-view",
-        parents=[common, detector, method],
+        parents=[common, detector, verification],
         help="initial pair -> coloured sparse point cloud (PLY), cameras.json and a render",
     )
     p.set_defaults(func=_stage_command, stage="cloud", draw=0)
@@ -450,6 +455,8 @@ def _save_triangulation(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Pa
 
 def _save_cloud(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
     """Coloured sparse cloud, cameras and renders of the initial structure (two-view)."""
+    from src.visualization.viewer import RenderUnavailable, render_scene
+
     s = r.structure
     if s is None:
         return None, 0
@@ -482,6 +489,8 @@ _SAVERS = {
 
 
 def _view(args: argparse.Namespace) -> int:
+    from src.visualization.viewer import show
+
     points, colors = read_ply(args.ply)
     if args.cameras:
         cameras, _, sizes = read_cameras_json(args.cameras)

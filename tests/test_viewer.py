@@ -50,3 +50,24 @@ def test_scene_without_cameras_is_just_the_cloud(scene):
     points, colors, _, _ = scene
     geometries = scene_geometries(points, colors, [], [])
     assert [name for name, _ in geometries] == ["points"]
+
+
+@pytest.mark.parametrize("n_points", [0, 1])
+def test_close_up_render_of_degenerate_cloud(scene, tmp_path, n_points):
+    # Regression: percentile of an empty cloud raised IndexError, so `two-view` crashed
+    # when triangulation filtered out every point.
+    points, colors, cameras, sizes = scene
+    try:
+        path = render_scene(
+            points[:n_points],
+            colors[:n_points],
+            cameras,
+            sizes,
+            tmp_path / "r.png",
+            width=64,
+            height=48,
+            focus="points",
+        )
+    except RenderUnavailable as exc:
+        pytest.skip(f"offscreen rendering unavailable: {exc}")
+    assert path.exists()

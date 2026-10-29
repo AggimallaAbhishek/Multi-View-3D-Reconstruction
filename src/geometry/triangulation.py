@@ -54,6 +54,21 @@ class Observations:
 # --- linear triangulation --------------------------------------------------------------
 
 
+def _per_point_gram(owner: np.ndarray, M: np.ndarray, n_points: int) -> np.ndarray:
+    """Sum of M_k^T M_k over the rows k owned by each point, (n_points, d, d).
+
+    ``M`` is (K, r, d). The result is symmetric, so only its d(d+1)/2 distinct entries
+    are accumulated, each with one bincount.
+    """
+    d = M.shape[2]
+    gram = np.zeros((n_points, d, d))
+    for a, b in zip(*np.triu_indices(d), strict=True):
+        weights = np.sum(M[:, :, a] * M[:, :, b], axis=1)
+        entry = np.bincount(owner, weights=weights, minlength=n_points)
+        gram[:, a, b] = gram[:, b, a] = entry
+    return gram
+
+
 def triangulate_dlt(
     cameras: Sequence[Camera], obs: Observations, n_points: int | None = None
 ) -> np.ndarray:
@@ -76,11 +91,7 @@ def triangulate_dlt(
     owner = np.concatenate(owners) if owners else np.empty(0, dtype=np.int64)
     A /= np.linalg.norm(A, axis=1, keepdims=True)
 
-    # A^T A per point is symmetric: accumulate its 10 distinct entries with bincount.
-    normal = np.zeros((n_points, 4, 4))
-    for a, b in zip(*np.triu_indices(4), strict=True):
-        entry = np.bincount(owner, weights=A[:, a] * A[:, b], minlength=n_points)
-        normal[:, a, b] = normal[:, b, a] = entry
+    normal = _per_point_gram(owner, A[:, None, :], n_points)  # A^T A per point
 
     X = np.full((n_points, 3), np.nan)
     solvable = obs.views_per_point(n_points) >= 2
@@ -163,10 +174,7 @@ def refine_points(
     for _ in range(iterations):
         good = np.isfinite(residual).all(axis=1) & np.isfinite(J).all(axis=(1, 2))
         pts, Jg, rg = obs.point[good], J[good], residual[good]
-        JtJ = np.zeros((n, 3, 3))
-        for a, b in zip(*np.triu_indices(3), strict=True):
-            entry = np.bincount(pts, weights=np.sum(Jg[:, :, a] * Jg[:, :, b], axis=1), minlength=n)
-            JtJ[:, a, b] = JtJ[:, b, a] = entry
+        JtJ = _per_point_gram(pts, Jg, n)
         Jtr = np.stack(
             [
                 np.bincount(pts, weights=np.sum(Jg[:, :, a] * rg, axis=1), minlength=n)

@@ -292,6 +292,33 @@ def test_match_cache_hit_is_identical(tmp_path, sift_features):
     # Different matching settings must not reuse these entries.
     _, s3 = match_pairs(sift_features, pairs, DescriptorMatcher(MatchConfig(ratio=0.7)), cache)
     assert not any(s.cached for s in s3)
+    # Pair selection does not change a pair's matches, so it must not invalidate them.
+    _, s4 = match_pairs(
+        sift_features, pairs, DescriptorMatcher(MatchConfig(pair_mode="sequential")), cache
+    )
+    assert all(s.cached for s in s4)
+
+
+def test_match_cache_key_covers_every_matching_setting(tmp_path):
+    # Every MatchConfig field that is not pair selection changes the cache key, so a new
+    # matching option cannot silently reuse stale entries.
+    import dataclasses
+
+    from src.features.matcher import PAIR_SELECTION_FIELDS, MatchCache
+
+    cache, base = MatchCache(tmp_path), MatchConfig()
+    for f in dataclasses.fields(MatchConfig):
+        if f.name in PAIR_SELECTION_FIELDS:
+            continue
+        value = getattr(base, f.name)
+        if isinstance(value, bool):
+            other = not value
+        elif isinstance(value, int | float):
+            other = value + 1
+        else:
+            other = "flann" if value != "flann" else "bruteforce"
+        changed = dataclasses.replace(base, **{f.name: other})
+        assert cache.path_for("a", "b", changed) != cache.path_for("a", "b", base), f.name
 
 
 @pytest.mark.parametrize(("n", "mode"), [(3, "exhaustive"), (50, "exhaustive"), (51, "sequential")])
