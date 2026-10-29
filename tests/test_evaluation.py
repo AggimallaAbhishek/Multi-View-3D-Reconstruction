@@ -157,6 +157,7 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
         assert row["rotation_error_median_deg"] < 1.0
         assert row["completeness"] > 0.5
         assert row["time_total_s"] >= row["time_reconstruct_s"] > 0
+        assert row["raw_matches_mean"] >= row["matches_mean"] > 0  # per pair, before/after
     assert rows[0]["bundle_adjustment.enabled"] is True
     assert rows[1]["bundle_adjustment.enabled"] is False
 
@@ -168,6 +169,14 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
     assert meta["question"] == "BA gain" and len(meta["runs"]) == 2
     run_dir = tmp_path / "out" / "e5" / meta["runs"][0]["directory"]
     assert (run_dir / "config.yaml").is_file() and (run_dir / "filtered.ply").is_file()
+    errors = np.load(run_dir / "reprojection_errors.npy")
+    assert len(errors) == rows[0]["observations"]
+    assert errors.mean() == pytest.approx(rows[0]["reprojection_mean_px"], rel=1e-5)
+
+    from src.evaluation.reports import make_report
+
+    files = {f.name for f in make_report(tmp_path / "out" / "e5")}
+    assert "reprojection.png" in files  # one error distribution per setting
 
 
 def test_failed_settings_are_recorded_not_raised(rendered, tmp_path):

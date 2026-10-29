@@ -33,7 +33,7 @@ from src.evaluation.metrics import (  # noqa: E402
     translation_direction_error_deg,
     two_view_structure_errors,
 )
-from src.geometry.reprojection import ReprojectionStats, reprojection_errors  # noqa: E402
+from src.geometry.reprojection import ReprojectionStats  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
 from src.run import create_run_dir, write_csv, write_run_metadata  # noqa: E402
 
@@ -149,11 +149,10 @@ def evaluate_reconstruction(result, gt, run_dir: Path) -> None:
         return
     cameras = [rec.registry.camera(m) for m in images]
     errors = camera_pose_errors(cameras, [gt[names[m]] for m in images])
-    _, obs, X = rec.landmarks.as_problem(rec.registry, result.features)
-    rp = ReprojectionStats.from_errors(reprojection_errors(cameras, obs, X))
+    rp = ReprojectionStats.from_errors(rec.reprojection_errors(result.features))
     print(
         f"reconstruction: {len(images)} of {len(names)} images registered "
-        f"({len(images) / len(names):.0%}), {len(X)} landmarks, {len(obs)} observations"
+        f"({len(images) / len(names):.0%}), {len(rec.landmarks)} landmarks, {rp.n} observations"
     )
     for label, e, fmt in (
         ("camera rotation error (deg)", errors.rotation_deg, "{:.2f}"),
@@ -167,7 +166,7 @@ def evaluate_reconstruction(result, gt, run_dir: Path) -> None:
         f"reprojection error: mean {rp.mean:.2f} px, median {rp.median:.2f} px, "
         f"90th percentile {rp.p90:.2f} px, max {rp.max:.2f} px"
     )
-    missing = [names[m] for m in range(len(names)) if m not in rec.registry]
+    missing = [names[m] for m in rec.unregistered(len(names))]
     if missing:
         print(f"not registered: {', '.join(missing)}")
     write_csv(

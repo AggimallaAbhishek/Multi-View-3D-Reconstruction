@@ -232,7 +232,11 @@ def test_reconstruct_stage_registers_every_view(scene_dir):
     lm = rec.landmarks
     assert len(lm) > len(result.structure.points)  # more than the initial pair alone
     cameras, obs, X = lm.as_problem(rec.registry, result.features)
-    assert np.median(reprojection_errors(cameras, obs, X)) < 0.5
+    errors = reprojection_errors(cameras, obs, X)
+    assert np.median(errors) < 0.5
+    np.testing.assert_array_equal(rec.reprojection_errors(result.features), errors)
+    np.testing.assert_array_equal(lm.track_lengths(), np.bincount(obs.point, minlength=len(lm)))
+    assert rec.unregistered(len(result.names)) == []
     assert lm.color.shape == (len(lm), 3) and lm.color.std() > 5  # sampled from the images
     assert result.filtering is None  # the "filter" stage did not run
 
@@ -245,7 +249,7 @@ def test_filter_stage_keeps_a_subset_of_the_landmarks(scene_dir):
     assert 0.8 < keep.mean() <= 1.0
 
 
-def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
+def test_cli_reconstruct_exports_multi_view_cloud_under_the_standard_names(scene_dir, tmp_path):
     import json
 
     from src.cli import main
@@ -269,14 +273,20 @@ def test_cli_reconstruct_exports_multi_view_cloud(scene_dir, tmp_path):
     for name in ["registration.csv", "reprojection_histogram.png", "cameras.png"]:
         assert (rec / name).is_file(), name
 
-    points, colors = read_ply(run_dir / "point_clouds" / "multi_view.ply")
+    # sparse.ply / cameras.json hold the multi-view reconstruction (every landmark, every
+    # registered camera); the two-view outputs of the `two-view` command are not written.
+    points, colors = read_ply(run_dir / "point_clouds" / "sparse.ply")
     assert len(points) == summary["landmarks"] > 0
     assert colors is not None and colors.std() > 0.02
-    cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "multi_view_cameras.json")
+    cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "cameras.json")
     assert sorted(names) == sorted(p.name for p in images.glob("*.png"))
     assert all((c.project(points)[1] > 0).mean() > 0.9 for c in cameras)
+    assert sorted(p.name for p in (run_dir / "point_clouds").iterdir()) == [
+        "filtered.ply", "sparse.ply"
+    ]  # fmt: skip
+    assert not (run_dir / "figures" / "two_view.png").exists()
 
-    # filtered.ply: the kept subset of multi_view.ply, exactly, with the counts logged.
+    # filtered.ply: the kept subset of sparse.ply, exactly, with the counts logged.
     filtering = summary["filtering"]
     assert filtering["points"] == len(points)
     assert [s["name"] for s in filtering["steps"]] == list(FILTER_STEPS)

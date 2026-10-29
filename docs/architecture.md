@@ -19,7 +19,7 @@ flowchart TD
     VE -.->|"ViewGraph → Tracks"| RE
     PO -.->|"InitialPair"| RE
     RE -->|"Reconstruction: CameraRegistry + Landmarks"| FI["filter<br/><i>pointcloud/filtering.py</i>"]
-    FI -->|"keep mask → filtered.ply, cameras.json"| OUT[/"run directory / experiment row"/]
+    FI -->|"keep mask → sparse.ply, filtered.ply, cameras.json (M2)"| OUT[/"run directory / experiment row"/]
 ```
 
 Inside `reconstruct`:
@@ -46,7 +46,7 @@ flowchart LR
 | pose | `estimate_pair_poses`, `initial_pair` | `pose` | `pose/` |
 | triangulate | `build_two_view_structure` | `triangulate` | `triangulation/` |
 | cloud | `color_points` | `two-view` | `point_clouds/sparse.ply`, `camera_poses/cameras.json`, renders |
-| reconstruct | `reconstruct` | `reconstruct` | `reconstruction/`, `point_clouds/multi_view.ply` |
+| reconstruct | `reconstruct` | `reconstruct` | `reconstruction/`, `point_clouds/sparse.ply`, `camera_poses/cameras.json` (multi-view; replace the two-view files) |
 | filter | `filter_cloud` | `reconstruct` | `point_clouds/filtered.ply`, `figures/filtered.png` |
 
 Stages fail softly: a pair that cannot be verified or posed, an image that cannot be registered, or a dataset without an initial pair produce results with a `reason`, not exceptions. Only an unusable image folder raises (`DatasetError`).

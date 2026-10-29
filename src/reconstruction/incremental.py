@@ -36,6 +36,15 @@ class Reconstruction:
     landmarks: Landmarks
     attempts: list[Registration]  # every registration tried, in order, failures included
 
+    def reprojection_errors(self, features: Sequence[Features]) -> np.ndarray:
+        """Pixel error of every observation, in ``landmarks`` observation order, (M,)."""
+        cameras, obs, X = self.landmarks.as_problem(self.registry, features)
+        return reprojection_errors(cameras, obs, X)
+
+    def unregistered(self, n_images: int) -> list[int]:
+        """Indices of the images that are not part of the reconstruction."""
+        return [m for m in range(n_images) if m not in self.registry]
+
 
 def reconstruct(
     pair: InitialPair,
@@ -50,9 +59,10 @@ def reconstruct(
     landmarks may give it enough links). Stops when no remaining image can be added.
     With bundle adjustment enabled, the newest ``local_window`` cameras and the points
     they see are adjusted after each registration, and everything every
-    ``global_every`` registrations; each adjustment is followed by ``refine_structure``.
-    At the end, global adjustment and refinement alternate until refinement changes
-    nothing (at most ``max_refinements`` rounds).
+    ``global_every`` registrations. With ``refine_structure`` on, each registration (and
+    its adjustment) is followed by ``refine_structure``. At the end, global adjustment
+    and refinement alternate until refinement changes nothing (at most
+    ``max_refinements`` rounds); either can be off.
     """
     ba = config.bundle_adjustment
     registry, landmarks = initialize(pair, intrinsics, tracks, features, config.triangulation)
@@ -75,12 +85,15 @@ def reconstruct(
             elif ba.local_window > 0:
                 newest = range(len(registry) - ba.local_window, len(registry))
                 adjust(registry, landmarks, features, ba, free_views=newest)
+        if ba.refine_structure:
             refine_structure(registry, landmarks, tracks, features, config.triangulation)
-    if ba.enabled:
-        for _ in range(ba.max_refinements):
+    for _ in range(ba.max_refinements if ba.enabled or ba.refine_structure else 0):
+        if ba.enabled:
             adjust(registry, landmarks, features, ba)
-            if not refine_structure(registry, landmarks, tracks, features, config.triangulation):
-                break
+        if not ba.refine_structure or not refine_structure(
+            registry, landmarks, tracks, features, config.triangulation
+        ):
+            break
     return Reconstruction(registry, landmarks, attempts)
 
 

@@ -1,6 +1,7 @@
 import dataclasses
 
 import numpy as np
+import pytest
 
 from src.config import BundleAdjustmentConfig, Config, TriangulationConfig
 from src.evaluation.metrics import rotation_error_deg
@@ -186,11 +187,11 @@ def test_complete_tracks_reattaches_keypoints_that_fit():
     assert complete_tracks(registry, landmarks, s.tracks, features, CFG) == 0
 
 
-def test_reconstruct_keeps_only_observations_within_the_threshold():
+def _corrupted_scene():
+    """8-camera scene with 5 % of keypoints 3.5 px off: wrong enough to fail
+    triangulation, close enough to pass PnP's 4 px, so without structure refinement they
+    enter the reconstruction at registration."""
     s = make_sfm_scene(n_cameras=8, n_points=600, focal=2500.0, arc_deg=150.0, noise_px=0.5)
-    scene = s.scene
-    # 5 % of keypoints 3.5 px off: wrong enough to fail triangulation, close enough to
-    # pass PnP's 4 px, so without filtering they enter the reconstruction at registration.
     features = list(s.features)
     rng = np.random.default_rng(0)
     corrupted = set()
@@ -199,7 +200,12 @@ def test_reconstruct_keeps_only_observations_within_the_threshold():
         angle = rng.uniform(0, 2 * np.pi, len(ks))
         _shift_keypoint(features, m, ks, 3.5 * np.stack([np.cos(angle), np.sin(angle)], 1))
         corrupted |= {(m, k) for k in ks.tolist()}
+    return s, features, corrupted
 
+
+def test_reconstruct_keeps_only_observations_within_the_threshold():
+    s, features, corrupted = _corrupted_scene()
+    scene = s.scene
     config = Config()
     rec = reconstruct(initial_pair(scene, 3, 4), [scene.K] * 8, s.tracks, features, config)
     assert sorted(rec.registry.images) == list(range(8))
@@ -217,3 +223,19 @@ def test_reconstruct_keeps_only_observations_within_the_threshold():
     for m in range(8):
         truth = in_pair_frame(scene, m, 3, 4)
         assert rotation_error_deg(rec.registry.camera(m).R, truth.R) < 0.5, m
+
+
+@pytest.mark.parametrize("adjust", [True, False])
+def test_structure_refinement_is_independent_of_bundle_adjustment(adjust):
+    s, features, _ = _corrupted_scene()
+    args = (initial_pair(s.scene, 3, 4), [s.scene.K] * 8, s.tracks, features)
+    limit = TriangulationConfig().max_reprojection_error_px
+
+    def max_error(refine: bool) -> float:
+        ba = BundleAdjustmentConfig(enabled=adjust, refine_structure=refine)
+        rec = reconstruct(*args, Config(bundle_adjustment=ba))
+        assert len(rec.registry) == 8
+        return rec.reprojection_errors(features).max()
+
+    assert max_error(refine=True) <= limit  # with or without bundle adjustment
+    assert max_error(refine=False) > limit  # PnP's 4 px links stay in

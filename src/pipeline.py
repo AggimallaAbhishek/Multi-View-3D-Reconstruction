@@ -196,7 +196,7 @@ def filter_scene(result: PipelineResult) -> PipelineResult:
         lm = rec.landmarks
         result.filtering = filter_cloud(
             lm.position, result.config.filtering, errors=lm.error,
-            track_lengths=np.bincount(lm.obs_landmark, minlength=len(lm)),
+            track_lengths=lm.track_lengths(),
         )  # fmt: skip
     return result
 

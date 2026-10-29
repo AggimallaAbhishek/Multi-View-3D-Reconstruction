@@ -44,6 +44,10 @@ class Landmarks:
     def __len__(self) -> int:
         return len(self.position)
 
+    def track_lengths(self) -> np.ndarray:
+        """Observations of each landmark, (N,)."""
+        return np.bincount(self.obs_landmark, minlength=len(self))
+
     def add(
         self,
         track_ids: Sequence[int] | np.ndarray,

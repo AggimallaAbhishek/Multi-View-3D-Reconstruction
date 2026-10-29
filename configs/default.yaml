@@ -91,6 +91,9 @@ bundle_adjustment:             # joint refinement of camera poses and points (K 
   global_every: 5              # global BA after this many registrations (and at the end)
   max_refinements: 3           # final rounds of global BA + filtering / re-triangulation,
                                # stopping early once a round changes no observation
+  refine_structure: true       # after each registration (and adjustment): re-attach track
+                               # keypoints that fit, drop observations > max reprojection
+                               # error, re-triangulate; works with or without BA
 
 filtering:                     # cleaning the multi-view cloud before export (filtered.ply)
   max_reprojection_error_px: 1.0  # drop points whose mean reprojection error is higher

@@ -37,7 +37,7 @@ from src.geometry.calibration import (
     save_camera_file,
 )
 from src.geometry.pose_estimation import write_pose_statistics
-from src.geometry.reprojection import ReprojectionStats, reprojection_errors
+from src.geometry.reprojection import ReprojectionStats
 from src.geometry.verification import (
     inlier_matches,
     unverified_images,
@@ -261,6 +261,8 @@ def _stage_command(args: argparse.Namespace) -> int:
 
     written, status = None, 0
     for s in stages_until(stage):
+        if s == "cloud" and stage != "cloud":
+            continue  # the two-view cloud is `two-view`'s result; `reconstruct` replaces it
         draw = max(args.draw, 0) if s == stage else 0
         path, stage_status = _SAVERS[s](result, run_dir, draw)
         written, status = path or written, max(status, stage_status)
@@ -506,19 +508,19 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
     out, names, cfg = run_dir / "reconstruction", r.names, r.config
     out.mkdir(parents=True, exist_ok=True)
     registry, lm = rec.registry, rec.landmarks
-    images = registry.images
-    cameras, obs, X = lm.as_problem(registry, r.features)
-    errors = reprojection_errors(cameras, obs, X)
+    images, X = registry.images, lm.position
+    cameras = [registry.camera(m) for m in images]
+    errors = rec.reprojection_errors(r.features)
     stats = ReprojectionStats.from_errors(errors)
-    unregistered = [names[m] for m in range(len(names)) if m not in registry]
-    track_lengths = np.bincount(obs.point, minlength=len(lm))
+    unregistered = [names[m] for m in rec.unregistered(len(names))]
+    track_lengths = lm.track_lengths()
     summary = {
         "images": len(names),
         "registered": len(images),
         "unregistered": unregistered,
         "registration_order": [names[m] for m in images],
         "landmarks": len(lm),
-        "observations": len(obs),
+        "observations": len(errors),
         "mean_track_length": float(track_lengths.mean()) if len(lm) else None,
         "reprojection": stats.to_dict(),
         "settings": {k: cfg.to_dict()[k] for k in ("registration", "bundle_adjustment")},
@@ -544,17 +546,15 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
 
     sizes = [(r.images[m].width, r.images[m].height) for m in images]
     colors = lm.color / 255.0
-    files = save_cloud(
-        run_dir, X, colors, cameras, [names[m] for m in images], sizes, MULTI_VIEW_FRAME,
-        name="multi_view", cameras_name="multi_view_cameras",
-    )  # fmt: skip
+    files = save_cloud(run_dir, X, colors, cameras, [names[m] for m in images], sizes,
+                       MULTI_VIEW_FRAME)  # fmt: skip
 
     print(
         f"Registered {len(images)} of {len(names)} images "
         f"({sum(not a.success for a in rec.attempts)} failed attempts)"
     )
     print(
-        f"Landmarks: {len(lm)}, observations {len(obs)} "
+        f"Landmarks: {len(lm)}, observations {len(errors)} "
         f"(mean track length {summary['mean_track_length'] or 0:.1f})"
     )
     print(
@@ -599,7 +599,7 @@ def _save_filtered(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | 
         print(f"Render: {render}")
     except RenderUnavailable as exc:
         print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
-    cameras_json = run_dir / "camera_poses" / "multi_view_cameras.json"
+    cameras_json = run_dir / "camera_poses" / "cameras.json"
     print(f"View it: python -m src.cli view {ply} --cameras {cameras_json}")
     return ply, 0
 

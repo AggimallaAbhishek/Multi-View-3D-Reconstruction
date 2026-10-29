@@ -165,8 +165,8 @@ flowchart TD
 | `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection | Relative poses, initial pair |
 | `geometry/camera.py`, `geometry/triangulation.py`, `geometry/reprojection.py` | `Camera(K, R, t)`; observation-list N-view DLT (own, batched), Gauss-Newton point refinement, filters (≥ 2 views, finite, in front of every camera, max reprojection error, triangulation angle); reprojection statistics | 3D landmarks |
 | `reconstruction/two_view.py` | Initial structure: the initial pair's verified matches triangulated and filtered | `TwoViewStructure` |
-| `reconstruction/` | View graph → tracks (union-find); camera registry; landmarks ↔ observations; registration by PnP (`solvePnPRansac` + LM refinement); next-best-view loop; bundle adjustment (SciPy `least_squares`, soft-L1 loss, sparse Jacobian; local after each registration, global every k and at the end); after each adjustment track completion, per-observation filtering and re-triangulation | `Reconstruction`: cameras + landmarks |
-| `pointcloud/` | Colours sampled bilinearly at every observation and averaged; filtering (non-finite, mean reprojection error, track length, then Open3D statistical and scale-relative radius outlier removal, counts logged per step); PLY via Open3D's tensor API; `cameras.json` | `sparse.ply`, `multi_view.ply`, `filtered.ply`, `cameras.json` |
+| `reconstruction/` | View graph → tracks (union-find); camera registry; landmarks ↔ observations; registration by PnP (`solvePnPRansac` + LM refinement); next-best-view loop; bundle adjustment (SciPy `least_squares`, soft-L1 loss, sparse Jacobian; local after each registration, global every k and at the end); after each registration (and adjustment) track completion, per-observation filtering and re-triangulation, switchable independently of BA | `Reconstruction`: cameras + landmarks |
+| `pointcloud/` | Colours sampled bilinearly at every observation and averaged; filtering (non-finite, mean reprojection error, track length, then Open3D statistical and scale-relative radius outlier removal, counts logged per step); PLY via Open3D's tensor API; `cameras.json` | `sparse.ply`, `filtered.ply`, `cameras.json` |
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct → filter); stage-by-stage data flow in [docs/architecture.md](docs/architecture.md) | In-memory results |
@@ -214,7 +214,7 @@ python scripts/download_middlebury.py templeRing          # 47 photos + K + grou
 python -m src.cli reconstruct data/raw/templeRing         # → outputs/<run>/point_clouds/filtered.ply
 python scripts/evaluate_against_ground_truth.py data/raw/templeRing   # errors vs ground truth
 python -m src.cli view outputs/<run>/point_clouds/filtered.ply \
-    --cameras outputs/<run>/camera_poses/multi_view_cameras.json      # interactive 3-D view
+    --cameras outputs/<run>/camera_poses/cameras.json                 # interactive 3-D view
 ```
 
 The sections below explain each step and every other command.
@@ -317,8 +317,8 @@ python -m src.cli view outputs/<run>/point_clouds/sparse.ply --cameras outputs/<
 # every image: tracks, PnP registration, bundle adjustment -> coloured sparse cloud,
 # then outlier filtering -> cleaned cloud
 python -m src.cli reconstruct data/raw/templeRing
-#   .../point_clouds/multi_view.ply (all landmarks) · filtered.ply (cleaned)
-#   .../camera_poses/multi_view_cameras.json
+#   .../point_clouds/sparse.ply (all landmarks) · filtered.ply (cleaned)
+#   .../camera_poses/cameras.json (every registered camera)
 #   .../reconstruction/reconstruction.json (incl. per-filter counts) · registration.csv
 #                      cameras.png · reprojection_histogram.png
 #   .../figures/filtered.png (close-up render of the cleaned cloud)
@@ -467,7 +467,7 @@ outputs/<timestamp>_two_view_sift/
 └── figures/       two_view.png · two_view_closeup.png
 ```
 
-`reconstruct` additionally writes `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`), `point_clouds/multi_view.ply` and `filtered.ply`, `camera_poses/multi_view_cameras.json` and `figures/filtered.png`.
+`reconstruct` runs the same stages and continues to `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`) and `figures/filtered.png`; its `point_clouds/sparse.ply` (every landmark), `filtered.ply` and `camera_poses/cameras.json` hold the **multi-view** reconstruction, and the two-view cloud and renders are not written.
 
 Not produced: dense clouds and meshes (future work). A complete textured mesh is **not** expected from sparse SfM alone. Experiment runs have their own layout (§7.6).
 
@@ -482,14 +482,14 @@ Not produced: dense clouds and meshes (future work). A complete textured mesh is
 | Metric | Measures |
 |---|---|
 | Features per image | Detector output |
-| Raw / filtered matches per pair | Correspondence quantity |
+| Raw / final matches per pair (mean over pairs) | Correspondence quantity |
 | Inlier ratio | Fraction surviving geometric verification |
 | Registered cameras | Multi-view coverage (multi-view only) |
 | Sparse point count, mean track length | Reconstruction density & redundancy |
 | Mean / median reprojection error (px) | Image-space consistency |
 | Runtime per stage | Efficiency |
 | Completeness, Chamfer distance | 3D accuracy vs reference (after similarity alignment) |
-| Pose error (rotation °, translation direction °) | Synthetic / COLMAP-relative accuracy |
+| Pose error: pairwise rotation ° and translation direction ° (`evaluate_against_ground_truth.py`); per camera, rotation ° and centre error after similarity alignment (multi-view, experiments) | Accuracy against ground truth |
 
 Report only metrics meaningful for the implementation tier (e.g. no camera-registration stats for the two-view prototype).
 

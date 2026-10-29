@@ -1,8 +1,11 @@
-# Quality gain from bundle adjustment (and the structure refinement that follows it).
+# Quality gain from bundle adjustment and from the structure refinement that follows each
+# registration (re-attach fitting keypoints, drop bad observations, re-triangulate),
+# separately and together.
 name: e5_bundle_adjustment
-question: E5 - what does bundle adjustment gain?
+question: E5 - what do bundle adjustment and structure refinement each gain?
 vary:
   bundle_adjustment.enabled: [true, false]
+  bundle_adjustment.refine_structure: [true, false]
 plot:
   y: [rotation_error_median_deg, rotation_error_max_deg, centre_error_median,
       reprojection_mean_px, completeness, time_total_s]

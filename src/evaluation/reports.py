@@ -1,7 +1,8 @@
 """Figures and a Markdown table from an experiment directory (see ``experiments``).
 
-Everything is regenerated from ``experiment_results.csv`` and ``experiment.json``, so
-reports can be redrawn without rerunning the pipeline. The experiment's ``plot`` entry
+Everything is regenerated from ``experiment_results.csv``, ``experiment.json`` and each
+run's ``reprojection_errors.npy``, so reports can be redrawn without rerunning the
+pipeline. The experiment's ``plot`` entry
 chooses the figure: ``x`` (a column; numeric values give lines, one per ``hue`` value),
 ``y`` (metrics, one panel each). Without ``x`` each setting gets a bar.
 """
@@ -42,19 +43,52 @@ TABLE = (
 
 
 def make_report(experiment_dir: str | Path) -> list[Path]:
-    """Write ``metrics.png``, ``runtime.png`` and ``results.md`` into the experiment
-    directory and return their paths."""
+    """Write ``metrics.png``, ``runtime.png``, ``results.md`` and, when the runs saved
+    their errors, ``reprojection.png`` into the experiment directory; return the paths."""
     directory = Path(experiment_dir)
     meta = read_json(directory / "experiment.json")
     table = pd.read_csv(directory / "experiment_results.csv")
     plot = meta.get("plot") or {}
     metrics = [m for m in plot.get("y", ["registered", "completeness"]) if m in table]
     title = f"{meta['name']}: {meta.get('question', '')}".rstrip(": ")
-    return [
+    files = [
         _metrics_figure(table, plot, metrics, title, directory / "metrics.png"),
         _runtime_figure(table, title, directory / "runtime.png"),
         _results_table(table, meta, metrics, directory / "results.md"),
     ]
+    errors = {
+        run["label"]: np.load(path)
+        for run in meta.get("runs", [])
+        if (path := directory / run["directory"] / "reprojection_errors.npy").is_file()
+    }
+    if errors:
+        files.append(_reprojection_figure(errors, title, directory / "reprojection.png"))
+    return files
+
+
+def _reprojection_figure(errors: dict[str, np.ndarray], title: str, path):
+    """One step histogram (share of observations) of the final reprojection errors per
+    setting, over a common range."""
+    from matplotlib import colormaps
+    from matplotlib.figure import Figure
+
+    limit = max(float(np.percentile(e, 99.5)) for e in errors.values() if len(e)) or 1.0
+    bins = np.linspace(0.0, limit, 60)
+    colours = colormaps["viridis"](np.linspace(0, 0.9, len(errors)))
+    fig = Figure(figsize=(8, 4.2), layout="constrained")
+    ax = fig.add_subplot()
+    for (label, e), colour in zip(errors.items(), colours, strict=True):
+        weights = np.full(len(e), 1.0 / max(len(e), 1))
+        median = float(np.median(e)) if len(e) else float("nan")
+        ax.hist(np.minimum(e, limit), bins=bins, weights=weights, histtype="step", lw=1.6,
+                color=colour, label=f"{label} (median {median:.2f} px)")  # fmt: skip
+    ax.set_xlabel("reprojection error (px)")
+    ax.set_ylabel("share of observations")
+    ax.set_title(f"Reprojection error - {title}", fontsize=10)
+    ax.legend(fontsize=7)
+    ax.grid(alpha=0.3)
+    fig.savefig(path, dpi=130)
+    return Path(path)
 
 
 def _metrics_figure(table: pd.DataFrame, plot: dict, metrics: list[str], title: str, path):

@@ -16,8 +16,9 @@ An experiment is a YAML file (``configs/experiments/``)::
 
 Overrides are dotted config keys, validated when the file is loaded. Each run gets its
 own directory (``config.yaml``, ``environment.json``, ``metrics.json``,
-``filtered.ply``); the experiment directory holds ``experiment_results.csv`` (one row
-per setting: label, overrides, status, metrics) and ``experiment.json``.
+``filtered.ply``, ``reprojection_errors.npy``); the experiment directory holds
+``experiment_results.csv`` (one row per setting: label, overrides, status, metrics) and
+``experiment.json``.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from src.data.loader import DatasetError
 from src.evaluation.ground_truth import at_working_resolution
 from src.evaluation.metrics import camera_pose_errors, cloud_errors, metric_scale
 from src.geometry.camera import Camera
-from src.geometry.reprojection import ReprojectionStats, reprojection_errors
+from src.geometry.reprojection import ReprojectionStats
 from src.geometry.triangulation import Observations, triangulate_and_filter
 from src.pipeline import STAGES, PipelineResult, run_pipeline
 from src.pointcloud.export import write_ply
@@ -48,7 +49,8 @@ from src.run import write_csv, write_json, write_run_metadata
 
 TIMED = ("dataset", *STAGES)
 METRICS = (
-    "images", "features_mean", "pairs", "verified_pairs", "inlier_ratio_mean",
+    "images", "features_mean", "pairs", "raw_matches_mean", "matches_mean", "verified_pairs",
+    "inlier_ratio_mean",
     "registered", "registered_fraction", "landmarks", "observations", "mean_track_length",
     "reprojection_mean_px", "reprojection_median_px", "filtered_points",
     "rotation_error_median_deg", "rotation_error_max_deg",
@@ -138,6 +140,8 @@ def collect_metrics(
         images=len(result.names),
         features_mean=float(np.mean([s.n_features for s in result.feature_stats])),
         pairs=len(result.matches),
+        raw_matches_mean=float(np.mean([s.raw for s in result.match_stats])),
+        matches_mean=float(np.mean([s.final for s in result.match_stats])),
         verified_pairs=len(verified),
         inlier_ratio_mean=float(np.mean([s.inlier_ratio for s in verified])) if verified else 0.0,
         registered=0,
@@ -150,16 +154,16 @@ def collect_metrics(
     rec = result.reconstruction
     if rec is None:
         return row
-    lm, images = rec.landmarks, rec.registry.images
-    cameras, obs, X = lm.as_problem(rec.registry, result.features)
-    rp = ReprojectionStats.from_errors(reprojection_errors(cameras, obs, X))
+    lm, images, X = rec.landmarks, rec.registry.images, rec.landmarks.position
+    cameras = [rec.registry.camera(m) for m in images]
+    rp = ReprojectionStats.from_errors(rec.reprojection_errors(result.features))
     keep = result.filtering.keep if result.filtering is not None else np.ones(len(lm), bool)
     row.update(
         registered=len(images),
         registered_fraction=len(images) / len(result.names),
         landmarks=len(lm),
-        observations=len(obs),
-        mean_track_length=len(obs) / len(lm) if len(lm) else np.nan,
+        observations=rp.n,
+        mean_track_length=float(lm.track_lengths().mean()) if len(lm) else np.nan,
         reprojection_mean_px=rp.mean,
         reprojection_median_px=rp.median,
         filtered_points=int(keep.sum()),
@@ -218,6 +222,8 @@ def run_experiment(
                 keep = result.filtering.keep
                 write_ply(run_dir / "filtered.ply", rec.landmarks.position[keep],
                           rec.landmarks.color[keep] / 255.0)  # fmt: skip
+                np.save(run_dir / "reprojection_errors.npy",
+                        rec.reprojection_errors(result.features).astype(np.float32))  # fmt: skip
         record = {"setting": setting.label, "status": status, "overrides": setting.overrides}
         write_json(run_dir / "metrics.json", {**record, **metrics})
         rows.append({"setting": setting.label, **setting.overrides, "status": status, **metrics})
