@@ -14,7 +14,7 @@ from src.config import VerificationConfig
 from src.features.extractor import Features
 from src.features.matcher import Matches
 from src.geometry.epipolar import TwoViewGeometry, select_model, verify_pair
-from src.run import write_csv
+from src.run import parallel_map, write_csv
 
 
 class View(Protocol):
@@ -44,32 +44,41 @@ def verify_matches(
     features: Sequence[Features],
     matches: Sequence[Matches],
     config: VerificationConfig,
+    workers: int = 1,
 ) -> tuple[list[TwoViewGeometry], list[VerificationStats]]:
-    """Fit two-view geometry to every pair of matches, in the given order."""
-    geometries, stats = [], []
-    for m in matches:
+    """Fit two-view geometry to every pair of matches, in the given order.
+
+    Pairs are independent, so they run on ``workers`` threads (0 = all cores); each
+    ``verify_pair`` seeds OpenCV's per-thread RNG, so results do not depend on it.
+    """
+
+    def one(m: Matches) -> tuple[TwoViewGeometry, VerificationStats]:
         start = time.perf_counter()
         a, b = views[m.i], views[m.j]
         model = select_model(config.method, a.intrinsics_source, b.intrinsics_source)
         x_i, x_j = m.points(features[m.i], features[m.j])
         g = verify_pair(x_i, x_j, a.K, b.K, config, model=model)
-        geometries.append(g)
-        stats.append(
-            VerificationStats(
-                i=m.i,
-                j=m.j,
-                model=g.model,
-                n_matches=g.n_matches,
-                n_inliers=g.n_inliers,
-                inlier_ratio=g.inlier_ratio,
-                median_residual=g.median_residual,
-                homography_ratio=g.homography_ratio,
-                success=g.success,
-                reason=g.reason,
-                time_ms=(time.perf_counter() - start) * 1000,
-            )
+        return g, VerificationStats(
+            i=m.i,
+            j=m.j,
+            model=g.model,
+            n_matches=g.n_matches,
+            n_inliers=g.n_inliers,
+            inlier_ratio=g.inlier_ratio,
+            median_residual=g.median_residual,
+            homography_ratio=g.homography_ratio,
+            success=g.success,
+            reason=g.reason,
+            time_ms=(time.perf_counter() - start) * 1000,
         )
-    return geometries, stats
+
+    results = parallel_map(one, matches, workers)
+    return [g for g, _ in results], [s for _, s in results]
+
+
+def unverified_images(stats: Sequence[VerificationStats], n_images: int) -> list[int]:
+    """Images without any verified pair: they cannot be registered."""
+    return np.flatnonzero(verification_matrix(stats, n_images).max(axis=1) == 0).tolist()
 
 
 def inlier_matches(matches: Matches, geometry: TwoViewGeometry) -> Matches:

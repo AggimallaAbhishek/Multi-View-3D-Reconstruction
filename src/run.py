@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import platform
 import subprocess
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -35,6 +37,26 @@ def create_run_dir(root: str | Path, label: str) -> Path:
         path = base.with_name(f"{base.name}_{n}")
     path.mkdir(parents=True)
     return path
+
+
+def worker_count(workers: int) -> int:
+    """``performance.workers``: 0 means all CPU cores."""
+    return max(1, os.cpu_count() or 1) if workers <= 0 else workers
+
+
+def parallel_map[T, U](fn: Callable[[T], U], items: Iterable[T], workers: int) -> list[U]:
+    """``[fn(x) for x in items]`` on a thread pool, results in input order.
+
+    Threads (not processes) suffice because OpenCV releases the GIL in its heavy calls.
+    ``fn`` must not depend on shared mutable state; seeded OpenCV RNG calls must seed
+    inside ``fn`` (OpenCV's RNG is per thread).
+    """
+    items = list(items)
+    n = worker_count(workers)
+    if n == 1 or len(items) < 2:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=min(n, len(items))) as pool:
+        return list(pool.map(fn, items))
 
 
 def write_csv(path: str | Path, header: Sequence[str], rows: Iterable[Sequence]) -> Path:

@@ -9,13 +9,13 @@ from src.data.validation import (
     ImageStats,
     blur_score,
     dhash,
-    hamming,
+    hash_distance,
     image_stats,
     validate,
 )
 from tests.images import blur, make_texture
 
-CFG = DatasetConfig(min_images=2, blur_threshold=100.0, duplicate_max_distance=2)
+CFG = DatasetConfig(min_images=2)
 
 
 def _stats(name, seed=0, size=(640, 480), blurred=False):
@@ -45,8 +45,36 @@ def test_blur_score_is_roughly_resolution_independent():
 
 def test_dhash_identical_and_distinct_images():
     a, b = make_texture(0), make_texture(1)
-    assert hamming(dhash(a), dhash(a.copy())) == 0
-    assert hamming(dhash(a), dhash(b)) > 10
+    assert hash_distance(dhash(a), dhash(a.copy())) == 0.0
+    assert hash_distance(dhash(a), dhash(b)) > 0.3  # unrelated: about half the bits differ
+
+
+def _object_on_black(angle_deg: float, shift_px: int = 0):
+    # Like the Middlebury temple: a textured object filling ~1/3 of a black frame.
+    import cv2
+    import numpy as np
+
+    from tests.images import make_natural_texture
+
+    image = make_natural_texture(3)
+    mask = np.zeros(image.shape[:2], np.uint8)
+    cv2.ellipse(mask, (320, 240), (130, 170), 0, 0, 360, 255, -1)
+    image[mask == 0] = 0
+    A = cv2.getRotationMatrix2D((320.0, 240.0), angle_deg, 1.0)
+    A[:, 2] += shift_px
+    return cv2.warpAffine(image, A, (640, 480))
+
+
+def test_neighbouring_views_of_object_on_plain_background_are_not_duplicates():
+    # Regression (Middlebury templeRing): with a 64-bit dHash, 68 % black background made
+    # neighbouring views 7.5 deg apart look identical (1-2 bits), flagging 25 false pairs.
+    base, neighbour = _object_on_black(0.0), _object_on_black(6.0)
+    assert hash_distance(dhash(base), dhash(neighbour)) > CFG.duplicate_max_fraction
+
+
+def test_shaken_copy_is_still_a_duplicate():
+    base, shaken = _object_on_black(0.0), _object_on_black(0.0, shift_px=2)
+    assert hash_distance(dhash(base), dhash(shaken)) <= CFG.duplicate_max_fraction
 
 
 def test_clean_dataset_has_no_issues():
@@ -72,6 +100,30 @@ def test_mixed_resolutions_are_a_warning():
     report = validate([_stats("a", 0), _stats("b", 1, size=(480, 640))], [], CFG)
     assert report.ok
     assert "mixed_resolution" in _codes(report)
+
+
+def _with_blur(scores):
+    return [
+        ImageStats(name=f"im{k}", width=640, height=480, blur=b, dhash=k)
+        for k, b in enumerate(scores)
+    ]
+
+
+def test_sharp_low_texture_images_are_not_blurry():
+    # Regression (Middlebury templeRing): smooth plaster scores 79-187, below the old
+    # absolute threshold of 100, although every image is sharp.
+    report = validate(_with_blur([79, 83, 145, 160, 187]), [], CFG)
+    assert "blurry" not in _codes(report)
+
+
+def test_blurry_outlier_is_flagged_relative_to_dataset():
+    report = validate(_with_blur([40, 150, 160, 170]), [], CFG)  # 40 < 0.35 * median
+    assert [i.message.split(":")[0] for i in report.issues if i.code == "blurry"] == ["im0"]
+
+
+def test_uniformly_blurry_dataset_is_flagged_by_absolute_floor():
+    report = validate(_with_blur([5, 6, 7]), [], CFG)
+    assert sum(i.code == "blurry" for i in report.issues) == 3
 
 
 def test_blurry_image_is_named_in_warning():

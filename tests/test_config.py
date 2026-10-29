@@ -77,3 +77,32 @@ def test_config_is_immutable():
 def test_to_dict_round_trips():
     cfg = load_config()
     assert config_from_dict(cfg.to_dict()) == cfg
+
+
+def test_with_overrides_applies_dotted_keys_and_ignores_none():
+    cfg = Config().with_overrides(
+        {"features.detector": "orb", "matching.ratio": 0.8, "verification.method": None}
+    )
+    assert cfg.features.detector == "orb"
+    assert cfg.matching.ratio == 0.8
+    assert cfg.verification.method == Config().verification.method
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"features.detectr": "orb"},
+        {"nosection.key": 1},
+        {"features": "orb"},
+        {"matching.ratio": "x"},
+    ],
+    ids=["unknown-key", "unknown-section", "no-dot", "wrong-type"],
+)
+def test_with_overrides_validates(overrides):
+    with pytest.raises(ConfigError):
+        Config().with_overrides(overrides)
+
+
+def test_cache_path():
+    assert str(Config().cache_path("features")) == "outputs/cache/features"
+    assert config_from_dict({"output": {"cache_dir": None}}).cache_path("features") is None

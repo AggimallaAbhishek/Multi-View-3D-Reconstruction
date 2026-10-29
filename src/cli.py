@@ -8,7 +8,6 @@ images are drawn only for the last stage a command runs.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import logging
 import sys
@@ -23,11 +22,13 @@ from src.config import Config, load_config
 from src.data.dataset import prepare_dataset
 from src.data.loader import DatasetError, ImageRecord, discover_images, iter_images
 from src.data.validation import format_report
-from src.features.extractor import write_feature_statistics
+from src.features.extractor import weak_images, write_feature_statistics
 from src.features.matcher import (
     Matches,
     connectivity,
+    isolated_images,
     match_matrix,
+    resolve_pair_mode,
     save_matches,
     write_match_statistics,
 )
@@ -39,6 +40,7 @@ from src.geometry.calibration import (
 from src.geometry.pose_estimation import write_pose_statistics
 from src.geometry.verification import (
     inlier_matches,
+    unverified_images,
     verification_matrix,
     write_verification_statistics,
 )
@@ -57,12 +59,19 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
     common.add_argument("--out", type=Path, help="output root (default: config output.root)")
     detector = argparse.ArgumentParser(add_help=False)
-    detector.add_argument("--detector", choices=["sift", "orb"], help="override features.detector")
+    # Options that override config keys use the dotted key as their argparse ``dest``;
+    # _config_from_args applies all of them through the validated Config.with_overrides.
+    detector.add_argument(
+        "--detector", dest="features.detector", choices=["sift", "orb"], help="features.detector"
+    )
     draw = argparse.ArgumentParser(add_help=False)
     draw.add_argument("--draw", type=int, default=3, help="diagnostic images to save (3)")
     method = argparse.ArgumentParser(add_help=False)
     method.add_argument(
-        "--method", choices=["auto", "essential", "fundamental"], help="override model"
+        "--method",
+        dest="verification.method",
+        choices=["auto", "essential", "fundamental"],
+        help="verification.method",
     )
 
     parser = argparse.ArgumentParser(prog="python -m src.cli")
@@ -81,9 +90,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser(
         "matches", parents=[common, detector, draw], help="match features between image pairs"
     )
-    p.add_argument("--ratio", type=float, help="override matching.ratio")
+    p.add_argument("--ratio", dest="matching.ratio", type=float, metavar="R", help="matching.ratio")
     p.add_argument(
-        "--pairs", choices=["exhaustive", "sequential"], help="override matching.pair_mode"
+        "--pairs",
+        dest="matching.pair_mode",
+        choices=["auto", "exhaustive", "sequential"],
+        help="matching.pair_mode",
     )
     p.set_defaults(func=_stage_command, stage="matches")
 
@@ -92,7 +104,13 @@ def main(argv: list[str] | None = None) -> int:
         parents=[common, detector, draw, method],
         help="match pairs and verify them with epipolar geometry",
     )
-    p.add_argument("--threshold", type=float, help="override ransac_threshold_px")
+    p.add_argument(
+        "--threshold",
+        dest="verification.ransac_threshold_px",
+        type=float,
+        metavar="PX",
+        help="verification.ransac_threshold_px",
+    )
     p.set_defaults(func=_stage_command, stage="verify")
 
     p = sub.add_parser(
@@ -118,31 +136,10 @@ def main(argv: list[str] | None = None) -> int:
 # --- helpers ----------------------------------------------------------------------------
 
 
-def _override(config: Config, section: str, **values) -> Config:
-    """Config with command-line overrides applied; ``None`` values are ignored."""
-    values = {k: v for k, v in values.items() if v is not None}
-    if not values:
-        return config
-    return dataclasses.replace(
-        config, **{section: dataclasses.replace(getattr(config, section), **values)}
-    )
-
-
 def _config_from_args(args: argparse.Namespace) -> Config:
-    config = load_config(args.config)
-    config = _override(config, "features", detector=getattr(args, "detector", None))
-    config = _override(
-        config,
-        "matching",
-        ratio=getattr(args, "ratio", None),
-        pair_mode=getattr(args, "pairs", None),
-    )
-    return _override(
-        config,
-        "verification",
-        method=getattr(args, "method", None),
-        ransac_threshold_px=getattr(args, "threshold", None),
-    )
+    """The YAML config with every dotted-key option given on the command line applied."""
+    overrides = {key: value for key, value in vars(args).items() if "." in key}
+    return load_config(args.config).with_overrides(overrides)
 
 
 def _print_dataset_error(exc: DatasetError) -> None:
@@ -244,12 +241,11 @@ def _save_features(r: PipelineResult, run_dir: Path, draw: int) -> Path:
         + (f" at {np.mean(new):.0f} ms each" if new else "")
         + f", {len(stats) - len(new)} from cache"
     )
-    for s in stats:
-        if s.n_features < cfg.warn_min_features or s.coverage < cfg.warn_min_coverage:
-            print(
-                f"[WARNING] {s.image}: {s.n_features} features, coverage {s.coverage:.2f} "
-                "- too little texture or features concentrated in one region"
-            )
+    for s in weak_images(stats, cfg):
+        print(
+            f"[WARNING] {s.image}: {s.n_features} features, coverage {s.coverage:.2f} "
+            "- too little texture or features concentrated in one region"
+        )
     return csv_path
 
 
@@ -268,13 +264,14 @@ def _save_matches(r: PipelineResult, run_dir: Path, draw: int) -> Path:
     good = final >= cfg.min_matches
     print(f"Matching: ratio {cfg.ratio}, mutual {cfg.mutual}, {cfg.method}")
     print(
-        f"Pairs: {len(stats)} ({cfg.pair_mode}) in {sum(s.time_ms for s in stats) / 1000:.1f} s; "
+        f"Pairs: {len(stats)} ({resolve_pair_mode(len(names), cfg)}) in "
+        f"{sum(s.time_ms for s in stats) / 1000:.1f} s, {sum(s.cached for s in stats)} from cache; "
         f"{good.sum()} with >= {cfg.min_matches} matches"
     )
     if good.any():
         print(f"Matches per connected pair: {_spread(final[good])}")
     best = connectivity(stats, len(names))
-    for k in np.flatnonzero(best < cfg.min_matches):
+    for k in isolated_images(stats, len(names), cfg.min_matches):
         print(
             f"[WARNING] {names[k]}: best pair has only {best[k]} matches - "
             "it will probably not be registered"
@@ -325,7 +322,7 @@ def _save_verification(r: PipelineResult, run_dir: Path, draw: int) -> Path:
             f"Pairs explained by a homography (H/F > {cfg.planar_ratio}): {planar} "
             "- planar scene or rotation only, weak for initialisation"
         )
-    for k in np.flatnonzero(inliers.max(axis=1) == 0):
+    for k in unverified_images(stats, len(names)):
         print(f"[WARNING] {names[k]}: no verified pair - it cannot be registered")
     return csv_path
 

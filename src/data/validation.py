@@ -72,15 +72,26 @@ def blur_score(image: np.ndarray, working_side: int = DatasetConfig.blur_working
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+# 32x32 difference hash. A 64-bit (8x8) hash is dominated by the background when the
+# object fills only part of the frame: neighbouring views of an object on a black
+# background then differed by 1-2 bits, as much as true duplicates (Middlebury temple).
+# At 1024 bits duplicates differ by <= ~2 % and 7.5 deg neighbours by >= ~9 %.
+DHASH_SIZE = 32
+DHASH_BITS = DHASH_SIZE * DHASH_SIZE
+
+
 def dhash(image: np.ndarray) -> int:
-    """64-bit difference hash: compares horizontally adjacent pixels of a 9x8 thumbnail."""
-    thumb = cv2.resize(to_gray(image), (9, 8), interpolation=cv2.INTER_AREA).astype(np.int16)
+    """1024-bit difference hash: signs of horizontal gradients on a 33x32 thumbnail."""
+    thumb = cv2.resize(
+        to_gray(image), (DHASH_SIZE + 1, DHASH_SIZE), interpolation=cv2.INTER_AREA
+    ).astype(np.int16)
     bits = (thumb[:, 1:] > thumb[:, :-1]).ravel()
-    return int(np.packbits(bits).view(">u8")[0])
+    return int.from_bytes(np.packbits(bits).tobytes(), "big")
 
 
-def hamming(a: int, b: int) -> int:
-    return (a ^ b).bit_count()
+def hash_distance(a: int, b: int) -> float:
+    """Fraction of differing hash bits: 0 for identical images, ~0.5 for unrelated ones."""
+    return (a ^ b).bit_count() / DHASH_BITS
 
 
 def image_stats(
@@ -123,24 +134,31 @@ def validate(
             )
         )
 
-    for s in stats:
-        if s.blur < config.blur_threshold:
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "blurry",
-                    f"{s.name}: blur score {s.blur:.1f} < {config.blur_threshold:g}",
+    # Laplacian variance depends on content (smooth surfaces score low even when sharp),
+    # so an image is blurry relative to the rest of its dataset, or below a low absolute
+    # floor that catches a dataset that is blurry throughout.
+    if stats:
+        relative_limit = config.blur_relative * float(np.median([s.blur for s in stats]))
+        for s in stats:
+            if s.blur < config.blur_threshold or s.blur < relative_limit:
+                issues.append(
+                    ValidationIssue(
+                        "warning",
+                        "blurry",
+                        f"{s.name}: blur score {s.blur:.1f} (floor {config.blur_threshold:g}, "
+                        f"{config.blur_relative:g} x dataset median = {relative_limit:.1f})",
+                    )
                 )
-            )
 
     for a, b in combinations(stats, 2):
-        distance = hamming(a.dhash, b.dhash)
-        if distance <= config.duplicate_max_distance:
+        distance = hash_distance(a.dhash, b.dhash)
+        if distance <= config.duplicate_max_fraction:
             issues.append(
                 ValidationIssue(
                     "warning",
                     "near_duplicate",
-                    f"{a.name} and {b.name} look nearly identical (hash distance {distance})",
+                    f"{a.name} and {b.name} look nearly identical "
+                    f"({distance:.1%} of hash bits differ)",
                 )
             )
 

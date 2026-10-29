@@ -84,7 +84,7 @@ def test_dataset_save_writes_json(image_dir, tmp_path):
 def test_cli_validate_writes_run_directory(image_dir, tmp_path):
     out = tmp_path / "outputs"
     assert main(["validate", str(image_dir), "--out", str(out)]) == 0
-    (run_dir,) = out.iterdir()
+    (run_dir,) = out.glob("*_validate")  # outputs/ also holds the default cache
     assert (run_dir / "dataset.json").is_file()
     assert (run_dir / "config.yaml").is_file()
     env = json.loads((run_dir / "environment.json").read_text())
@@ -95,3 +95,48 @@ def test_cli_validate_fails_on_invalid_dataset(tmp_path, capsys):
     write_textured_images(tmp_path / "one", 1)
     assert main(["validate", str(tmp_path / "one"), "--out", str(tmp_path / "o")]) == 1
     assert "too_few_images" in capsys.readouterr().out
+
+
+def test_image_cache_skips_decoding_on_repeat(image_dir, tmp_path, monkeypatch):
+    import src.data.dataset as dataset_module
+
+    cfg = config_from_dict(
+        {"preprocessing": {"max_side": 320}, "output": {"cache_dir": str(tmp_path / "c")}}
+    )
+    first = prepare_dataset(image_dir, cfg)
+
+    def no_decoding(_):
+        raise AssertionError("decoded although cached")
+
+    monkeypatch.setattr(dataset_module, "decode_image", no_decoding)
+    corrupt = image_dir / "image_005.jpg"
+    corrupt.unlink()  # uncached (undecodable) file: remove so nothing needs decoding
+    second = prepare_dataset(image_dir, cfg)
+    assert [im.name for im in second.images] == [im.name for im in first.images]
+    for a, b in zip(first.images, second.images, strict=True):
+        np.testing.assert_array_equal(a.gray, b.gray)
+        np.testing.assert_array_equal(a.K, b.K)
+        assert (a.scale, a.intrinsics_source) == (b.scale, b.intrinsics_source)
+    assert [s.blur for s in first.report.images] == [s.blur for s in second.report.images]
+
+
+def test_image_cache_key_follows_settings(image_dir, tmp_path):
+    root = str(tmp_path / "c")
+    prepare_dataset(image_dir, config_from_dict({"output": {"cache_dir": root}}))
+    small = prepare_dataset(
+        image_dir,
+        config_from_dict({"output": {"cache_dir": root}, "preprocessing": {"max_side": 200}}),
+    )
+    assert small.images[0].width == 200  # not served from the full-size cache entry
+
+
+def test_colour_image_is_rebuilt_on_demand(image_dir):
+    import cv2
+
+    from src.data.loader import read_image
+
+    im = prepare_dataset(image_dir, CFG).images[0]
+    assert not any(isinstance(v, np.ndarray) and v.ndim == 3 for v in vars(im).values())
+    expected = cv2.resize(read_image(im.path), (320, 240), interpolation=cv2.INTER_AREA)
+    np.testing.assert_array_equal(im.image, expected)
+    np.testing.assert_array_equal(cv2.cvtColor(im.image, cv2.COLOR_BGR2GRAY), im.gray)

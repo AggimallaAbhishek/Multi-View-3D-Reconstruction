@@ -27,9 +27,10 @@ class ConfigError(ValueError):
 class DatasetConfig:
     extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
     min_images: int = 2
-    blur_threshold: float = 100.0
+    blur_threshold: float = 30.0
+    blur_relative: float = 0.35
     blur_working_side: int = 800
-    duplicate_max_distance: int = 2
+    duplicate_max_fraction: float = 0.04
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,6 @@ class FeatureConfig:
     sift_contrast_threshold: float = 0.04
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
-    cache_dir: str | None = "outputs/cache/features"
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,8 @@ class MatchConfig:
     ratio: float = 0.75
     mutual: bool = True
     method: Literal["bruteforce", "flann"] = "bruteforce"
-    pair_mode: Literal["exhaustive", "sequential"] = "exhaustive"
+    pair_mode: Literal["auto", "exhaustive", "sequential"] = "auto"
+    exhaustive_max_images: int = 50
     sequential_window: int = 5
     min_matches: int = 30
 
@@ -100,7 +101,12 @@ class FilteringConfig:
 @dataclass(frozen=True)
 class OutputConfig:
     root: str = "outputs"
-    save_intermediates: bool = True
+    cache_dir: str | None = "outputs/cache"
+
+
+@dataclass(frozen=True)
+class PerformanceConfig:
+    workers: int = 0
 
 
 @dataclass(frozen=True)
@@ -115,10 +121,31 @@ class Config:
     triangulation: TriangulationConfig = field(default_factory=TriangulationConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
 
     def to_dict(self) -> dict[str, Any]:
         """Plain-dict view, suitable for saving next to run outputs."""
         return _to_plain(dataclasses.asdict(self))
+
+    def with_overrides(self, overrides: dict[str, Any]) -> Config:
+        """Copy with dotted-key overrides, e.g. ``{"features.detector": "orb"}``.
+
+        The result is validated like a config file: unknown keys and wrong types raise
+        ``ConfigError``. ``None`` values are ignored (an option that was not given).
+        """
+        raw = self.to_dict()
+        for key, value in overrides.items():
+            if value is None:
+                continue
+            section, _, name = key.partition(".")
+            if section not in raw or not name:
+                raise ConfigError(f"override {key!r}: expected <section>.<key>")
+            raw[section][name] = value
+        return config_from_dict(raw, source="overrides")
+
+    def cache_path(self, name: str) -> Path | None:
+        """Directory of one cache (``features``, ``matches``, ``images``), or None if off."""
+        return Path(self.output.cache_dir) / name if self.output.cache_dir else None
 
 
 def load_config(path: str | Path | None = None) -> Config:

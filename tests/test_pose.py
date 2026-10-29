@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from src.config import PoseConfig, VerificationConfig
+from src.config import PoseConfig, VerificationConfig, load_config
+from src.evaluation.metrics import rotation_error_deg, translation_direction_error_deg
 from src.geometry.epipolar import normalize_points, skew, verify_pair
 from src.geometry.pose_estimation import (
     PoseStats,
@@ -13,14 +14,12 @@ from src.geometry.pose_estimation import (
     estimate_relative_pose,
     is_initial_candidate,
     rotation_angle_deg,
-    rotation_error_deg,
     select_initial_pair,
-    translation_direction_error_deg,
 )
 from src.geometry.triangulation import triangulate_two_view
 from tests.synthetic import intrinsics, look_at, make_scene, project
 
-CFG = PoseConfig()
+CFG = load_config().pose  # the defaults users actually run with
 
 
 def _true_E(scene, i, j):
@@ -227,19 +226,19 @@ def _stats(i, j, n_valid=500, parallax=8.0, candidate=True):
 
 
 @pytest.mark.parametrize(
-    ("success", "h_ratio", "parallax", "expected"),
+    ("success", "planar", "parallax", "expected"),
     [
-        (True, 0.3, 8.0, True),
-        (True, 0.3, 2.0, False),  # too little parallax
-        (True, 0.95, 8.0, False),  # explained by a homography: planar or rotation only
-        (False, 0.3, 8.0, False),  # no valid pose
+        (True, False, 8.0, True),
+        (True, False, 2.0, False),  # too little parallax
+        (True, True, 8.0, False),  # explained by a homography: planar or rotation only
+        (False, False, 8.0, False),  # no valid pose
     ],
 )
-def test_is_initial_candidate(success, h_ratio, parallax, expected):
+def test_is_initial_candidate(success, planar, parallax, expected):
     from types import SimpleNamespace
 
     pose = SimpleNamespace(success=success, median_parallax_deg=parallax)
-    assert is_initial_candidate(pose, h_ratio, planar_ratio=0.8, min_parallax_deg=4.0) is expected
+    assert is_initial_candidate(pose, planar, min_parallax_deg=4.0) is expected
 
 
 def test_select_initial_pair_prefers_most_points_among_candidates():
@@ -291,7 +290,7 @@ def test_estimate_pair_poses_over_verified_pairs(rendered):
         features, select_pairs(4, MatchConfig()), DescriptorMatcher(MatchConfig())
     )
     geometries, _ = verify_matches(views, features, matches, VerificationConfig())
-    poses, stats = estimate_pair_poses(views, features, matches, geometries, CFG, 0.8)
+    poses, stats = estimate_pair_poses(views, features, matches, geometries, CFG)
 
     assert len(poses) == len(matches)
     assert len(stats) == sum(g.success for g in geometries)
@@ -318,7 +317,7 @@ def test_cli_pose_picks_and_plots_initial_pair(tmp_path, rendered):
     config = tmp_path / "config.yaml"
     config.write_text(
         f"camera:\n  calibration_file: {tmp_path / 'camera.yaml'}\n"
-        f"features:\n  cache_dir: {tmp_path / 'cache'}\n  max_features: 3000\n"
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 3000\n"
     )
     out = tmp_path / "outputs"
     assert main(["pose", str(tmp_path / "scene"), "--config", str(config), "--out", str(out)]) == 0

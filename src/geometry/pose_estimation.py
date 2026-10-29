@@ -44,15 +44,6 @@ def rotation_angle_deg(R: np.ndarray) -> float:
     return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
 
-def rotation_error_deg(R_est: np.ndarray, R_true: np.ndarray) -> float:
-    return rotation_angle_deg(R_est.T @ R_true)
-
-
-def translation_direction_error_deg(t_est: np.ndarray, t_true: np.ndarray) -> float:
-    """Angle between translation directions (translation is only known up to scale)."""
-    return float(angle_between_deg(np.ravel(t_est), np.ravel(t_true)))
-
-
 def camera_centre(R: np.ndarray, t: np.ndarray) -> np.ndarray:
     """Centre C = -R^T t of a camera with world -> camera transform (R, t)."""
     return -R.T @ t
@@ -177,12 +168,15 @@ def estimate_relative_pose(
 
     n_i, n_j = normalize_points(x_i, K_i), normalize_points(x_j, K_j)
     candidates = []
-    for R, t in decompose_essential(E):
+    (R1, t), _, (R2, _), _ = decompose_essential(E)
+    for R in (R1, R2):
         with np.errstate(over="ignore", invalid="ignore"):
             _, z_i, z_j = _depths(R, t, n_i, n_j)
-        in_front = (z_i > 0) & (z_j > 0)
         finite = (np.abs(z_i) < config.max_depth) & (np.abs(z_j) < config.max_depth)
-        candidates.append((R, t, in_front, finite))
+        # Flipping t negates every triangulated point (the DLT system is linear in
+        # [X; 1] and in t), so both depths change sign: one triangulation per rotation.
+        candidates.append((R, t, (z_i > 0) & (z_j > 0), finite))
+        candidates.append((R, -t, (z_i < 0) & (z_j < 0), finite))
     # Most valid points wins; when every point is far (no valid points at all), the count
     # in front of both cameras still separates the correct candidate from the others.
     R, t, in_front, finite = max(
@@ -219,19 +213,13 @@ class PoseStats:
     initial_candidate: bool
 
 
-def is_initial_candidate(
-    pose: RelativePose, homography_ratio: float, planar_ratio: float, min_parallax_deg: float
-) -> bool:
+def is_initial_candidate(pose: RelativePose, planar: bool, min_parallax_deg: float) -> bool:
     """Whether a pair may start the reconstruction.
 
-    It needs a valid pose, must not be explained by a homography (planar scene or
-    rotation only) and needs enough parallax for well-conditioned triangulation.
+    It needs a valid pose, must not be explained by a homography (``planar``, decided
+    by verification) and needs enough parallax for well-conditioned triangulation.
     """
-    return (
-        pose.success
-        and homography_ratio <= planar_ratio
-        and pose.median_parallax_deg >= min_parallax_deg
-    )
+    return pose.success and not planar and pose.median_parallax_deg >= min_parallax_deg
 
 
 def estimate_pair_poses(
@@ -240,13 +228,12 @@ def estimate_pair_poses(
     matches: Sequence[Matches],
     geometries: Sequence[TwoViewGeometry],
     config: PoseConfig,
-    planar_ratio: float,
 ) -> tuple[list[RelativePose | None], list[PoseStats]]:
     """Relative pose of every successfully verified pair (``None`` for the others).
 
     ``matches``/``geometries`` are aligned lists from matching and verification. Stats
     are returned for verified pairs only and record whether each is an initial-pair
-    candidate (``planar_ratio`` comes from the verification config).
+    candidate.
     """
     poses: list[RelativePose | None] = []
     stats: list[PoseStats] = []
@@ -275,7 +262,7 @@ def estimate_pair_poses(
                 rotation_deg=pose.rotation_deg,
                 homography_ratio=g.homography_ratio,
                 initial_candidate=is_initial_candidate(
-                    pose, g.homography_ratio, planar_ratio, config.init_min_parallax_deg
+                    pose, g.planar, config.init_min_parallax_deg
                 ),
             )
         )

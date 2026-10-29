@@ -23,7 +23,7 @@ import numpy as np
 from src.config import FeatureConfig
 from src.data.dataset import PreparedImage
 from src.data.preprocessing import to_gray
-from src.run import write_csv
+from src.run import parallel_map, write_csv
 
 log = logging.getLogger(__name__)
 
@@ -244,29 +244,41 @@ def extract_features(
     images: Sequence[PreparedImage],
     extractor: FeatureExtractor,
     cache: FeatureCache | None = None,
+    workers: int = 1,
 ) -> tuple[list[Features], list[FeatureStats]]:
-    """Features for every image, in dataset order."""
-    all_features, all_stats = [], []
-    for im in images:
+    """Features for every image, in dataset order, on ``workers`` threads (0 = all cores).
+
+    Each call builds its own OpenCV detector and the cache writes one file per image,
+    so images are independent and the result does not depend on ``workers``.
+    """
+
+    def one(im: PreparedImage) -> tuple[Features, FeatureStats]:
         start = time.perf_counter()
         if cache is None:
             features, hit = extractor.detect(im.gray), False
         else:
             features, hit = cache.get_or_compute(extractor, im.gray, im.name)
-        elapsed = (time.perf_counter() - start) * 1000
-        all_features.append(features)
-        all_stats.append(
-            FeatureStats(
-                image=im.name,
-                detector=features.detector,
-                n_features=len(features),
-                coverage=spatial_coverage(features.points, im.width, im.height),
-                time_ms=elapsed,
-                cached=hit,
-            )
-        )
         log.debug("%s: %d features (%s)", im.name, len(features), "cached" if hit else "new")
-    return all_features, all_stats
+        return features, FeatureStats(
+            image=im.name,
+            detector=features.detector,
+            n_features=len(features),
+            coverage=spatial_coverage(features.points, im.width, im.height),
+            time_ms=(time.perf_counter() - start) * 1000,
+            cached=hit,
+        )
+
+    results = parallel_map(one, images, workers)
+    return [f for f, _ in results], [s for _, s in results]
+
+
+def weak_images(stats: Sequence[FeatureStats], config: FeatureConfig) -> list[FeatureStats]:
+    """Images with too few features or features bunched in one region."""
+    return [
+        s
+        for s in stats
+        if s.n_features < config.warn_min_features or s.coverage < config.warn_min_coverage
+    ]
 
 
 def write_feature_statistics(stats: Sequence[FeatureStats], path: str | Path) -> Path:

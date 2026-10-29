@@ -86,18 +86,25 @@ def discover_images(directory: str | Path, extensions: Iterable[str]) -> list[Pa
     return sorted(paths, key=natural_sort_key)
 
 
-def read_image(path: Path) -> np.ndarray | None:
-    """Decode an image as upright BGR uint8, or ``None`` if it cannot be decoded."""
-    try:
-        data = np.fromfile(path, dtype=np.uint8)  # works for non-ASCII paths, unlike imread
-    except OSError:
+def decode_image(data: bytes) -> np.ndarray | None:
+    """Decode encoded image bytes as upright BGR uint8 (EXIF orientation applied)."""
+    if not data:
         return None
-    if data.size == 0:
-        return None
-    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None or image.size == 0:
         return None
     return image
+
+
+def read_image(path: Path) -> np.ndarray | None:
+    """Decode an image file, or ``None`` if it cannot be read or decoded.
+
+    Reads bytes first, which works for non-ASCII paths, unlike ``cv2.imread``.
+    """
+    try:
+        return decode_image(Path(path).read_bytes())
+    except OSError:
+        return None
 
 
 def read_exif(path: Path) -> ExifInfo:

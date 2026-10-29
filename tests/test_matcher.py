@@ -173,7 +173,9 @@ def test_match_pairs_and_statistics(tmp_path, sift_features):
     names = [f"image_{k}.jpg" for k in range(len(sift_features))]
     path = write_match_statistics(stats, names, tmp_path / "match_statistics.csv")
     header, *rows = path.read_text().strip().splitlines()
-    assert header == ("image_i,image_j,features_i,features_j,raw,after_ratio,after_mutual,time_ms")
+    assert header == (
+        "image_i,image_j,features_i,features_j,raw,after_ratio,after_mutual,time_ms,cached"
+    )
     assert len(rows) == len(pairs)
     assert rows[0].startswith("image_0.jpg,image_1.jpg,")
 
@@ -214,7 +216,9 @@ def test_cli_matches_writes_outputs(tmp_path):
     for k, im in enumerate(images):
         write_image(tmp_path / "scene" / f"view_{k + 1:02d}.png", im)
     config = tmp_path / "config.yaml"
-    config.write_text(f"features:\n  cache_dir: {tmp_path / 'cache'}\n  max_features: 1500\n")
+    config.write_text(
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 1500\n"
+    )
     out = tmp_path / "outputs"
 
     args = ["matches", str(tmp_path / "scene"), "--config", str(config), "--out", str(out)]
@@ -249,3 +253,63 @@ def test_ratios_separate_overlapping_from_unrelated_images(sift_features):
     overlapping = matcher.ratios(sift_features[0], sift_features[1])
     different = matcher.ratios(sift_features[0], unrelated)
     assert np.median(overlapping) < 0.6 < np.median(different)
+
+
+# --- efficiency changes keep results identical --------------------------------------------
+
+
+def test_exact_matching_equals_bfmatcher(sift_features):
+    # Regression oracle for the switch from BFMatcher.knnMatch to cv2.batchDistance.
+    fi, fj = sift_features[0], sift_features[1]
+    knn = cv2.BFMatcher(cv2.NORM_L2).knnMatch(fi.descriptors, fj.descriptors, k=2)
+    best = np.array([[m[0].trainIdx, m[0].distance, m[1].distance] for m in knn])
+    keep = best[:, 1] < 0.75 * best[:, 2]
+    m, _ = DescriptorMatcher(MatchConfig(ratio=0.75, mutual=False)).match(fi, fj)
+    np.testing.assert_array_equal(m.idx_i, np.flatnonzero(keep))
+    np.testing.assert_array_equal(m.idx_j, best[keep, 0].astype(np.int32))
+
+
+def test_flann_builds_one_index_per_image(sift_features):
+    matcher = DescriptorMatcher(MatchConfig(method="flann"))
+    match_pairs(sift_features, select_pairs(len(sift_features), MatchConfig()), matcher)
+    assert len(matcher._flann) == len(sift_features)
+
+
+def test_match_cache_hit_is_identical(tmp_path, sift_features):
+    from src.features.matcher import MatchCache
+
+    pairs = select_pairs(len(sift_features), MatchConfig())
+    cache = MatchCache(tmp_path / "matches")
+    first, s1 = match_pairs(sift_features, pairs, DescriptorMatcher(MatchConfig()), cache)
+    second, s2 = match_pairs(sift_features, pairs, DescriptorMatcher(MatchConfig()), cache)
+    assert not any(s.cached for s in s1) and all(s.cached for s in s2)
+    for a, b in zip(first, second, strict=True):
+        np.testing.assert_array_equal(a.idx_i, b.idx_i)
+        np.testing.assert_array_equal(a.idx_j, b.idx_j)
+    assert [(s.raw, s.after_ratio, s.final) for s in s1] == [
+        (s.raw, s.after_ratio, s.final) for s in s2
+    ]
+    # Different matching settings must not reuse these entries.
+    _, s3 = match_pairs(sift_features, pairs, DescriptorMatcher(MatchConfig(ratio=0.7)), cache)
+    assert not any(s.cached for s in s3)
+
+
+@pytest.mark.parametrize(("n", "mode"), [(3, "exhaustive"), (50, "exhaustive"), (51, "sequential")])
+def test_auto_pair_mode(n, mode):
+    from src.features.matcher import resolve_pair_mode
+
+    cfg = MatchConfig(pair_mode="auto", exhaustive_max_images=50)
+    assert resolve_pair_mode(n, cfg) == mode
+    expected = MatchConfig(pair_mode=mode, sequential_window=cfg.sequential_window)
+    assert select_pairs(n, cfg) == select_pairs(n, expected)
+
+
+def test_isolated_images(sift_features):
+    from src.features.matcher import isolated_images
+
+    extractor = SIFTExtractor(max_features=3000)
+    features = [*sift_features[:3], extractor.detect(make_natural_texture(99))]
+    _, stats = match_pairs(
+        features, select_pairs(4, MatchConfig()), DescriptorMatcher(MatchConfig())
+    )
+    assert isolated_images(stats, 4, min_matches=30) == [3]

@@ -106,7 +106,9 @@ def test_cli_verify_writes_outputs(tmp_path):
     for k, im in enumerate(images):
         write_image(tmp_path / "scene" / f"view_{k + 1:02d}.png", im)
     config = tmp_path / "config.yaml"
-    config.write_text(f"features:\n  cache_dir: {tmp_path / 'cache'}\n  max_features: 1500\n")
+    config.write_text(
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 1500\n"
+    )
     out = tmp_path / "outputs"
 
     args = ["verify", str(tmp_path / "scene"), "--config", str(config), "--out", str(out)]
@@ -151,3 +153,23 @@ def test_verification_agrees_with_true_geometry_on_rendered_3d_scene():
         assert np.mean(true_residual[g.inlier_mask] <= cfg.ransac_threshold_px) > 0.99
         assert np.mean(g.inlier_mask[true_residual <= 0.5]) > 0.99
         assert g.homography_ratio < 0.9  # a box on a plane is not one plane
+
+
+def test_parallel_verification_equals_sequential(sequence):
+    _, views, features, matches = sequence
+    seq, _ = verify_matches(views, features, matches, VerificationConfig(), workers=1)
+    par, _ = verify_matches(views, features, matches, VerificationConfig(), workers=4)
+    for a, b in zip(seq, par, strict=True):
+        np.testing.assert_array_equal(a.inlier_mask, b.inlier_mask)
+        assert a.success == b.success and a.homography_inliers == b.homography_inliers
+
+
+def test_unverified_images_and_planar_flag(sequence):
+    from src.geometry.verification import unverified_images
+
+    _, views, features, matches = sequence
+    geometries, stats = verify_matches(views, features, matches, VerificationConfig())
+    assert unverified_images(stats, 4) == [3]  # the unrelated image
+    # The synthetic sequence is a plane: verification marks its pairs planar.
+    assert all(g.planar for g in geometries if g.success)
+    assert not any(g.planar for g in geometries if not g.success)

@@ -233,7 +233,9 @@ def test_cli_features_writes_statistics_and_figures(tmp_path, detector):
 
     write_textured_images(tmp_path / "scene", 3, size=(640, 480))
     config = tmp_path / "config.yaml"
-    config.write_text(f"features:\n  cache_dir: {tmp_path / 'cache'}\n  max_features: 500\n")
+    config.write_text(
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 500\n"
+    )
     out = tmp_path / "outputs"
 
     args = ["features", str(tmp_path / "scene"), "--config", str(config), "--out", str(out)]
@@ -243,4 +245,30 @@ def test_cli_features_writes_statistics_and_figures(tmp_path, detector):
     assert run_dir.name.endswith(f"features_{detector}")
     assert (run_dir / "features" / "feature_statistics.csv").is_file()
     assert len(list((run_dir / "features").glob("*_keypoints.png"))) == 2
-    assert len(list((tmp_path / "cache").glob("*.npz"))) == 3
+    assert len(list((tmp_path / "cache" / "features").glob("*.npz"))) == 3
+
+
+def test_parallel_extraction_equals_sequential(tmp_path):
+    from src.config import config_from_dict
+    from src.data.dataset import prepare_dataset
+    from tests.images import write_textured_images
+
+    write_textured_images(tmp_path / "scene", 4, size=(640, 480))
+    images = prepare_dataset(tmp_path / "scene", config_from_dict({})).images
+    extractor = SIFTExtractor(max_features=400)
+    seq, _ = extract_features(images, extractor, workers=1)
+    par, _ = extract_features(images, extractor, workers=4)
+    for a, b in zip(seq, par, strict=True):
+        np.testing.assert_array_equal(a.descriptors, b.descriptors)
+
+
+def test_weak_images():
+    from src.features.extractor import FeatureStats, weak_images
+
+    cfg = FeatureConfig(warn_min_features=100, warn_min_coverage=0.25)
+    stats = [
+        FeatureStats("ok", "sift", 500, 0.9, 1.0, False),
+        FeatureStats("few", "sift", 50, 0.9, 1.0, False),
+        FeatureStats("bunched", "sift", 500, 0.1, 1.0, False),
+    ]
+    assert [s.image for s in weak_images(stats, cfg)] == ["few", "bunched"]

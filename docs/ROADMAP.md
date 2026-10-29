@@ -10,6 +10,8 @@ Each phase must be **working and tested before the next starts**. Every phase fo
 
 Legend: 🧪 tests · 📦 deliverable · ✅ exit criteria · ⚠️ risks · 🧰 skills
 
+> **Validation status (Phases 1–5):** verified against synthetic and rendered ground truth (`tests/synthetic.py`, `tests/render.py`, `tests/images.py`) **and on real photos with ground-truth cameras**: Middlebury *templeRing* (47 views; `scripts/download_middlebury.py`, `scripts/evaluate_relative_poses.py`). Real-data results — relative-pose errors median 0.61° rotation / 0.55° translation direction, initial pair 0.47° / 0.57° — are in [`data/sample/README.md`](../data/sample/README.md). The real data exposed and fixed two Phase 1 validation false-positive classes (see Phase 1).
+
 ---
 
 ## Milestone overview
@@ -39,7 +41,9 @@ Units are relative effort (≈ 1 unit ≈ a few focused days). Phase 8 is the la
 
 ---
 
-## Phase 0 — Foundation & Environment
+## Phase 0 — Foundation & Environment ✅
+
+> **Status — done**, with these differences from the plan: dev extras are `ipykernel`/`nbclient`/`nbformat` (enough to execute notebooks headlessly) instead of the full `jupyter` meta-package; the planned `RansacConfig` became `VerificationConfig` (Phase 4) and the config gained `pose` and other sections as phases landed; Pillow was added for EXIF reading (Phase 1); macOS needs `brew install libusb` for the Open3D 0.20 wheel. Task 0.9 (sample dataset) is still open.
 
 **Goal:** A reproducible environment, project skeleton, config system, and a synthetic ground-truth scene generator that every later geometry phase is tested against.
 
@@ -88,7 +92,8 @@ Mixed OpenCV wheels (remove all `opencv-*` then reinstall one) · Open3D/Python 
 > - EXIF focal → `K` uses the 35 mm-equivalent on the **diagonal**, so it is correct for 4:3 phone sensors too.
 > - Blur is measured at ≤ 800 px so one threshold works across cameras. Near-duplicates use a 64-bit dHash.
 > - Checkerboard calibration is verified on rendered boards with known `K` (fx recovered within 1 %).
-> - Remaining for real data: capture or download a scene, run the notebook, record findings in `data/sample/README.md`.
+> - **Real-data fixes (templeRing):** the 64-bit dHash called neighbouring views of an object on a black background duplicates (25 false pairs; background dominates an 8×8 hash) → 32×32 hash (1024 bits) with `duplicate_max_fraction` 0.04 (duplicates ≤ 2 % of bits, 7.5° neighbours ≥ 9 %). An absolute Laplacian threshold of 100 flagged 8 sharp plaster photos (smooth surfaces score low) → blurry means below `blur_relative` × dataset median or an absolute floor of 30. Now: 0 false warnings, and the one true duplicate (identical ground-truth poses) is found.
+> - Each `PreparedImage` keeps only working-resolution grayscale; `.image` rebuilds the colour image on demand with the same undistort/resize (≈ 3× less memory). An image cache (`outputs/cache/images`, keyed by file content + every relevant setting) skips decoding on repeat runs.
 
 ### Tasks
 - `data/loader.py`: discover `.jpg/.jpeg/.png/.tif` (case-insensitive), natural sort, decode with `cv2.imread`, return `ImageRecord(id, path, image, width, height, exif_focal)`.
@@ -125,6 +130,7 @@ EXIF orientation rotating images silently (use `cv2.IMREAD_IGNORE_ORIENTATION` o
 > - Repeatability tests: under 30° rotation + 0.8 scale, 84 % of SIFT keypoints reappear within 2.5 px; ORB 74 % under rotation.
 > - Observed: on a heavily blurred image SIFT still finds 265 features where ORB finds 0 — first data point for RQ4.
 > - Removed the unused `preprocessing.grayscale` key; added `features.sift_contrast_threshold` and `features.cache_dir`.
+> - The cache lives in a shared `outputs/cache/features/` (keyed by content), not per run as first planned, so it is reused across runs.
 
 ### Tasks
 - `features/extractor.py`: `Extractor` interface with `SIFTExtractor` (default, `nfeatures` from config) and `ORBExtractor`. Return `Features(points: (N,2) float32, descriptors, sizes, angles)`.
@@ -154,6 +160,7 @@ Stable feature counts on the sample set; keypoints visibly concentrate on textur
 > - New test oracle `tests/images.make_view_sequence`: a camera panning/rotating/zooming over a textured plane with known homographies. SIFT matches agree with ground truth at > 95 % precision; unrelated images yield < 30 matches out of > 1000 candidates.
 > - On a 13-image synthetic sequence (8000 features, 1600×1200): 78 pairs in 14 s; the unrelated image was flagged isolated (best pair 8 matches vs ≥ 1045). Ratio histogram is cleanly bimodal with 0.75 in the valley.
 > - Added `matching.method` and `matching.min_matches`.
+> - Later cleanup: the mutual check queries only image-j features that survived the ratio test (identical result; unrelated pairs 2.3× faster). Exact k-NN uses `cv2.batchDistance` (identical to `BFMatcher`, no per-match Python objects); FLANN builds one seeded index per image; a match cache (`outputs/cache/matches`, keyed by both images' descriptors + settings) lets later commands skip matching; `pair_mode: auto` (default) is exhaustive up to `exhaustive_max_images` = 50, sequential above.
 
 ### Tasks
 - `features/matcher.py`: FLANN (SIFT) / BFMatcher Hamming (ORB); kNN k=2; Lowe ratio test (config, default 0.75); optional mutual nearest-neighbor check.
@@ -176,13 +183,14 @@ On inspected pairs the majority of lines connect the same physical point.
 
 **Goal:** Remove matches inconsistent with two-view geometry and quantify pair quality.
 
-> **Status — done.** `src.geometry.epipolar`: `eight_point` (own normalised 8-point), `sampson_distance`, `skew`, `enforce_essential`, `fundamental_from_essential` / `essential_from_fundamental`, `select_model`, `verify_pair` → `TwoViewGeometry` (failures are results with a `reason`, never exceptions). `src.geometry.verification`: `verify_matches`, `inlier_matches`, `verification_matrix`, CSV writer. `src.visualization.epipolar.draw_epipolar_lines`. CLI: `python -m src.cli verify <dir>`. Decisions:
+> **Status — done.** The planned `estimate_fundamental` / `estimate_essential` are a single `verify_pair(..., model=)` with `select_model`. `src.geometry.epipolar`: `eight_point` (own normalised 8-point), `sampson_distance`, `skew`, `enforce_essential`, `fundamental_from_essential` / `essential_from_fundamental`, `select_model`, `verify_pair` → `TwoViewGeometry` (failures are results with a `reason`, never exceptions). `src.geometry.verification`: `verify_matches`, `inlier_matches`, `verification_matrix`, CSV writer. `src.visualization.epipolar.draw_epipolar_lines`. CLI: `python -m src.cli verify <dir>`. Decisions:
 > - **Estimator `USAC_ACCURATE`** (seeded → reproducible). Measured with 30 % outliers, 0.5 px noise: E error 0.005 vs 0.039 for RANSAC, true-match recall 0.95 vs 0.82.
 > - **`method: auto`** uses E only if both images have file/EXIF/checkerboard intrinsics; with guessed K it uses F, since a wrong K makes an E fit reject good matches. Different K per image is supported (points normalised with their own K).
 > - **One inlier definition for both models:** Sampson distance to the final F ≤ `ransac_threshold_px` (default raised to 1.5 px).
 > - **Homography ratio** H-inliers / F-inliers flags planar or rotation-only pairs. The H threshold is scaled by √2·√(χ²₂/χ²₁) ≈ 1.77 so both residuals are judged at the same confidence; planar scenes now score ≈ 1.0, general 3-D ≈ 0.08.
 > - **New test fixture `tests/render.py`:** renders a textured box on a ground plane from known cameras. On rendered pairs every verified inlier is within 1.5 px of the *true* F and every truly-good match is kept; H/F 0.6–0.75 (partly planar scene). A 60° baseline yields only 3 SIFT matches and is correctly rejected — wide baselines need intermediate views.
 > - Fixed `tests/synthetic.look_at`, which produced cameras rolled 180° (valid rotations, so earlier tests passed, but images were upside-down).
+> - Later cleanup: pairs run on `performance.workers` threads (identical results — each call seeds OpenCV's per-thread RNG); pairs with fewer matches than `min_inliers` skip RANSAC; the homography is fitted only for verified pairs; planarity is decided here once (`TwoViewGeometry.planar`) instead of re-deriving it in later stages.
 
 ### Tasks
 - `geometry/epipolar.py`:
@@ -208,10 +216,13 @@ Real pairs show stable inlier ratios; epipolar lines pass through corresponding 
 **Goal:** Recover `R` and unit `t` between two calibrated views.
 
 > **Status — done.** `src.geometry.pose_estimation`: `decompose_essential` (own SVD decomposition, 4 candidates), `estimate_relative_pose` → `RelativePose` (failures carry a reason: `too_few_points`, `low_parallax`, `cheirality`), `parallax_angles_deg`, `essential_for_pose`, `estimate_pair_poses`, `select_initial_pair`, error metrics. `src.geometry.triangulation.triangulate_two_view` (vectorised DLT; Phase 6 extends it). `src.visualization.cameras.plot_two_view`. CLI: `python -m src.cli pose <dir>`. New config section `pose`. Decisions and measurements:
-> - Cheirality: candidate with most points at positive depth in both cameras and closer than `max_depth` = 50 baselines (farther points are at infinity; their depth sign is noise). Agrees with `cv2.recoverPose` to 1e-4°.
+> - Implemented our own decomposition instead of wrapping `cv2.recoverPose`, which serves as the test oracle (agreement to 1e-4°).
+> - Cheirality: the candidate with most points in front of both cameras *and* closer than `max_depth` = 50 baselines wins (ties: most points in front). The cheirality ratio counts finite points only — farther points' depth sign is noise. (Code review fix: far points used to count as failures, rejecting correct narrow-baseline poses; and with *all* points far, a wrong ~180° candidate won the tie.) `n_in_front` reports the plain count of points in front of both cameras.
 > - **Parallax** is the rotation-compensated angle between viewing rays (= triangulation angle for a correct pose) — independent of `t`, so rotation-only pairs are detected: they fail as `low_parallax` while their rotation is still recovered (< 1° error).
 > - Accuracy with 1 px noise via E: rotation 0.5–1.3°, translation direction < 1.1° (narrow field of view → bas-relief ambiguity; BA in Phase 8 refines). **Via F projected to E (even with the correct K) translation errors reach ~9°** — F has 7 DoF vs E's 5, so `auto` prefers E whenever K is known.
 > - Initial pair: valid pose, H/F ≤ `planar_ratio`, median parallax ≥ `init_min_parallax_deg` (4°); most valid points wins.
+> - Later cleanup: two triangulations per candidate search instead of four (negating t negates every point); evaluation-only metrics moved to `src.evaluation.metrics`.
+> - **Real data (templeRing):** 229 poses, median errors 0.61° / 0.55°; 3 wide-baseline pairs with few inliers err 5–12° (poorly conditioned E) → Phase 8 must register by PnP + bundle adjustment, not chain pairwise poses.
 > - Rendered 8-view set (1600×1200): 23 of 24 verified pairs get a pose; the one failure (30 inliers, all on one plane, H/F = 1.0) is a genuinely bad E, rejected by cheirality. Initial pair is exact with the true K (0.00° / 0.01°) and 1.75° / 0.83° off with a 20 %-wrong guessed focal length — evidence for RQ3.
 
 ### Tasks

@@ -3,7 +3,7 @@ import pytest
 
 from src.config import config_from_dict
 from src.data.loader import DatasetError
-from src.geometry.pose_estimation import rotation_error_deg, translation_direction_error_deg
+from src.evaluation.metrics import rotation_error_deg, translation_direction_error_deg
 from src.pipeline import run_pipeline
 from tests.images import write_image
 from tests.render import render_box_scene
@@ -22,7 +22,8 @@ def scene_dir(tmp_path_factory):
     config = config_from_dict(
         {
             "camera": {"calibration_file": str(root / "camera.yaml")},
-            "features": {"cache_dir": str(root / "cache"), "max_features": 3000},
+            "output": {"cache_dir": str(root / "cache")},
+            "features": {"max_features": 3000},
         }
     )
     return scene, root / "scene", config

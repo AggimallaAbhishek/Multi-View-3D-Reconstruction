@@ -141,6 +141,7 @@ class TwoViewGeometry:
     inlier_mask: np.ndarray  # (M,) bool over the input correspondences
     residuals: np.ndarray  # (M,) Sampson distance to F in pixels (nan without a model)
     homography_inliers: int
+    planar: bool  # a homography explains the inliers: planar scene or rotation only
     success: bool
     reason: str | None  # "too_few_matches" | "estimation_failed" | "too_few_inliers"
 
@@ -202,7 +203,7 @@ def verify_pair(
     none = np.zeros(n, dtype=bool)
 
     def failed(reason: str, F=None, E=None, residuals=nan) -> TwoViewGeometry:
-        return TwoViewGeometry(model, F, E, none, residuals, 0, False, reason)
+        return TwoViewGeometry(model, F, E, none, residuals, 0, False, False, reason)
 
     if n < max(8, config.min_inliers):  # could never reach min_inliers: skip RANSAC
         return failed("too_few_matches")
@@ -252,6 +253,7 @@ def verify_pair(
         inlier_mask=inliers,
         residuals=residuals,
         homography_inliers=h_inliers,
+        planar=success and h_inliers > config.planar_ratio * int(inliers.sum()),
         success=success,
         reason=None if success else "too_few_inliers",
     )

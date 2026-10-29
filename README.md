@@ -121,7 +121,7 @@ flowchart TD
     C --> D[Feature Extraction<br/>SIFT / ORB]
     D --> E[Feature Matching<br/>kNN · ratio test · mutual]
     E --> F[Geometric Verification<br/>F / E + RANSAC]
-    F --> G[Relative Pose<br/>recoverPose · cheirality]
+    F --> G[Relative Pose<br/>E decomposition · cheirality]
     G --> H[Incremental SfM<br/>tracks · PnP registration]
     H --> I[Triangulation<br/>DLT · depth & reproj checks]
     I --> J[Bundle Adjustment]
@@ -138,14 +138,15 @@ flowchart TD
 | `features/extractor.py` | Detect keypoints on the grayscale image, compute descriptors (SIFT default, RootSIFT, ORB), strict strongest-N cap, content-addressed disk cache | `Features(kps, desc)` per image |
 | `features/matcher.py` | Exact brute-force k-NN (or seeded FLANN), Lowe ratio test, mutual check, pair selection, match graph | Candidate matches per pair |
 | `geometry/epipolar.py`, `geometry/verification.py` | Own normalised 8-point algorithm; robust `E`/`F` (USAC_ACCURATE, seeded); `auto` picks `E` only with trustworthy intrinsics; Sampson-distance inliers; homography ratio for planar/low-parallax pairs | Verified matches + model |
-| `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection; PnP for new views (Phase 8) | Camera poses |
-| `geometry/triangulation.py` | Build `P = K[R\|t]`, triangulate, reject non-positive depth / high error / low parallax | 3D landmarks |
+| `geometry/pose_estimation.py` | Own 4-way decomposition of `E` + cheirality (cross-checked against `cv2.recoverPose`), rotation-compensated parallax, initial-pair selection. *Planned (Phase 8): PnP for new views* | Relative poses, initial pair |
+| `geometry/triangulation.py` | Two-view linear (DLT) triangulation. *Planned (Phase 6): N-view DLT, depth / reprojection-error / angle filters* | 3D landmarks |
 | `geometry/reprojection.py` | Project points, per-observation and mean reprojection error | Error statistics |
 | `reconstruction/` | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
 | `pointcloud/` | Remove invalid / statistical outliers, assign colors, export PLY | `sparse.ply`, `filtered.ply` |
 | `visualization/` | Keypoint & match images, epipolar lines, camera frusta, 3D viewer | PNG figures, interactive view |
-| `evaluation/` | Metrics, experiment runner, CSV/JSON reports, plots | `evaluation.json`, plots |
-| `pipeline.py` / `cli.py` | Wire stages together; config-driven runs; save intermediates per stage | Reproducible run directories |
+| `evaluation/` | Pose metrics and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
+| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose) | In-memory results |
+| `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
 
 ### 5.3 Design principles
 
@@ -167,7 +168,7 @@ Detailed task lists, deliverables, exit criteria, and risks for every phase are 
 | 2 | Feature extraction | SIFT/ORB extractor + cache + keypoint figures | Stable counts on sample set; cache hit on rerun | — |
 | 3 | Feature matching | Ratio test + mutual check + match figures | Valid indices; visually plausible matches | — |
 | 4 | Geometric verification | `F`/`E` + RANSAC + epipolar-line plots | Synthetic: recovers `E` up to scale; real: stable inlier ratio | — |
-| 5 | Relative camera pose | `recoverPose` wrapper + cheirality checks | Synthetic: rotation error < 0.1° (noise-free) | — |
+| 5 | Relative camera pose | Own `E` decomposition + cheirality (checked against `cv2.recoverPose`), initial pair | Synthetic: rotation error < 0.1° (noise-free) | — |
 | 6 | Triangulation | DLT triangulation + depth/reproj/parallax filters | Synthetic: sub-pixel reprojection error | — |
 | 7 | Two-view sparse cloud | Colored PLY + Open3D viewer + camera frusta | Recognizable structure from one real pair | **M1: two-view MVP** |
 | 8 | Multi-view incremental SfM | Tracks, PnP registration, BA | ≥ 80 % of images registered on sample set | — |
@@ -213,7 +214,16 @@ Windows PowerShell: `.venv\Scripts\Activate.ps1` instead of `source`.
 
 Use **one** OpenCV wheel only (`opencv-contrib-python`). Do not mix it with `opencv-python` or headless variants.
 
-### 7.2 Check a dataset (available now)
+### 7.2 Get a real dataset with ground truth
+
+```bash
+python scripts/download_middlebury.py templeRing        # 47 real photos + true K, R, t → data/raw/templeRing/
+python scripts/evaluate_relative_poses.py data/raw/templeRing   # pipeline vs ground truth
+```
+
+See [`data/sample/README.md`](data/sample/README.md) for sources, licences and current results.
+
+### 7.3 Check a dataset
 
 ```bash
 # load, validate and summarise a photo folder → outputs/<timestamp>_validate/dataset.json
@@ -247,15 +257,15 @@ Calibrate if you can: on rendered views the initial-pair pose is exact with the 
 
 `notebooks/02_feature_matching.ipynb` shows the match graph, matches for one pair, the ratio-test histogram for choosing `matching.ratio`, and a SIFT vs ORB comparison.
 
-Exhaustive matching costs ~0.18 s per pair at 8000 SIFT features on an M-series Mac (80 images ≈ 3160 pairs ≈ 10 min). For larger or ordered captures use `--pairs sequential`.
+Matching costs ~0.1–0.16 s per pair at 8000 SIFT features on an M-series Mac. `pair_mode: auto` (default) matches every pair up to 50 images and switches to a sequential window above that; force either with `--pairs exhaustive|sequential`. Extraction and verification use all CPU cores (`performance.workers`).
 
-Features are cached in `outputs/cache/features/`, keyed by image pixels and detector settings, so reruns are instant and any setting change recomputes automatically.
+Prepared images, features and matches are cached under `outputs/cache/` (`output.cache_dir`; `null` disables), keyed by content and every relevant setting, so repeat commands skip work and any change recomputes automatically. Every command-line option maps to a config key and is validated like the YAML file.
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
 Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
-### 7.3 Run the pipeline (Phase 7+)
+### 7.4 Run the pipeline (Phase 7+)
 
 ```bash
 # two-view reconstruction
@@ -268,7 +278,7 @@ python -m src.cli reconstruct --images data/raw/sample_scene --config configs/de
 python -m src.cli view outputs/run_001/point_clouds/filtered.ply --cameras outputs/run_001/camera_poses/cameras.json
 ```
 
-### 7.4 COLMAP (optional, Phase 9–10)
+### 7.5 COLMAP (optional, Phase 9–10)
 
 ```bash
 brew install colmap           # macOS
@@ -281,7 +291,7 @@ COLMAP is a system dependency; installing Python requirements does not install i
 
 ## 8. Repository Structure
 
-Target layout — modules are created when their phase begins, not up front.
+Current layout; entries marked *(planned)* arrive with their phase.
 
 ```text
 Multi-View-3D-Reconstruction/
@@ -292,37 +302,40 @@ Multi-View-3D-Reconstruction/
 ├── .claude/skills/               # project-level Claude Code skills
 ├── configs/
 │   ├── default.yaml              # all thresholds & switches
-│   └── camera.yaml               # intrinsics + distortion (if calibrated)
+│   └── camera.example.yaml       # format of camera.yaml (written by `cli calibrate`)
 ├── data/                         # git-ignored except data/sample/
 │   ├── raw/<scene>/              # input photos
 │   ├── processed/
 │   └── sample/                   # tiny committed test set
 ├── outputs/                      # git-ignored; one subfolder per run
 ├── src/
-│   ├── config.py
-│   ├── data/          loader.py · validation.py · preprocessing.py
+│   ├── config.py      # typed config (frozen dataclasses), YAML loader
+│   ├── run.py         # run directories, environment capture, CSV writer
+│   ├── pipeline.py    # run_pipeline → PipelineResult
+│   ├── cli.py
+│   ├── data/          loader.py · validation.py · preprocessing.py · dataset.py
 │   ├── features/      extractor.py · matcher.py
-│   ├── geometry/      calibration.py · epipolar.py · pose_estimation.py · triangulation.py · reprojection.py
-│   ├── reconstruction/ sfm.py · camera_registry.py · landmarks.py · tracks.py · bundle_adjustment.py
-│   ├── pointcloud/    filtering.py · coloring.py · export.py
-│   ├── visualization/ matches.py · epipolar.py · cameras.py · viewer.py
-│   ├── evaluation/    metrics.py · experiments.py · reports.py
-│   ├── pipeline.py
-│   └── cli.py
+│   ├── geometry/      calibration.py · epipolar.py · verification.py · pose_estimation.py · triangulation.py
+│   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py
+│   ├── reconstruction/ (planned) sfm.py · tracks.py · landmarks.py · bundle_adjustment.py
+│   ├── pointcloud/    (planned) filtering.py · coloring.py · export.py
+│   └── evaluation/    metrics.py · ground_truth.py · (planned) experiments.py · reports.py
 ├── tests/
-│   ├── synthetic.py              # ground-truth scene generator
+│   ├── synthetic.py              # 3D points + cameras with exact ground truth
+│   ├── render.py                 # rendered textured box scene from known cameras
+│   ├── images.py                 # textures, view sequences with known homographies, checkerboards
 │   ├── conftest.py
 │   └── test_*.py
-├── notebooks/                    # 01_dataset … 04_reconstruction_analysis
+├── notebooks/                    # 01_dataset_exploration, 02_feature_matching (03–04 planned)
 ├── docs/
 │   ├── ROADMAP.md                # detailed phase plans
 │   ├── architecture.md
-│   ├── methodology.md
-│   └── experiments.md
+│   ├── methodology.md            # (planned)
+│   └── experiments.md            # (planned)
 └── scripts/
     ├── verify_setup.py
-    ├── run_pipeline.sh
-    └── evaluate_results.py
+    ├── download_middlebury.py    # real dataset + ground-truth cameras
+    └── evaluate_relative_poses.py
 ```
 
 ---
@@ -376,22 +389,20 @@ measured in pixels. Bundle adjustment minimizes the (robustified) sum of squared
 
 ## 11. Outputs
 
-Each run writes to its own directory:
+Each command writes `outputs/<timestamp>_<command>_<detector>/`, containing every stage it ran. Diagnostic images are drawn for the command's own stage only (`--draw N` pairs or images):
 
 ```text
-outputs/<run_id>/
+outputs/<timestamp>_pose_sift/
 ├── config.yaml                   # exact config used
 ├── environment.json              # versions, hardware, git commit
-├── features/   image_001_keypoints.png · feature_statistics.csv
-├── matches/    image_001_image_002_matches.png · match_statistics.csv · epipolar_*.png
-├── camera_poses/ cameras.json
-├── point_clouds/ sparse.ply · filtered.ply · (dense.ply)
-├── meshes/     (reconstructed_mesh.ply)
-├── reports/    evaluation.json · experiment_results.csv
-└── figures/    camera_trajectory.png · reconstruction_summary.png
+├── features/      feature_statistics.csv · <image>_keypoints.png
+├── matches/       match_statistics.csv · matches.npz · match_matrix.png · <a>_<b>_matches.png
+├── verification/  verification_statistics.csv · verified_matches.npz · verified_matrix.png
+│                  <a>_<b>_inliers.png · <a>_<b>_epipolar.png
+└── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
 ```
 
-Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
+Planned with later phases: `point_clouds/` (sparse.ply, filtered.ply, (dense.ply)), `camera_poses/cameras.json`, `meshes/`, `reports/`, `figures/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
 
 **Demo should show:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → (dense / mesh) → metrics.
 

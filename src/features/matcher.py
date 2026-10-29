@@ -1,13 +1,15 @@
 """Descriptor matching between image pairs: k-NN, Lowe ratio test, mutual check.
 
-Brute-force matching is the default: it is exact and deterministic, and on our
-feature counts it is as fast as FLANN. FLANN (approximate) is available for very
-large datasets; its randomised k-d trees are seeded so runs are reproducible.
+Exact (brute-force) matching is the default: deterministic, and on our feature counts
+as fast as FLANN. FLANN (approximate) is available for very large datasets; its
+randomised k-d trees are seeded so runs are reproducible.
 """
 
 from __future__ import annotations
 
+import hashlib
 import time
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import combinations
@@ -57,11 +59,23 @@ class MatchStats:
     after_ratio: int
     final: int  # after the mutual check (equal to after_ratio when it is disabled)
     time_ms: float
+    cached: bool = False
 
 
 class DescriptorMatcher:
+    """k-NN matching with Lowe's ratio test and an optional mutual check.
+
+    Exact matching uses ``cv2.batchDistance``: the same neighbours and distances as
+    ``cv2.BFMatcher`` but returned as arrays, without one Python object per match.
+    With ``method: flann`` (SIFT only) each image's k-d tree is built once, seeded,
+    and reused for every pair the image takes part in.
+    """
+
     def __init__(self, config: MatchConfig):
         self.config = config
+        # id(descriptors) -> (descriptors, trained matcher); holding the array keeps the
+        # id from being reused by another array while the index is cached.
+        self._flann: dict[int, tuple[np.ndarray, cv2.FlannBasedMatcher]] = {}
 
     def match(
         self, features_i: Features, features_j: Features, i: int = 0, j: int = 1
@@ -79,16 +93,15 @@ class DescriptorMatcher:
             # Nearest neighbour back in image i, only for the image-j features that survived
             # the ratio test (typically 10-30 %): same result, a fraction of the work.
             used = np.unique(idx_j)
-            reverse = self._matcher(features_i.detector).knnMatch(
-                features_j.descriptors[used], features_i.descriptors, k=1
+            back_used, _ = self._knn(
+                features_i.detector, features_j.descriptors[used], features_i.descriptors, 1
             )
             back = np.full(len(features_j), -1, dtype=np.int32)
-            back[used] = [m[0].trainIdx if m else -1 for m in reverse]
+            back[used] = back_used[:, 0]
             mutual = back[idx_j] == idx_i
             idx_i, idx_j, dist = idx_i[mutual], idx_j[mutual], dist[mutual]
 
         matches = Matches(i, j, idx_i, idx_j, dist)
-
         stats = MatchStats(
             i=i,
             j=j,
@@ -127,23 +140,97 @@ class DescriptorMatcher:
         if len(di) == 0 or len(dj) < 2:
             empty = np.empty(0, dtype=np.float32)
             return np.empty(0, dtype=np.int32), empty, empty.copy()
-        knn = self._matcher(features_i.detector).knnMatch(di, dj, k=2)
-        best = np.array([[m[0].trainIdx, m[0].distance, m[1].distance] for m in knn])
-        return (
-            best[:, 0].astype(np.int32),
-            best[:, 1].astype(np.float32),
-            best[:, 2].astype(np.float32),
-        )
+        idx, dist = self._knn(features_i.detector, di, dj, 2)
+        return idx[:, 0], dist[:, 0], dist[:, 1]
 
-    def _matcher(self, detector: str) -> cv2.DescriptorMatcher:
+    def _knn(
+        self, detector: str, query: np.ndarray, train: np.ndarray, k: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(N, k) indices into ``train`` and distances, nearest first."""
         if detector in _BINARY_DETECTORS:
-            return cv2.BFMatcher(cv2.NORM_HAMMING)
-        if detector not in _FLOAT_DETECTORS:
+            norm, dtype = cv2.NORM_HAMMING, cv2.CV_32S
+        elif detector in _FLOAT_DETECTORS:
+            if self.config.method == "flann":
+                return self._flann_knn(query, train, k)
+            norm, dtype = cv2.NORM_L2, cv2.CV_32F
+        else:
             raise ValueError(f"no matcher for detector {detector!r}")
-        if self.config.method == "flann":
+        dist, idx = cv2.batchDistance(
+            query, train, dtype, normType=norm, K=k, update=0, crosscheck=False
+        )
+        return idx.astype(np.int32), dist.astype(np.float32)
+
+    def _flann_knn(
+        self, query: np.ndarray, train: np.ndarray, k: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        cached = self._flann.get(id(train))
+        if cached is None or cached[0] is not train:
             cv2.setRNGSeed(0)  # FLANN's randomised k-d trees use OpenCV's RNG
-            return cv2.FlannBasedMatcher({"algorithm": 1, "trees": 5}, {"checks": 64})
-        return cv2.BFMatcher(cv2.NORM_L2)
+            index = cv2.FlannBasedMatcher({"algorithm": 1, "trees": 5}, {"checks": 64})
+            index.add([train])
+            index.train()
+            cached = (train, index)
+            self._flann[id(train)] = cached
+        knn = cached[1].knnMatch(query, k=k)
+        idx = np.array([[m.trainIdx for m in row] for row in knn], dtype=np.int32)
+        dist = np.array([[m.distance for m in row] for row in knn], dtype=np.float32)
+        return idx, dist
+
+
+class MatchCache:
+    """Matches on disk, keyed by both images' descriptors and the matching settings.
+
+    Lets a later command (``verify`` after ``matches``, or a rerun) skip matching; any
+    change to features or matching settings gives new keys.
+    """
+
+    def __init__(self, directory: str | Path):
+        self.directory = Path(directory)
+
+    @staticmethod
+    def digest(features: Features) -> str:
+        h = hashlib.sha1(f"{features.detector}{features.descriptors.shape}".encode())
+        h.update(np.ascontiguousarray(features.descriptors).data)
+        return h.hexdigest()
+
+    def path_for(self, digest_i: str, digest_j: str, config: MatchConfig) -> Path:
+        settings = f"{config.ratio}|{config.mutual}|{config.method}|cv{cv2.__version__}"
+        key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
+        return self.directory / f"{key[:24]}.npz"
+
+    def load(self, path: Path, i: int, j: int, n_i: int, n_j: int, start: float):
+        try:
+            with np.load(path, allow_pickle=False) as data:
+                m = Matches(i, j, data["idx_i"], data["idx_j"], data["distances"])
+                raw, after_ratio = int(data["raw"]), int(data["after_ratio"])
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            return None  # unreadable entry: recompute
+        stats = MatchStats(
+            i, j, n_i, n_j, raw, after_ratio, len(m), (time.perf_counter() - start) * 1000,
+            cached=True,
+        )  # fmt: skip
+        return m, stats
+
+    def save(self, path: Path, matches: Matches, stats: MatchStats) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("wb") as f:
+            np.savez(
+                f,
+                idx_i=matches.idx_i,
+                idx_j=matches.idx_j,
+                distances=matches.distances,
+                raw=stats.raw,
+                after_ratio=stats.after_ratio,
+            )
+        tmp.replace(path)
+
+
+def resolve_pair_mode(n_images: int, config: MatchConfig) -> str:
+    """``auto`` -> exhaustive up to ``exhaustive_max_images`` images, else sequential."""
+    if config.pair_mode != "auto":
+        return config.pair_mode
+    return "exhaustive" if n_images <= config.exhaustive_max_images else "sequential"
 
 
 def select_pairs(n_images: int, config: MatchConfig) -> list[tuple[int, int]]:
@@ -151,31 +238,46 @@ def select_pairs(n_images: int, config: MatchConfig) -> list[tuple[int, int]]:
 
     ``exhaustive`` matches every pair (n(n-1)/2). ``sequential`` matches each image
     with the next ``sequential_window`` images, for ordered captures such as a walk
-    around an object.
+    around an object. ``auto`` picks between them by image count.
     """
-    if config.pair_mode == "exhaustive":
+    if resolve_pair_mode(n_images, config) == "exhaustive":
         return list(combinations(range(n_images), 2))
     w = config.sequential_window
     return [(i, j) for i in range(n_images) for j in range(i + 1, min(i + w, n_images - 1) + 1)]
 
 
 def match_pairs(
-    features: Sequence[Features], pairs: Sequence[tuple[int, int]], matcher: DescriptorMatcher
+    features: Sequence[Features],
+    pairs: Sequence[tuple[int, int]],
+    matcher: DescriptorMatcher,
+    cache: MatchCache | None = None,
 ) -> tuple[list[Matches], list[MatchStats]]:
+    digests = [MatchCache.digest(f) for f in features] if cache else None
     all_matches, all_stats = [], []
     for i, j in pairs:
-        m, s = matcher.match(features[i], features[j], i, j)
-        all_matches.append(m)
-        all_stats.append(s)
+        result = None
+        if cache is not None:
+            start = time.perf_counter()
+            path = cache.path_for(digests[i], digests[j], matcher.config)
+            if path.exists():
+                result = cache.load(path, i, j, len(features[i]), len(features[j]), start)
+        if result is None:
+            result = matcher.match(features[i], features[j], i, j)
+            if cache is not None:
+                cache.save(path, *result)
+        all_matches.append(result[0])
+        all_stats.append(result[1])
     return all_matches, all_stats
 
 
 def connectivity(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:
-    """For each image, the match count of its best-matching partner.
-
-    An image whose best partner has few matches cannot be registered later.
-    """
+    """For each image, the match count of its best-matching partner."""
     return match_matrix(stats, n_images).max(axis=1)
+
+
+def isolated_images(stats: Sequence[MatchStats], n_images: int, min_matches: int) -> list[int]:
+    """Images whose best pair has fewer than ``min_matches``: they will not register."""
+    return np.flatnonzero(connectivity(stats, n_images) < min_matches).tolist()
 
 
 def match_matrix(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:
@@ -192,10 +294,10 @@ def write_match_statistics(
     return write_csv(
         path,
         ["image_i", "image_j", "features_i", "features_j", "raw", "after_ratio",
-         "after_mutual", "time_ms"],
+         "after_mutual", "time_ms", "cached"],
         (
             [names[s.i], names[s.j], s.features_i, s.features_j, s.raw, s.after_ratio,
-             s.final, f"{s.time_ms:.1f}"]
+             s.final, f"{s.time_ms:.1f}", int(s.cached)]
             for s in stats
         ),
     )  # fmt: skip

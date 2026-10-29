@@ -23,6 +23,7 @@ from src.features.extractor import (
 )
 from src.features.matcher import (
     DescriptorMatcher,
+    MatchCache,
     Matches,
     MatchStats,
     match_pairs,
@@ -69,23 +70,39 @@ class PipelineResult:
 
 
 def extract(result: PipelineResult) -> PipelineResult:
-    cfg = result.config.features
-    result.extractor = create_extractor(cfg)
-    cache = FeatureCache(cfg.cache_dir) if cfg.cache_dir else None
-    result.features, result.feature_stats = extract_features(result.images, result.extractor, cache)
+    config = result.config
+    result.extractor = create_extractor(config.features)
+    cache_dir = config.cache_path("features")
+    result.features, result.feature_stats = extract_features(
+        result.images,
+        result.extractor,
+        FeatureCache(cache_dir) if cache_dir else None,
+        workers=config.performance.workers,
+    )
     return result
 
 
 def match(result: PipelineResult) -> PipelineResult:
-    cfg = result.config.matching
-    pairs = select_pairs(len(result.features), cfg)
-    result.matches, result.match_stats = match_pairs(result.features, pairs, DescriptorMatcher(cfg))
+    config = result.config
+    pairs = select_pairs(len(result.features), config.matching)
+    cache_dir = config.cache_path("matches")
+    result.matches, result.match_stats = match_pairs(
+        result.features,
+        pairs,
+        DescriptorMatcher(config.matching),
+        MatchCache(cache_dir) if cache_dir else None,
+    )
     return result
 
 
 def verify(result: PipelineResult) -> PipelineResult:
+    config = result.config
     result.geometries, result.verification_stats = verify_matches(
-        result.images, result.features, result.matches, result.config.verification
+        result.images,
+        result.features,
+        result.matches,
+        config.verification,
+        workers=config.performance.workers,
     )
     return result
 
@@ -98,7 +115,6 @@ def estimate_poses(result: PipelineResult) -> PipelineResult:
         result.matches,
         result.geometries,
         cfg.pose,
-        cfg.verification.planar_ratio,
     )
     result.initial_pair = initial_pair(
         result.images,

@@ -1,51 +1,76 @@
 """Load, validate and preprocess an image directory into a ``Dataset``.
 
-Images are processed one at a time and only the downscaled copy is kept, so
-memory stays bounded for large photo sets.
+Images are processed one at a time. Each ``PreparedImage`` keeps only its
+working-resolution grayscale image (what feature extraction needs); the colour image
+is decoded again on demand with the same undistortion and resizing, so an 80-image
+set holds ~150 MB instead of ~460 MB. An on-disk cache keyed by file content and the
+relevant settings lets repeat runs skip decoding and validation statistics entirely.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass
+import zipfile
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 
 from src.config import Config
-from src.data.loader import DatasetError, ImageRecord, SkippedFile, discover_images, iter_images
+from src.data.loader import (
+    DatasetError,
+    ImageRecord,
+    SkippedFile,
+    decode_image,
+    discover_images,
+    read_exif,
+)
 from src.data.preprocessing import resize_max_side, to_gray, undistort
-from src.data.validation import ValidationReport, image_stats, validate
+from src.data.validation import DHASH_SIZE, ImageStats, ValidationReport, image_stats, validate
 from src.geometry.calibration import Intrinsics, load_camera_file, resolve_intrinsics
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(eq=False)
 class PreparedImage:
     index: int
     name: str
     path: Path
-    image: np.ndarray  # (H, W, 3) BGR uint8 at working resolution, undistorted if possible
-    K: np.ndarray  # intrinsics for ``image``
+    gray: np.ndarray  # (H, W) uint8 at working resolution, undistorted if possible
+    K: np.ndarray  # intrinsics at working resolution
     dist: np.ndarray  # zeros once undistorted
     original_size: tuple[int, int]  # (width, height) as decoded, upright
     scale: tuple[float, float]  # (sx, sy) from original to working resolution
     intrinsics_source: str
+    # What it takes to rebuild the colour image exactly like ``gray`` was built.
+    source_K: np.ndarray  # intrinsics at the original resolution
+    source_dist: np.ndarray
+    undistorted: bool
+    max_side: int | None
 
     @property
     def width(self) -> int:
-        return self.image.shape[1]
+        return self.gray.shape[1]
 
     @property
     def height(self) -> int:
-        return self.image.shape[0]
+        return self.gray.shape[0]
 
     @property
-    def gray(self) -> np.ndarray:
-        return to_gray(self.image)
+    def image(self) -> np.ndarray:
+        """Colour (BGR) image at working resolution, decoded from disk on each access."""
+        image = decode_image(self.path.read_bytes())
+        if image is None:
+            raise DatasetError(f"{self.path} can no longer be decoded")
+        if self.undistorted:
+            image = undistort(image, self.source_K, self.source_dist)
+        image, _, _ = resize_max_side(image, self.source_K, self.max_side)
+        return image
 
 
 @dataclass
@@ -81,6 +106,88 @@ class Dataset:
         return path
 
 
+class ImageCache:
+    """Prepared grayscale images and validation statistics, keyed by file content.
+
+    The key also covers every setting that changes the result (resizing, undistortion,
+    intrinsics resolution including the calibration file's content, blur and hash
+    parameters, OpenCV version), so a change in any of them recomputes.
+    """
+
+    def __init__(self, directory: str | Path, config: Config):
+        self.directory = Path(directory)
+        calibration = config.camera.calibration_file
+        settings = {
+            "preprocessing": config.to_dict()["preprocessing"],
+            "camera": config.to_dict()["camera"],
+            "calibration": Path(calibration).read_text("utf-8") if calibration else None,
+            "blur_working_side": config.dataset.blur_working_side,
+            "dhash_size": DHASH_SIZE,
+            "opencv": cv2.__version__,
+            "version": 1,
+        }
+        self._settings = json.dumps(settings, sort_keys=True)
+
+    def path_for(self, name: str, data: bytes) -> Path:
+        h = hashlib.sha1(self._settings.encode())
+        h.update(data)
+        return self.directory / f"{Path(name).stem}.{h.hexdigest()[:16]}.npz"
+
+    def load(self, path: Path, index: int, source: Path) -> tuple[ImageStats, PreparedImage] | None:
+        try:
+            with np.load(path, allow_pickle=False) as d:
+                original = (int(d["original_size"][0]), int(d["original_size"][1]))
+                stats = ImageStats(
+                    name=source.name,
+                    width=original[0],
+                    height=original[1],
+                    blur=float(d["blur"]),
+                    dhash=int.from_bytes(d["dhash"].tobytes(), "big"),
+                )
+                prepared = PreparedImage(
+                    index=index,
+                    name=source.name,
+                    path=source,
+                    gray=d["gray"],
+                    K=d["K"],
+                    dist=d["dist"],
+                    original_size=original,
+                    scale=(float(d["scale"][0]), float(d["scale"][1])),
+                    intrinsics_source=str(d["intrinsics_source"]),
+                    source_K=d["source_K"],
+                    source_dist=d["source_dist"],
+                    undistorted=bool(d["undistorted"]),
+                    max_side=int(d["max_side"]) if int(d["max_side"]) > 0 else None,
+                )
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            log.warning("ignoring unreadable image cache entry %s", path)
+            return None
+        return stats, prepared
+
+    def save(self, path: Path, stats: ImageStats, im: PreparedImage) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("wb") as f:
+            np.savez(
+                f,
+                gray=im.gray,
+                K=im.K,
+                dist=im.dist,
+                original_size=np.array(im.original_size),
+                scale=np.array(im.scale),
+                intrinsics_source=np.array(im.intrinsics_source),
+                source_K=im.source_K,
+                source_dist=im.source_dist,
+                undistorted=np.array(im.undistorted),
+                max_side=np.array(im.max_side or 0),
+                blur=np.array(stats.blur),
+                dhash=np.frombuffer(
+                    stats.dhash.to_bytes(DHASH_SIZE * DHASH_SIZE // 8, "big"), np.uint8
+                ),
+            )
+        tmp.replace(path)
+
+
 def prepare_dataset(directory: str | Path, config: Config | None = None) -> Dataset:
     """Discover, decode, validate and preprocess every image in ``directory``.
 
@@ -98,14 +205,31 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
     calibration = (
         load_camera_file(config.camera.calibration_file) if config.camera.calibration_file else None
     )
+    cache_dir = config.cache_path("images")
+    cache = ImageCache(cache_dir, config) if cache_dir else None
 
     prepared, stats, skipped = [], [], []
-    for item in iter_images(paths):
-        if isinstance(item, SkippedFile):
-            skipped.append(item)
-            continue
-        stats.append(image_stats(item, config.dataset.blur_working_side))
-        prepared.append(_prepare_image(item, calibration, config))
+    for path in paths:
+        data = path.read_bytes()
+        entry_path = cache.path_for(path.name, data) if cache else None
+        entry = (
+            cache.load(entry_path, len(prepared), path) if cache and entry_path.exists() else None
+        )
+        if entry is None:
+            image = decode_image(data)
+            if image is None:
+                log.debug("skipping %s: could not decode image", path.name)
+                skipped.append(SkippedFile(path, "could not decode image"))
+                continue
+            record = ImageRecord(len(prepared), path, image, read_exif(path))
+            entry = (
+                image_stats(record, config.dataset.blur_working_side),
+                _prepare_image(record, calibration, config),
+            )
+            if cache:
+                cache.save(entry_path, *entry)
+        stats.append(entry[0])
+        prepared.append(replace(entry[1], index=len(prepared)))
 
     report = validate(stats, skipped, config.dataset)
     for issue in report.issues:
@@ -120,7 +244,8 @@ def _prepare_image(
 ) -> PreparedImage:
     intr = resolve_intrinsics(record.width, record.height, record.exif, config.camera, calibration)
     image, K, dist = record.image, intr.K, intr.dist
-    if config.preprocessing.undistort and np.any(dist):
+    undistorted = bool(config.preprocessing.undistort and np.any(dist))
+    if undistorted:
         image = undistort(image, K, dist)
         dist = np.zeros_like(dist)
     image, K, scale = resize_max_side(image, K, config.preprocessing.max_side)
@@ -128,10 +253,14 @@ def _prepare_image(
         index=record.index,
         name=record.name,
         path=record.path,
-        image=image,
+        gray=to_gray(image),
         K=K,
         dist=dist,
         original_size=(record.width, record.height),
         scale=scale,
         intrinsics_source=intr.source,
+        source_K=intr.K,
+        source_dist=intr.dist,
+        undistorted=undistorted,
+        max_side=config.preprocessing.max_side,
     )

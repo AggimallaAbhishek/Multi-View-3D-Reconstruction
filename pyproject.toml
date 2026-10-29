@@ -7,7 +7,7 @@ name = "mv3d"
 version = "0.1.0"
 description = "Multi-view 3D reconstruction from overlapping photographs (classical SfM)"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "opencv-contrib-python==5.0.0.93",
     "pillow==13.0.0",
