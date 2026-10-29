@@ -45,12 +45,15 @@ from src.geometry.verification import (
     write_verification_statistics,
 )
 from src.pipeline import PipelineResult, Stage, run_pipeline
+from src.pointcloud.coloring import color_points
+from src.pointcloud.export import read_cameras_json, read_ply, write_cameras_json, write_ply
 from src.run import create_run_dir, write_run_metadata
 from src.visualization.cameras import plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
 from src.visualization.reprojection import plot_reprojection_histogram
+from src.visualization.viewer import RenderUnavailable, render_scene, show
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,6 +130,18 @@ def main(argv: list[str] | None = None) -> int:
         help="triangulate and filter the initial pair's points",
     )
     p.set_defaults(func=_stage_command, stage="triangulate", draw=0)
+
+    p = sub.add_parser(
+        "two-view",
+        parents=[common, detector, method],
+        help="initial pair -> coloured sparse point cloud (PLY), cameras.json and a render",
+    )
+    p.set_defaults(func=_stage_command, stage="triangulate", draw=0, two_view=True)
+
+    p = sub.add_parser("view", help="open a point cloud (PLY) with its cameras in a 3-D viewer")
+    p.add_argument("ply", type=Path, help="point cloud, e.g. .../point_clouds/sparse.ply")
+    p.add_argument("--cameras", type=Path, help="cameras.json written next to it")
+    p.set_defaults(func=_view)
 
     p = sub.add_parser("calibrate", help="calibrate a camera from checkerboard photos")
     p.add_argument("images", type=Path, help="directory of checkerboard photos")
@@ -209,7 +224,8 @@ def _stage_command(args: argparse.Namespace) -> int:
         _print_dataset_error(exc)
         return 1
 
-    run_dir = create_run_dir(args.out or config.output.root, f"{stage}_{result.extractor.name}")
+    label = args.command.replace("-", "_")
+    run_dir = create_run_dir(args.out or config.output.root, f"{label}_{result.extractor.name}")
     write_run_metadata(run_dir, config)
 
     def draw_for(s: Stage) -> int:
@@ -225,6 +241,8 @@ def _stage_command(args: argparse.Namespace) -> int:
         written, status = _save_poses(result, run_dir)
     if stage == "triangulate" and result.structure is not None:
         written = _save_triangulation(result, run_dir)
+        if getattr(args, "two_view", False):
+            written = _save_two_view(result, run_dir)
     print(f"Wrote {written}")
     return status
 
@@ -435,6 +453,45 @@ def _save_triangulation(r: PipelineResult, run_dir: Path) -> Path:
             f"min {valid_angles.min():.1f} deg (threshold {cfg.min_angle_deg} deg)"
         )
     return json_path
+
+
+def _save_two_view(r: PipelineResult, run_dir: Path) -> Path:
+    """Coloured sparse cloud, cameras and an overview render of the initial structure."""
+    s = r.structure
+    image_i, image_j = r.images[s.i], r.images[s.j]
+    colors = color_points(
+        [image_i.image, image_j.image], s.observations, len(s.triangulation.valid)
+    )
+    colors = colors[s.triangulation.valid]
+    names = [image_i.name, image_j.name]
+    sizes = [(image_i.width, image_i.height), (image_j.width, image_j.height)]
+
+    ply = write_ply(run_dir / "point_clouds" / "sparse.ply", s.points, colors)
+    cameras = write_cameras_json(
+        run_dir / "camera_poses" / "cameras.json", s.cameras, names, sizes,
+        frame=f"camera of {names[0]} at the origin, baseline length 1 (scale unknown)",
+    )  # fmt: skip
+    print(f"Sparse cloud: {len(s.points)} coloured points -> {ply}")
+    print(f"Cameras: {cameras}")
+    try:
+        figures = run_dir / "figures"
+        for focus, name in (("cameras", "two_view.png"), ("points", "two_view_closeup.png")):
+            render = render_scene(s.points, colors, s.cameras, sizes, figures / name, focus=focus)
+            print(f"Render: {render}")
+    except RenderUnavailable as exc:
+        print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
+    print(f"View it: python -m src.cli view {ply} --cameras {cameras}")
+    return ply
+
+
+def _view(args: argparse.Namespace) -> int:
+    points, colors = read_ply(args.ply)
+    if args.cameras:
+        cameras, _, sizes = read_cameras_json(args.cameras)
+    else:
+        cameras, sizes = [], []
+    show(points, colors, cameras, sizes, title=args.ply.name)
+    return 0
 
 
 def _calibrate(args: argparse.Namespace) -> int:

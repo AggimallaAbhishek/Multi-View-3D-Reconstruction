@@ -2,7 +2,7 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-Phase%207%20%E2%80%94%20Two--view%20cloud-blue)
+![status](https://img.shields.io/badge/status-M1%20done%20%C2%B7%20Phase%208%20%E2%80%94%20Multi--view%20SfM-blue)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -143,8 +143,8 @@ flowchart TD
 | `reconstruction/two_view.py` | Initial structure: the initial pair's verified matches triangulated and filtered | `TwoViewStructure` |
 | `geometry/reprojection.py` | Project points, per-observation and mean reprojection error | Error statistics |
 | `reconstruction/` | Camera registry, landmarks ↔ observations, tracks, incremental SfM loop, bundle adjustment (SciPy `least_squares`) | Scene graph: cameras + landmarks |
-| `pointcloud/` | Remove invalid / statistical outliers, assign colors, export PLY | `sparse.ply`, `filtered.ply` |
-| `visualization/` | Keypoint & match images, epipolar lines, camera frusta, 3D viewer | PNG figures, interactive view |
+| `pointcloud/` | Colours sampled bilinearly at every observation and averaged; PLY via Open3D's tensor API; `cameras.json`. *Planned (Phase 9): statistical outlier removal* | `sparse.ply`, `cameras.json` |
+| `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics and ground-truth loading (Middlebury format). *Planned (Phase 10): experiment runner, reports, plots* | Error tables |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose) | In-memory results |
 | `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
@@ -271,18 +271,21 @@ Prepared images, features and matches are cached under `outputs/cache/` (`output
 
 Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
-### 7.4 Run the pipeline (Phase 7+)
+### 7.4 Two-view reconstruction (milestone M1)
 
 ```bash
-# two-view reconstruction
-python -m src.cli two-view --images data/raw/sample_scene --pair 0 1 --config configs/default.yaml
+# initial pair -> coloured sparse cloud, cameras and renders
+python -m src.cli two-view data/raw/templeRing --config my_config.yaml   # camera.calibration_file set
+#   .../point_clouds/sparse.ply · camera_poses/cameras.json
+#   .../figures/two_view.png (overview with camera frusta) · two_view_closeup.png
 
-# full multi-view reconstruction
-python -m src.cli reconstruct --images data/raw/sample_scene --config configs/default.yaml --out outputs/run_001
-
-# view a result
-python -m src.cli view outputs/run_001/point_clouds/filtered.ply --cameras outputs/run_001/camera_poses/cameras.json
+# interactive 3-D viewer (Open3D window)
+python -m src.cli view outputs/<run>/point_clouds/sparse.ply --cameras outputs/<run>/camera_poses/cameras.json
 ```
+
+`notebooks/03_two_view_geometry.ipynb` walks the initial pair from verified matches to the coloured cloud, with a ground-truth check when `gt_cameras.json` exists.
+
+Planned for Phase 8–9: `python -m src.cli reconstruct <images>` (all views) and `filtered.ply`.
 
 ### 7.5 COLMAP (optional, Phase 9–10)
 
@@ -323,9 +326,10 @@ Multi-View-3D-Reconstruction/
 │   ├── features/      extractor.py · matcher.py
 │   ├── geometry/      calibration.py · epipolar.py · verification.py · pose_estimation.py
 │   │                  camera.py · triangulation.py · reprojection.py
-│   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py · reprojection.py
+│   ├── visualization/ common.py · features.py · matches.py · epipolar.py · cameras.py
+│   │                  reprojection.py · viewer.py
 │   ├── reconstruction/ two_view.py · (planned) sfm.py · tracks.py · bundle_adjustment.py
-│   ├── pointcloud/    (planned) filtering.py · coloring.py · export.py
+│   ├── pointcloud/    coloring.py · export.py · (planned) filtering.py
 │   └── evaluation/    metrics.py · ground_truth.py · (planned) experiments.py · reports.py
 ├── tests/
 │   ├── synthetic.py              # 3D points + cameras with exact ground truth
@@ -333,7 +337,7 @@ Multi-View-3D-Reconstruction/
 │   ├── images.py                 # textures, view sequences with known homographies, checkerboards
 │   ├── conftest.py
 │   └── test_*.py
-├── notebooks/                    # 01_dataset_exploration, 02_feature_matching (03–04 planned)
+├── notebooks/                    # 01_dataset_exploration · 02_feature_matching · 03_two_view_geometry (04 planned)
 ├── docs/
 │   ├── ROADMAP.md                # detailed phase plans
 │   ├── architecture.md
@@ -407,10 +411,13 @@ outputs/<timestamp>_pose_sift/
 ├── verification/  verification_statistics.csv · verified_matches.npz · verified_matrix.png
 │                  <a>_<b>_inliers.png · <a>_<b>_epipolar.png
 ├── pose/          relative_poses.csv · initial_pair.json · initial_pair.png
-└── triangulation/ triangulation.json · points.npz · reprojection_histogram.png · structure.png
+├── triangulation/ triangulation.json · points.npz · reprojection_histogram.png · structure.png
+├── point_clouds/  sparse.ply                       (two-view)
+├── camera_poses/  cameras.json                     (two-view)
+└── figures/       two_view.png · two_view_closeup.png   (two-view)
 ```
 
-Planned with later phases: `point_clouds/` (sparse.ply, filtered.ply, (dense.ply)), `camera_poses/cameras.json`, `meshes/`, `reports/`, `figures/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
+Planned with later phases: `point_clouds/filtered.ply`, `(dense.ply)`, `meshes/`, `reports/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
 
 **Demo should show:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → (dense / mesh) → metrics.
 
@@ -519,7 +526,7 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 4** Geometric verification
 - [x] **Phase 5** Relative camera pose
 - [x] **Phase 6** Triangulation
-- [ ] **Phase 7** Two-view sparse cloud + viewer — *M1*
+- [x] **Phase 7** Two-view sparse cloud + viewer — *M1* ✅
 - [ ] **Phase 8** Multi-view incremental SfM + BA
 - [ ] **Phase 9** Filtering & export (+ optional dense) — *M2*
 - [ ] **Phase 10** Evaluation & experiments

@@ -268,9 +268,13 @@ Finite, plausible set of 3D points; reprojection histogram concentrated below ~1
 
 ---
 
-## Phase 7 — Two-View Sparse Point Cloud ★ Milestone M1
+## Phase 7 — Two-View Sparse Point Cloud ★ Milestone M1 ✅
 
 **Goal:** Visible, exportable two-view reconstruction.
+
+> **Status — done, M1 reached.** `src.pointcloud.coloring` (`sample_colors`: bilinear via `cv2.remap`, clamped borders; `color_points`: mean over all observations), `src.pointcloud.export` (PLY through `o3d.t.io`, `cameras.json` with K, R, t, centre, size — both round-trip), `src.visualization.viewer` (`scene_geometries`: tensor point cloud + `t.geometry.LineSet.create_camera_visualization` frusta, extrinsic = world→camera `[R|t]` as in this project; `show` → `o3d.visualization.draw`; `render_scene` → Filament `OffscreenRenderer`, overview and close-up, `RenderUnavailable` when no GPU context). CLI `two-view` and `view`; notebook `03_two_view_geometry.ipynb`. Pipeline wiring for Phases 1–7 is `run_pipeline(..., until="triangulate")`; run directories are named after the command.
+> - **M1 on real photos (templeRing):** 626 coloured points; the close-up render reproduces the temple seen in the photos — entablature block, three columns with the gaps between them, base (`figures/two_view_closeup.png`). The camera-centred overview alone shows the cloud too small (scene ≈ 7 baselines away), hence the extra close-up framed on the points; Filament's tone mapping is disabled so colours and the white background are true.
+> - Open3D tensor API and Filament renderer throughout, per the `open3d-python` skill; offscreen rendering runs on the Metal backend (~0.1 s per image) and inside Jupyter.
 
 ### Tasks
 - `pointcloud/coloring.py`: color each point by sampling the image at its observation (BGR→RGB, /255).

@@ -115,3 +115,33 @@ def test_cli_triangulate_writes_outputs(scene_dir, tmp_path):
     assert summary["reprojection_valid_points"]["median_px"] < 0.5
     points = np.load(tri / "points.npz")
     assert points["valid"].sum() == summary["counts"]["valid"]
+
+
+def test_cli_two_view_exports_cloud_and_cameras(scene_dir, tmp_path):
+    import json
+
+    from src.cli import main
+    from src.pointcloud.export import read_cameras_json, read_ply
+
+    scene, images, _ = scene_dir
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"camera:\n  calibration_file: {images.parent / 'camera.yaml'}\n"
+        f"output:\n  cache_dir: {tmp_path / 'cache'}\nfeatures:\n  max_features: 3000\n"
+    )
+    out = tmp_path / "outputs"
+    assert main(["two-view", str(images), "--config", str(config), "--out", str(out)]) == 0
+    (run_dir,) = out.glob("*_two_view_sift")
+
+    summary = json.loads((run_dir / "triangulation" / "triangulation.json").read_text())
+    points, colors = read_ply(run_dir / "point_clouds" / "sparse.ply")
+    assert len(points) == summary["counts"]["valid"] > 0  # PLY reloads with every valid point
+    assert colors is not None and colors.std() > 0.02  # sampled from the textured images
+
+    cameras, names, sizes = read_cameras_json(run_dir / "camera_poses" / "cameras.json")
+    assert names == [summary["image_i"], summary["image_j"]]
+    assert sizes == [(800, 600), (800, 600)]
+    np.testing.assert_allclose(cameras[0].R, np.eye(3))
+    np.testing.assert_allclose(np.linalg.norm(cameras[1].t), 1.0)  # unit baseline
+    # Points lie in front of both exported cameras.
+    assert all((c.project(points)[1] > 0).all() for c in cameras)
