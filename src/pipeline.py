@@ -189,7 +189,7 @@ def reconstruct_scene(result: PipelineResult) -> PipelineResult:
     return result
 
 
-def filter_landmarks(result: PipelineResult) -> PipelineResult:
+def filter_scene(result: PipelineResult) -> PipelineResult:
     """Decide which landmarks of the reconstruction survive the outlier filters."""
     rec = result.reconstruction
     if rec is not None:
@@ -209,7 +209,7 @@ _STEPS = {
     "triangulate": triangulate,
     "cloud": color_cloud,
     "reconstruct": reconstruct_scene,
-    "filter": filter_landmarks,
+    "filter": filter_scene,
 }
 
 

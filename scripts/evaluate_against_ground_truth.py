@@ -134,8 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             ),
         )  # fmt: skip
-    rec = result.reconstruction
-    if rec is not None:
+    if result.reconstruction is not None:
         evaluate_reconstruction(result, gt, run_dir)
     print(f"Wrote {csv_path}")
     return 0
@@ -145,6 +144,9 @@ def evaluate_reconstruction(result, gt, run_dir: Path) -> None:
     """Registered images, camera pose errors after aligning to ground truth, reprojection."""
     rec, names = result.reconstruction, result.names
     images = rec.registry.images
+    if len(images) < 3:  # a similarity alignment needs at least 3 camera centres
+        print(f"reconstruction: only {len(images)} of {len(names)} images registered")
+        return
     cameras = [rec.registry.camera(m) for m in images]
     errors = camera_pose_errors(cameras, [gt[names[m]] for m in images])
     _, obs, X = rec.landmarks.as_problem(rec.registry, result.features)

@@ -2,7 +2,8 @@
 
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
-![status](https://img.shields.io/badge/status-M1%20done%20%C2%B7%20Phase%208%20%E2%80%94%20Multi--view%20SfM-blue)
+![status](https://img.shields.io/badge/status-complete%20%C2%B7%20M3-brightgreen)
+![tests](https://img.shields.io/badge/tests-313%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -43,6 +44,26 @@ photos → features → matches → verified geometry → camera poses → 3D po
 
 **Example.** Take 40–80 photos walking around a campus statue. The pipeline detects and matches features, recovers the camera path, triangulates landmarks, filters outliers, and exports a navigable sparse point cloud (`.ply`) with the estimated cameras.
 
+### Results at a glance
+
+On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×480, with ground-truth cameras):
+
+| | |
+|---|---|
+| ![sparse cloud](docs/images/templeRing_filtered.png) | ![cameras](docs/images/templeRing_cameras.png) |
+| Filtered sparse cloud (6365 coloured points) | All 47 cameras recovered: top and side views |
+
+| Result | Value |
+|---|---|
+| Images registered | **47 / 47** |
+| Camera rotation error vs ground truth (median / max) | **0.15° / 0.41°** |
+| Camera position error (median, fraction of the ring's radius) | **0.18 %** |
+| Reprojection error (mean) | **0.23 px** |
+| Completeness vs reference | **0.92** |
+| Runtime of `reconstruct` (Apple M4) | **20 s** cold, 16 s with caches |
+
+Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×.
+
 ### Course alignment (3D Computer Vision)
 
 | Syllabus topic | Where it appears |
@@ -54,10 +75,10 @@ photos → features → matches → verified geometry → camera poses → 3D po
 | Stereo vision foundations | Relative pose, parallax, depth (Phases 5, 6) |
 | Structure from Motion | Incremental registration with PnP, tracks, bundle adjustment (Phase 8) |
 | 3D data representations | Point clouds, PLY, camera frusta (Phases 7, 9) |
-| Dense reconstruction | Optional COLMAP MVS extension (Phase 9) |
+| Dense reconstruction | Future work (RQ5) |
 | Scaling | Metric scale from a known reference distance (Phase 10) |
 
-**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. COLMAP is an optional reference baseline. PyTorch3D is an optional extension only.
+**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. Which parts are our own implementation and which come from these libraries is listed in [docs/methodology.md](docs/methodology.md#12-ours-vs-external). COLMAP is not used (a COLMAP baseline and dense reconstruction are future work).
 
 ---
 
@@ -87,7 +108,7 @@ Challenges: depth loss in projection; viewpoint, lighting, and scale changes; oc
 7. Evaluate quality with reproducible, quantitative experiments.
 8. Keep the pipeline modular, tested, and reproducible.
 
-**Research questions** (answered in Phase 10)
+**Research questions** (RQ1–RQ4 answered in [docs/experiments.md](docs/experiments.md); RQ5 is future work)
 
 - **RQ1** How does the number of input images affect completeness?
 - **RQ2** How does feature-matching quality affect the final point cloud?
@@ -103,7 +124,7 @@ Challenges: depth loss in projection; viewpoint, lighting, and scale changes; oc
 |---|---|---|
 | **MVP — two-view** | Load & validate images · SIFT features · matching + ratio test · RANSAC verification · relative pose · triangulation · sparse PLY + viewer · basic stats | 0–7 |
 | **Core — multi-view** | Feature tracks · incremental SfM with PnP registration · bundle adjustment · outlier filtering · camera export | 8–9 |
-| **Evaluation** | SIFT vs ORB · image-count study · calibration study · COLMAP baseline · metric scale | 10 |
+| **Evaluation** | SIFT vs ORB · image-count study · matching study · calibration study · bundle-adjustment ablation · metric scale (COLMAP baseline: future work) | 10 |
 | **Optional** | Dense MVS (COLMAP) · meshing · texturing · simple UI · PyTorch3D | 9 / 16 |
 
 > **Scope decision.** Two-view triangulation alone is *not* SfM. The project is complete only when reconstruction spans many views. Our own implementation is the primary deliverable; COLMAP is used as a **baseline and fallback**, and every externally-provided component is labeled as such in the docs.
@@ -121,11 +142,14 @@ flowchart TD
     C --> D[Feature Extraction<br/>SIFT / ORB]
     D --> E[Feature Matching<br/>kNN · ratio test · mutual]
     E --> F[Geometric Verification<br/>F / E + RANSAC]
-    F --> G[Relative Pose<br/>E decomposition · cheirality]
-    G --> H[Incremental SfM<br/>tracks · PnP registration]
-    H --> I[Triangulation<br/>DLT · depth & reproj checks]
-    I --> J[Bundle Adjustment]
-    J --> K[Point-Cloud Processing<br/>filter · color · export]
+    F --> G[Relative Pose<br/>E decomposition · cheirality · initial pair]
+    G --> I[Initial structure<br/>N-view DLT · depth, reprojection & angle checks]
+    F --> T[Feature tracks<br/>union-find over verified matches]
+    I --> H[Incremental SfM<br/>next best view · PnP registration · new tracks]
+    T --> H
+    H --> J[Bundle Adjustment<br/>local / global · then structure refinement]
+    J -->|next image| H
+    J --> K[Point-Cloud Processing<br/>color · filter · export]
     K --> L[Visualization]
     K --> M[Evaluation & Reports]
 ```
@@ -145,7 +169,7 @@ flowchart TD
 | `pointcloud/` | Colours sampled bilinearly at every observation and averaged; filtering (non-finite, mean reprojection error, track length, then Open3D statistical and scale-relative radius outlier removal, counts logged per step); PLY via Open3D's tensor API; `cameras.json` | `sparse.ply`, `multi_view.ply`, `filtered.ply`, `cameras.json` |
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
-| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct) | In-memory results |
+| `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct → filter); stage-by-stage data flow in [docs/architecture.md](docs/architecture.md) | In-memory results |
 | `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
 
 ### 5.3 Design principles
@@ -173,24 +197,27 @@ Detailed task lists, deliverables, exit criteria, and risks for every phase are 
 | 7 | Two-view sparse cloud | Colored PLY + Open3D viewer + camera frusta | Recognizable structure from one real pair | **M1: two-view MVP** |
 | 8 | Multi-view incremental SfM | Tracks, PnP registration, BA | ≥ 80 % of images registered on sample set | — |
 | 9 | Filtering, export (+ optional dense) | `filtered.ply`, `cameras.json`, optional COLMAP MVS | Reload round-trip; before/after point counts logged | **M2: multi-view** |
-| 10 | Evaluation & experiments | RQ1–RQ5 experiments, COLMAP baseline, plots | All experiments reproducible from config | — |
+| 10 | Evaluation & experiments | RQ1–RQ4 experiments (E1–E5), plots; COLMAP baseline future work | All experiments reproducible from config | — |
 | 11 | Documentation & presentation | Report, architecture/method docs, demo | Checklist complete | **M3: submission** |
 
-### Phase 0 at a glance (✅ done)
-
-1. Create a Python **3.12** virtual environment with `uv` (system Python 3.14 lacks Open3D wheels).
-2. Pin dependencies in `pyproject.toml`; verify `cv2.SIFT_create` and Open3D import.
-3. Scaffold `src/`, `tests/`, `configs/`, `data/`, `outputs/`, `docs/`; add `.gitignore` for data and outputs.
-4. Write `configs/default.yaml` and a typed config loader.
-5. Build `tests/synthetic.py`: random 3D points + N cameras with known `K, R, t` → noisy 2D observations.
-6. First green tests: projection round-trip and config loading.
-7. Document coordinate conventions in `docs/architecture.md`.
+All phases are complete (see the checklist in §17); each phase's status notes in the roadmap record what was built, the decisions taken and the measurements behind them.
 
 ---
 
 ## 7. Quick Start
 
-> Commands below become valid as their phases land. Until then they describe the target interface.
+**Reproduce the main result** (fresh clone, macOS / Linux, ~5 minutes including installs):
+
+```bash
+uv venv --python 3.12 .venv && source .venv/bin/activate && uv pip install -e ".[dev]"
+python scripts/download_middlebury.py templeRing          # 47 photos + K + ground-truth cameras
+python -m src.cli reconstruct data/raw/templeRing         # → outputs/<run>/point_clouds/filtered.ply
+python scripts/evaluate_against_ground_truth.py data/raw/templeRing   # errors vs ground truth
+python -m src.cli view outputs/<run>/point_clouds/filtered.ply \
+    --cameras outputs/<run>/camera_poses/multi_view_cameras.json      # interactive 3-D view
+```
+
+The sections below explain each step and every other command.
 
 ### 7.1 Environment (Phase 0)
 
@@ -309,20 +336,15 @@ python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/
 
 Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence and plots: `notebooks/04_reconstruction_analysis.ipynb`.
 
-### 7.7 COLMAP (optional, Phase 9–10)
+### 7.7 COLMAP (future work)
 
-```bash
-brew install colmap           # macOS
-colmap -h                     # verify
-```
-
-COLMAP is a system dependency; installing Python requirements does not install it. See https://colmap.github.io/.
+The COLMAP baseline (E6, RQ5) and dense reconstruction are not implemented. COLMAP is a system dependency (`brew install colmap`; https://colmap.github.io/); installing the Python requirements does not install it.
 
 ---
 
 ## 8. Repository Structure
 
-Current layout; entries marked *(planned)* arrive with their phase.
+Final layout.
 
 ```text
 Multi-View-3D-Reconstruction/
@@ -338,7 +360,7 @@ Multi-View-3D-Reconstruction/
 ├── data/                         # git-ignored except data/sample/
 │   ├── raw/<scene>/              # input photos
 │   ├── processed/
-│   └── sample/                   # tiny committed test set
+│   └── sample/README.md          # dataset sources, licences, templeRing results
 ├── outputs/                      # git-ignored; one subfolder per run
 ├── src/
 │   ├── config.py      # typed config (frozen dataclasses), YAML loader
@@ -366,8 +388,9 @@ Multi-View-3D-Reconstruction/
 ├── docs/
 │   ├── ROADMAP.md                # detailed phase plans
 │   ├── architecture.md
-│   ├── methodology.md            # (planned)
-│   └── experiments.md            # experiment results and answers to RQ1–RQ4
+│   ├── methodology.md            # maths, design choices, ours vs external
+│   ├── experiments.md            # experiment results, answers to RQ1–RQ4, failure cases
+│   └── images/                   # figures used by the docs
 └── scripts/
     ├── verify_setup.py
     ├── download_middlebury.py    # real dataset + ground-truth cameras
@@ -446,9 +469,9 @@ outputs/<timestamp>_two_view_sift/
 
 `reconstruct` additionally writes `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`), `point_clouds/multi_view.ply` and `filtered.ply`, `camera_poses/multi_view_cameras.json` and `figures/filtered.png`.
 
-Planned with later phases: `(dense.ply)`, `meshes/`, `reports/`. Parenthesized files appear only when optional modules are enabled. A complete textured mesh is **not** expected from sparse SfM alone.
+Not produced: dense clouds and meshes (future work). A complete textured mesh is **not** expected from sparse SfM alone. Experiment runs have their own layout (§7.6).
 
-**Demo should show:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → (dense / mesh) → metrics.
+**Demo:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → metrics.
 
 ---
 
@@ -495,10 +518,10 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 |---|---|---|
 | **Synthetic ground truth** | Projection, `E`/`F`, pose, triangulation, PnP, BA | `tests/synthetic.py` generates exact scenes; assert errors below tolerances with and without pixel noise |
 | **Unit** | Loader (valid / corrupt / empty dir), extractor (textured vs blank image), matcher (index validity), geometry shapes & failure on too few points | pytest, parametrized |
-| **Integration** | Full pipeline on `data/sample/` | Completes, writes intermediates, outputs reload, metrics reproducible within tolerance |
+| **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+313 tests run in ~17 s (`pytest -q`). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
@@ -520,23 +543,31 @@ Test-first for geometry: write the synthetic test, watch it fail, implement, wat
 
 ## 15. Limitations
 
-1. Quality depends on overlap and visible texture.
-2. Textureless, reflective, transparent, and repetitive surfaces are unreliable.
-3. Moving objects violate the static-scene assumption.
-4. Sparse clouds do not represent complete surfaces.
-5. Dense reconstruction and meshing add significant compute and algorithmic complexity.
-6. No metric scale without an external reference.
-7. Calibration errors propagate into geometry.
-8. Low reprojection error ≠ accurate 3D geometry.
-9. Results vary across datasets and camera setups.
+1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
+2. **Calibration is required.** Bundle adjustment keeps `K` fixed; a 5 % focal-length error halves completeness and a guessed focal length gives a distorted model (E3).
+3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
+4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image.
+5. Moving objects violate the static-scene assumption.
+6. Sparse clouds do not represent complete surfaces; no dense stage or mesh is produced.
+7. No metric scale without an external reference; one measured distance sets it (on templeRing consistent with the full fit to < 1 %).
+8. Matching is exhaustive up to 50 images (sequential beyond); there is no loop closure or global SfM, so very long sequences may drift.
+9. Evaluated on one public dataset; results vary across datasets and camera setups.
 
-These are reported in the final write-up alongside failure cases — not hidden behind favorable screenshots.
+Failure cases are documented with evidence in [docs/experiments.md](docs/experiments.md#failure-cases).
 
 ---
 
 ## 16. Future Work
 
-Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · camera calibration study · learned features (SuperPoint/LightGlue) comparison · loop-closure / global SfM · COLMAP comparison on public benchmarks (e.g. ETH3D, Tanks & Temples) · PyTorch3D mesh refinement or differentiable rendering · simple web/desktop UI.
+Directly suggested by the results:
+
+- **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
+- **Refine the focal length in bundle adjustment** (self-calibration), so an EXIF or guessed `K` no longer distorts the model (RQ3).
+- **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
+- **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
+- More datasets with ground truth (ETH3D, Tanks & Temples, dinoRing) and own captures.
+
+Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · simple web/desktop UI.
 
 ---
 
@@ -560,8 +591,8 @@ Dense MVS · surface meshing (Poisson / ball-pivoting) · texture mapping · cam
 - [x] **Phase 7** Two-view sparse cloud + viewer — *M1* ✅
 - [x] **Phase 8** Multi-view incremental SfM + BA
 - [x] **Phase 9** Filtering & export — *M2* ✅ (optional dense not done)
-- [x] **Phase 10** Evaluation & experiments ✅ (E1–E5; E6 COLMAP baseline pending)
-- [ ] **Phase 11** Documentation & presentation — *M3*
+- [x] **Phase 10** Evaluation & experiments ✅ (E1–E5; E6 COLMAP baseline future work)
+- [x] **Phase 11** Documentation & presentation — *M3* ✅
 
 **Definition of success:** reliably turn a suitable set of overlapping photos into a coherent multi-view 3D reconstruction, explain the geometry behind it, and back it with quantitative, reproducible evidence.
 
@@ -595,3 +626,8 @@ Restore on a new machine: `npx skills experimental_install`. See [CLAUDE.md](CLA
 6. OpenCV documentation — https://docs.opencv.org/
 7. Open3D documentation — https://www.open3d.org/docs/
 8. COLMAP documentation — https://colmap.github.io/
+9. S. M. Seitz, B. Curless, J. Diebel, D. Scharstein, R. Szeliski — "A Comparison and Evaluation of Multi-View Stereo Reconstruction Algorithms," CVPR 2006 (Middlebury templeRing).
+10. R. Hartley — "In Defense of the Eight-Point Algorithm," IEEE TPAMI 1997.
+11. S. Umeyama — "Least-Squares Estimation of Transformation Parameters Between Two Point Patterns," IEEE TPAMI 1991.
+12. R. Raguram et al. — "USAC: A Universal Framework for Random Sample Consensus," IEEE TPAMI 2013.
+13. G. Terzakis & M. Lourakis — "A Consistently Fast and Globally Optimal Solution to the Perspective-n-Point Problem" (SQPnP), ECCV 2020.

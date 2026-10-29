@@ -4,7 +4,7 @@ Full datasets live in `data/raw/<name>/` (git-ignored) and are fetched by script
 
 | Set | Source | Images | Ground truth | Licence / terms | How to get it |
 |---|---|---|---|---|---|
-| **templeRing** (primary) | Middlebury Multi-View Stereo — Seitz, Curless, Diebel, Scharstein, Szeliski, *A Comparison and Evaluation of Multi-View Stereo Reconstruction Algorithms*, CVPR 2006. https://vision.middlebury.edu/mview/data/ | 47 × 640×480 PNG, ring of views ~7.7° apart around a plaster temple replica | `K`, `R`, `t` per image (`P = K[R\|t]`, same world→camera convention as this project) | Free for research use; cite the paper above | `python scripts/download_middlebury.py templeRing` |
+| **templeRing** (primary) | Middlebury Multi-View Stereo — Seitz, Curless, Diebel, Scharstein, Szeliski, *A Comparison and Evaluation of Multi-View Stereo Reconstruction Algorithms*, CVPR 2006. https://vision.middlebury.edu/mview/data/ | 47 × 640×480 PNG around a plaster temple replica; consecutive views mostly 7–8° apart, but the file sequence sweeps ~1.5 turns with a few jumps (not angular order) | `K`, `R`, `t` per image (`P = K[R\|t]`, same world→camera convention as this project) | Free for research use; cite the paper above | `python scripts/download_middlebury.py templeRing` |
 | templeSparseRing | same | 16 views, 22.5° apart | same | same | `python scripts/download_middlebury.py templeSparseRing` |
 | dinoRing / dinoSparseRing | same | 48 / 16 views of a plaster dinosaur | same | same | `python scripts/download_middlebury.py dinoRing` |
 
