@@ -1,8 +1,9 @@
 // Point cloud and camera viewer (three.js, rendered on demand).
 //
 // The reconstruction frame follows OpenCV: x right, y down, z forward from the first
-// camera. three.js is y-up, so everything sits in one group turned 180° about x
-// (y -> -y, z -> -z): upright photos give an upright cloud.
+// camera. three.js is y-up, so everything sits in one group rotated to put the cameras'
+// mean up direction (R^T [0, -1, 0]) on +y: upright photos give an upright cloud, even
+// when the first camera was tilted. Before cameras are known: 180° about x.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -103,7 +104,32 @@ function robustSphere(positions) {
   return { centre, radius: Math.max(quantile(distances, 0.9), 1e-6) };
 }
 
-const srgbToLinear = (c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+/** The scene's up direction in the reconstruction frame, from the cameras (centres, and
+ * sums of their image-up and optical-axis vectors).
+ *
+ * Cameras on a ring round the object (their centres enclose a loop): the ring's normal,
+ * pointing away from where the cameras look (they usually look down at the object); the
+ * image-up vectors are no guide there (rolled cameras, e.g. Middlebury templeRing).
+ * Otherwise (an arc or a line of shots): the mean image-up. */
+function sceneUp(centres, upSum, forwardSum) {
+  const n = centres.length;
+  const mean = centres.reduce((acc, c) => acc.add(c), new THREE.Vector3()).divideScalar(Math.max(n, 1));
+  const normal = new THREE.Vector3(); // Newell: twice the loop's vector area
+  let spread = 0;
+  centres.forEach((c, k) => {
+    const a = c.clone().sub(mean);
+    normal.add(a.clone().cross(centres[(k + 1) % n].clone().sub(mean)));
+    spread += a.lengthSq() / n;
+  });
+  const enclosesLoop = n >= 4 && normal.length() / 2 > 0.5 * Math.PI * spread; // ~1 for a ring, ~0.2 for a 40° arc
+  if (enclosesLoop) {
+    normal.normalize();
+    return normal.dot(forwardSum) > 0 ? normal.negate() : normal;
+  }
+  return upSum.length() > 0.3 * n ? upSum.clone().normalize() : new THREE.Vector3(0, -1, 0);
+}
+
+const srgbToLinear =(c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 // --- Viewer ---------------------------------------------------------------------------
 
@@ -118,7 +144,7 @@ export class Viewer {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.001, 1000);
     this.group = new THREE.Group();
-    this.group.rotation.x = Math.PI; // OpenCV (y down) -> three.js (y up); see top
+    this.group.rotation.x = Math.PI; // OpenCV (y down) -> three.js (y up) until setCameras
     this.scene.add(this.group);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -128,7 +154,8 @@ export class Viewer {
     this.pointSize = 2;
     this.points = null;
     this.frustums = null;
-    this.cameraForward = null;
+    this.cameraForward = null; // mean optical axis (group frame), or null: no common one
+    this.cameraCentres = [];
 
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -185,6 +212,8 @@ export class Viewer {
     const depth = FRUSTUM_SCALE * extent;
     const vertices = [];
     const forward = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    this.cameraCentres = [];
     for (const cam of cameras) {
       const R = new THREE.Matrix3().set(...cam.R.flat());
       const Rt = R.clone().transpose();
@@ -199,10 +228,13 @@ export class Viewer {
         vertices.push(centre, corners[k], corners[k], corners[(k + 1) % 4]);
       }
       forward.add(new THREE.Vector3(0, 0, 1).applyMatrix3(Rt)); // optical axis in the world
+      up.add(new THREE.Vector3(0, -1, 0).applyMatrix3(Rt)); // image up in the world
+      this.cameraCentres.push(centre);
     }
     const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
     this.frustums = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: FRUSTUM_COLOUR }));
     this.group.add(this.frustums);
+    this.group.quaternion.setFromUnitVectors(sceneUp(this.cameraCentres, up, forward), new THREE.Vector3(0, 1, 0));
     // cameras all round the object cancel out: no common viewing direction
     this.cameraForward = forward.length() > 0.2 * cameras.length ? forward.normalize() : null;
     this.render();
@@ -221,13 +253,17 @@ export class Viewer {
     this.group.updateMatrixWorld();
     const sphere = this.points && robustSphere(this.points.geometry.attributes.position.array);
     if (!sphere) return;
-    const centre = sphere.centre.applyMatrix4(this.group.matrixWorld);
+    // cameras round the object (no common viewing direction): frame their ring too
+    const ring = this.cameraForward ? 0 : Math.max(0, ...this.cameraCentres.map((c) => c.distanceTo(sphere.centre)));
+    const radius = Math.max(sphere.radius, ring);
+    const centre = sphere.centre.clone().applyMatrix4(this.group.matrixWorld);
     // a little further back, so the cameras in front of the cloud stay in view
-    const distance = (1.3 * sphere.radius) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const distance = (1.3 * radius) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const direction = this.cameraForward
       ? this.cameraForward.clone().transformDirection(this.group.matrixWorld)
-      : new THREE.Vector3(-0.5, -0.4, -1).normalize();
-    direction.add(new THREE.Vector3(0, -0.35, 0)).normalize(); // a little from above
+      : new THREE.Vector3(0, 0, -1);
+    if (Math.hypot(direction.x, direction.z) < 1e-3) direction.set(0, 0, -1); // looking straight down
+    direction.setY(0).normalize().add(new THREE.Vector3(0, this.cameraForward ? -0.35 : -0.8, 0)).normalize(); // from above
     this.camera.position.copy(centre).addScaledVector(direction, -distance);
     this.camera.near = distance / 1000;
     this.camera.far = distance * 10;

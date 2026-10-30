@@ -269,7 +269,26 @@ image; reopening a previous run.
 
 Commit: `feat(web): upload, progress and results page with 3-D viewer`.
 
-## Task 9 — Real-data check
+## Task 9 — Real-data check  ✅
+
+Done (2026-10-30). templeRing, all 47 images + `camera.yaml` + `gt_cameras.json` through
+`python -m src.web` (default config, `open_browser` off); every number matches the CLI's
+`scripts/evaluate_against_ground_truth.py` on the same data exactly:
+
+| | web (`report.json`) | CLI |
+|---|---|---|
+| registered | 47/47 | 47/47 |
+| landmarks (sparse) | 6454 | 6454 |
+| rotation error median / p90 / max | 0.15° / 0.35° / 0.41° | 0.15° / 0.35° / 0.41° |
+| camera-centre error median / p90 / max | 0.18% / 0.36% / 0.71% | 0.18% / 0.36% / 0.71% |
+| reprojection median / p90 / max | 0.14 / 0.53 / 1.99 px | 0.14 / 0.53 / 1.99 px |
+
+Found while taking `docs/images/web_ui.png`: templeRing's cameras are rolled, so their
+image-up vectors lie in the ring's plane and the fixed 180° flip showed the ring on edge.
+`viewer.js` now orients the scene by the cameras' ring normal when their centres enclose a
+loop (pointing away from where they look), else by the mean image-up; with no common
+viewing direction, fit-to-view frames the camera ring too. The rendered box (an arc) is
+unchanged.
 
 1. `python -m src.web`; upload all 47 `data/raw/templeRing` images + `camera.yaml` +
    `gt_cameras.json`.
