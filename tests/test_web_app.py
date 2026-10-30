@@ -1,0 +1,316 @@
+import json
+import time
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("fastapi")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from src.config import config_from_dict  # noqa: E402
+from src.web.app import UPLOAD_ROOT, create_app  # noqa: E402
+from src.web.jobs import Job, JobBusy, JobManager  # noqa: E402
+
+CAMERA_YAML = b"width: 64\nheight: 48\nfx: 50\nfy: 50\ncx: 32\ncy: 24\n"
+GT_JSON = json.dumps(
+    {
+        "cameras": [
+            {
+                "name": "a.png",
+                "K": [[50, 0, 32], [0, 50, 24], [0, 0, 1]],
+                "R": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                "t": [0, 0, 0],
+                "width": 64,
+                "height": 48,
+            }
+        ]
+    }
+).encode()
+
+
+class FakeManager:
+    """Records submissions instead of running them; jobs stay as the test sets them."""
+
+    def __init__(self, busy=False):
+        self.jobs: dict[str, Job] = {}
+        self.is_busy = busy
+
+    def submit(self, upload_dir, config, job_id=None):
+        if self.is_busy:
+            raise JobBusy("other")
+        job = Job(id=job_id, upload_dir=Path(upload_dir))
+        self.jobs[job.id] = job
+        return job
+
+    def get(self, job_id):
+        return self.jobs.get(job_id)
+
+    def list(self):
+        return list(reversed(self.jobs.values()))
+
+    def busy(self):
+        return self.is_busy
+
+
+def client_for(manager=None, **overrides):
+    config = config_from_dict(overrides)
+    return TestClient(create_app(config, manager or FakeManager()))
+
+
+def images(*names, size=10):
+    return [("images", (name, b"x" * size, "image/png")) for name in names]
+
+
+def post(client, files, camera=None, gt=None):
+    if camera is not None:
+        files = [*files, ("camera", ("my_camera.yml", camera, "application/x-yaml"))]
+    if gt is not None:
+        files = [*files, ("ground_truth", ("truth.json", gt, "application/json"))]
+    return client.post("/api/jobs", files=files)
+
+
+def nothing_uploaded():
+    return not UPLOAD_ROOT.exists() or not any(UPLOAD_ROOT.iterdir())
+
+
+# --- upload validation ------------------------------------------------------------------
+
+
+def test_too_few_images_is_rejected():
+    response = post(client_for(), images("a.png"))
+    assert response.status_code == 422
+    assert "at least 2" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+def test_minimum_comes_from_the_dataset_config():
+    response = post(client_for(dataset={"min_images": 3}), images("a.png", "b.png"))
+    assert response.status_code == 422
+    assert "at least 3" in response.json()["detail"]
+
+
+def test_file_with_another_extension_is_named():
+    response = post(client_for(), images("a.png", "notes.txt", "b.png"))
+    assert response.status_code == 422
+    assert "notes.txt" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+def test_extensions_come_from_the_dataset_config():
+    response = post(client_for(dataset={"extensions": [".png"]}), images("a.png", "b.jpg"))
+    assert response.status_code == 422
+    assert "b.jpg" in response.json()["detail"]
+
+
+def test_upper_case_extension_is_accepted():
+    manager = FakeManager()
+    response = post(client_for(manager), images("IMG_0001.JPG", "IMG_0002.JPG"))
+    assert response.status_code == 201
+
+
+def test_too_many_images_is_rejected():
+    response = post(client_for(web={"max_upload_images": 3}), images(*(f"{c}.png" for c in "abcd")))
+    assert response.status_code == 422
+    assert "at most 3" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+def test_too_large_upload_is_rejected():
+    # max_upload_mb is an int; 0 MB rejects any non-empty upload
+    response = post(client_for(web={"max_upload_mb": 0}), images("a.png", "b.png"))
+    assert response.status_code == 422
+    assert "MB" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+@pytest.mark.parametrize("camera", [b"fx: [unclosed", b"width: 64\nheight: 48\n"])
+def test_invalid_camera_file_is_rejected(camera):
+    response = post(client_for(), images("a.png", "b.png"), camera=camera)
+    assert response.status_code == 422
+    assert "camera.yaml" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+def test_invalid_ground_truth_is_rejected():
+    response = post(client_for(), images("a.png", "b.png"), gt=b"{not json")
+    assert response.status_code == 422
+    assert "gt_cameras.json" in response.json()["detail"]
+    assert nothing_uploaded()
+
+
+# --- job API ----------------------------------------------------------------------------
+
+
+def test_valid_upload_is_saved_and_submitted():
+    manager = FakeManager()
+    response = post(client_for(manager), images("a.png", "b.png"), camera=CAMERA_YAML, gt=GT_JSON)
+    assert response.status_code == 201
+    job_id = response.json()["job_id"]
+    upload = UPLOAD_ROOT / job_id
+    assert manager.jobs[job_id].upload_dir == upload
+    assert sorted(p.name for p in upload.iterdir()) == [
+        "a.png",
+        "b.png",
+        "camera.yaml",
+        "gt_cameras.json",
+    ]
+    assert (upload / "camera.yaml").read_bytes() == CAMERA_YAML
+
+
+def test_upload_names_cannot_leave_the_upload_folder():
+    manager = FakeManager()
+    response = post(client_for(manager), images("../../a.png", "sub/b.png"))
+    assert response.status_code == 201
+    upload = UPLOAD_ROOT / response.json()["job_id"]
+    assert sorted(p.name for p in upload.iterdir()) == ["a.png", "b.png"]
+
+
+def test_duplicate_image_names_are_rejected():
+    response = post(client_for(), images("a.png", "a.png"))
+    assert response.status_code == 422
+    assert "a.png" in response.json()["detail"]
+
+
+def test_upload_while_busy_is_a_conflict():
+    response = post(client_for(FakeManager(busy=True)), images("a.png", "b.png"))
+    assert response.status_code == 409
+    assert nothing_uploaded()
+
+
+def test_unknown_job_is_404():
+    client = client_for()
+    assert client.get("/api/jobs/unknown").status_code == 404
+    assert client.get("/api/jobs/unknown/report").status_code == 404
+    assert client.get("/api/jobs/unknown/files/report.json").status_code == 404
+
+
+def test_job_status_and_report_before_done():
+    manager = FakeManager()
+    manager.jobs["j"] = Job(id="j", upload_dir=Path("up"), status="running", stage="features")
+    client = client_for(manager)
+    status = client.get("/api/jobs/j").json()
+    assert (status["id"], status["status"], status["stage"]) == ("j", "running", "features")
+    assert client.get("/api/jobs/j/report").status_code == 409
+
+
+@pytest.fixture
+def done_job(tmp_path):
+    run_dir = tmp_path / "outputs" / "20261030-120000_web_reconstruct"
+    (run_dir / "point_clouds").mkdir(parents=True)
+    (run_dir / "figures").mkdir()
+    (run_dir / "report.json").write_text('{"total_s": 3.5}')
+    (run_dir / "point_clouds" / "filtered.ply").write_bytes(b"ply\nformat ascii 1.0\n")
+    (run_dir / "figures" / "filtered.png").write_bytes(b"\x89PNG")
+    (tmp_path / "secret.txt").write_text("secret")
+    manager = FakeManager()
+    manager.jobs["j"] = Job(id="j", upload_dir=Path("up"), status="done", run_dir=run_dir)
+    return client_for(manager)
+
+
+def test_report_of_a_finished_job(done_job):
+    assert done_job.get("/api/jobs/j/report").json() == {"total_s": 3.5}
+
+
+@pytest.mark.parametrize(
+    ("path", "media_type"),
+    [
+        ("report.json", "application/json"),
+        ("point_clouds/filtered.ply", "application/octet-stream"),
+        ("figures/filtered.png", "image/png"),
+    ],
+)
+def test_files_of_a_finished_job(done_job, path, media_type):
+    response = done_job.get(f"/api/jobs/j/files/{path}")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(media_type)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "..%2F..%2Fsecret.txt",
+        "%2E%2E/%2E%2E/secret.txt",
+        "%2Fetc%2Fpasswd",
+        "missing.png",
+        "figures",
+    ],
+)
+def test_files_outside_the_run_folder_are_404(done_job, path):
+    assert done_job.get(f"/api/jobs/j/files/{path}").status_code == 404
+
+
+def test_previous_runs_are_rediscovered(tmp_path):
+    old = tmp_path / "outputs" / "20261029-090000_web_reconstruct"
+    new = tmp_path / "outputs" / "20261030-000000_web_reconstruct"
+    for run_dir in (old, new):
+        run_dir.mkdir(parents=True)
+        (run_dir / "report.json").write_text('{"total_s": 1.0}')
+    (tmp_path / "outputs" / "20261030-010000_reconstruct").mkdir()  # a CLI run
+    (tmp_path / "outputs" / "20261030-020000_web_reconstruct").mkdir()  # no report
+
+    manager = FakeManager()
+    manager.jobs["live"] = Job(id="live", upload_dir=Path("up"), status="running")
+    client = client_for(manager, output={"root": str(tmp_path / "outputs")})
+
+    jobs = client.get("/api/jobs").json()
+    assert [j["id"] for j in jobs] == ["live", new.name, old.name]
+    assert jobs[1]["status"] == "done"
+    assert client.get(f"/api/jobs/{new.name}").json()["status"] == "done"
+    assert client.get(f"/api/jobs/{new.name}/report").json() == {"total_s": 1.0}
+    assert client.get(f"/api/jobs/{new.name}/files/report.json").status_code == 200
+
+
+def test_page_is_served():
+    response = client_for().get("/")
+    assert response.status_code == 200
+    assert "<html" in response.text.lower()
+
+
+def test_config_for_the_page():
+    data = (
+        client_for(web={"poll_interval_ms": 250}, dataset={"min_images": 3})
+        .get("/api/config")
+        .json()
+    )
+    assert data["poll_interval_ms"] == 250
+    assert data["min_images"] == 3
+    assert data["max_upload_images"] == 200
+    assert data["max_upload_mb"] == 500
+    assert ".jpg" in data["extensions"]
+
+
+# --- end to end -------------------------------------------------------------------------
+
+
+def test_upload_to_results_end_to_end(tmp_path):
+    from src.pointcloud.export import write_cameras_json
+    from tests.render import render_box_scene, scene_cameras, write_scene
+
+    scene = render_box_scene(n_cameras=6, arc_deg=40.0)
+    folder, camera = write_scene(scene, tmp_path / "rendered")
+    gt = scene_cameras(scene)
+    gt_path = tmp_path / "gt.json"
+    write_cameras_json(gt_path, list(gt.values()), list(gt), [scene.image_size] * len(gt))
+
+    files = [("images", (p.name, p.read_bytes(), "image/png")) for p in sorted(folder.iterdir())]
+    client = client_for(JobManager(), output={"cache_dir": None}, features={"max_features": 3000})
+    response = post(client, files, camera=camera.read_bytes(), gt=gt_path.read_bytes())
+    assert response.status_code == 201, response.text
+    job_id = response.json()["job_id"]
+
+    deadline = time.monotonic() + 120
+    while (status := client.get(f"/api/jobs/{job_id}").json())["status"] not in (
+        "done",
+        "failed",
+    ):
+        assert time.monotonic() < deadline, status
+        time.sleep(0.5)
+    assert status["status"] == "done", status["error"]
+
+    report = client.get(f"/api/jobs/{job_id}/report").json()
+    assert report["images"] == {"total": 6, "registered": 6, "unregistered": []}
+    assert report["ground_truth"]["cameras"] == 6
+    ply = client.get(f"/api/jobs/{job_id}/files/point_clouds/filtered.ply")
+    assert ply.status_code == 200
+    assert ply.content.startswith(b"ply")

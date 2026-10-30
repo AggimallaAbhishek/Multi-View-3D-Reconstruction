@@ -155,7 +155,10 @@ writing outputs, `DatasetError`), one job at a time (`JobBusy`), `to_dict` JSON,
 relayed from the child, and the real job end to end on the rendered scene with ground
 truth (the crash regression).
 
-## Task 6 — `src/web/app.py`
+## Task 6 — `src/web/app.py`  ✅
+
+Done. Also rejects duplicate and hidden file names and strips client-side directories
+from upload names. `static/index.html` is a placeholder until Task 8.
 
 **Test** (new `tests/test_web_app.py`; `pytest.importorskip("fastapi")` at top;
 `TestClient(create_app(config, manager))`; upload directory and outputs inside the
