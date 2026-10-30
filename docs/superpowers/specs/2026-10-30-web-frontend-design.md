@@ -117,12 +117,12 @@ from a CDN and labelled as external in the README and methodology docs.
 
 | Method | Path | Behaviour |
 |---|---|---|
-| `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409` if a job is running; `422 {detail}` on invalid input (nothing written). |
+| `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409 {detail, job_id}` (the running job) if a job is running; `422 {detail}` on invalid input (nothing written). |
 | `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir}`; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
-| `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder. The resolved path must lie inside the run folder, otherwise `404`. |
+| `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder (a failed job's too: the outputs of the stages that finished). The resolved path must lie inside the run folder, otherwise `404`. |
 | `GET` | `/api/config` | Page-relevant settings: `poll_interval_ms`, `max_upload_images`, `max_upload_mb` from `web`; `min_images`, `extensions` from `dataset`. |
-| `GET` | `/api/jobs` | In-memory jobs plus finished web runs rediscovered from `outputs/*_web_reconstruct/report.json` (newest first), so results survive a server restart. |
+| `GET` | `/api/jobs` | In-memory jobs plus finished web runs rediscovered from `outputs/<stamp>_web_reconstruct[_n]/report.json` (newest first; `_n` when two runs start in the same second), so results survive a server restart. |
 
 Rediscovered runs use the run folder name as their `id`.
 
@@ -134,7 +134,7 @@ One page, three states.
    `camera.yaml` and `gt_cameras.json`; **Run** button; "Open previous run" dropdown fed by
    `GET /api/jobs`. Validation errors from the API shown inline.
 2. **Running** — checklist of stages (dataset, then `src/pipeline.STAGES`: features,
-   matches, verify, pose, triangulate, cloud, reconstruct, filter): spinner on the current one, ✓ and time on finished
+   matches, verify, pose, triangulate, cloud, reconstruct, filter, then `outputs`): spinner on the current one, ✓ and time on finished
    ones. Polls every `poll_interval_ms`.
 3. **Results**
    - Summary cards: registered / total images, filtered points, median reprojection

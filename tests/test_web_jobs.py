@@ -7,13 +7,15 @@ import pytest
 from src.config import config_from_dict
 from src.data.loader import DatasetError
 from src.pipeline import STAGES
-from src.web.jobs import JobBusy, JobManager, reconstruct_in_subprocess
+from src.web.jobs import JobBusy, JobFailed, JobManager, reconstruct, reconstruct_in_subprocess
 
 CONFIG = config_from_dict({})
 
 
-def fake_job(stages=("a", "b", "c"), fail_at=None, exc=RuntimeError("boom"), gate=None):
-    """A stand-in for the reconstruction: reports each stage, optionally fails or waits."""
+def fake_job(stages=("a", "b", "c"), fail_at=None, exc=None, gate=None):
+    """A stand-in for the reconstruction: reports each stage, optionally fails (with
+    ``exc``, default ``RuntimeError("boom")``) or waits."""
+    exc = exc or RuntimeError("boom")
 
     def job(upload_dir, config, progress):
         timings = {"dataset": 0.1}
@@ -93,18 +95,26 @@ def test_failure_while_writing_outputs_is_reported(tmp_path):
     assert (job.status, job.stage, job.error) == ("failed", "outputs", "disk full")
 
 
+def test_failed_job_keeps_the_outputs_written_so_far(tmp_path):
+    manager = JobManager(job=fake_job(fail_at="b", exc=JobFailed("boom", tmp_path / "run")))
+    job = manager.submit(tmp_path, CONFIG)
+    manager.wait(job.id)
+    job = manager.get(job.id)
+    assert (job.status, job.error, job.run_dir) == ("failed", "boom", tmp_path / "run")
+
+
 def test_only_one_job_at_a_time(tmp_path):
     gate = threading.Event()
     manager = JobManager(job=fake_job(gate=gate))
     first = manager.submit(tmp_path / "1", CONFIG)
-    assert manager.busy()
+    assert manager.active().id == first.id
     with pytest.raises(JobBusy) as busy:
         manager.submit(tmp_path / "2", CONFIG)
     assert busy.value.job_id == first.id
 
     gate.set()
     manager.wait(first.id)
-    assert not manager.busy()
+    assert manager.active() is None
     second = manager.submit(tmp_path / "3", CONFIG, job_id="chosen")
     assert second.id == "chosen"
     manager.wait(second.id)
@@ -140,23 +150,13 @@ def test_default_job_writes_a_run_folder_with_a_report(tmp_path):
 
     Regression: the outputs include an offscreen Open3D render, which aborts the whole
     process (SIGTRAP) outside the main thread; the job runs in a child process."""
-    import shutil
-
     from src.pointcloud.export import write_cameras_json
-    from tests.render import render_box_scene, scene_cameras, write_scene
+    from tests.render import scene_cameras
 
-    scene = render_box_scene(n_cameras=4, arc_deg=30.0)
-    images, camera = write_scene(scene, tmp_path)
-    shutil.copy(camera, images / "camera.yaml")
+    scene, images, config = rendered_upload(tmp_path)
     gt = scene_cameras(scene)
     write_cameras_json(
         images / "gt_cameras.json", list(gt.values()), list(gt), [scene.image_size] * len(gt)
-    )
-    config = config_from_dict(
-        {
-            "output": {"root": str(tmp_path / "outputs"), "cache_dir": None},
-            "features": {"max_features": 3000},
-        }
     )
     manager = JobManager()
     job = manager.submit(images, config)
@@ -171,3 +171,49 @@ def test_default_job_writes_a_run_folder_with_a_report(tmp_path):
     assert report["images"]["registered"] == 4
     assert report["calibration"]["sources"] == ["file"]
     assert report["ground_truth"]["rotation_deg"]["median"] < 0.5
+
+
+def rendered_upload(tmp_path, n_cameras=4):
+    """The rendered scene as an upload folder with ``camera.yaml``, and a config writing
+    under ``tmp_path``."""
+    import shutil
+
+    from tests.render import render_box_scene, write_scene
+
+    scene = render_box_scene(n_cameras=n_cameras, arc_deg=30.0)
+    images, camera = write_scene(scene, tmp_path)
+    shutil.copy(camera, images / "camera.yaml")
+    config = config_from_dict(
+        {
+            "output": {"root": str(tmp_path / "outputs"), "cache_dir": None},
+            "features": {"max_features": 3000},
+        }
+    )
+    return scene, images, config
+
+
+def test_failure_in_a_stage_writes_the_stages_before_it(tmp_path, monkeypatch):
+    import src.pipeline
+
+    def fail(result):
+        raise RuntimeError("no initial pair")
+
+    monkeypatch.setitem(src.pipeline._STEPS, "pose", fail)
+    _, images, config = rendered_upload(tmp_path)
+    with pytest.raises(JobFailed, match="no initial pair") as failed:
+        reconstruct(images, config, lambda s, t: None)
+    run_dir = failed.value.run_dir
+    assert run_dir.name.endswith("_web_reconstruct")
+    assert (run_dir / "dataset.json").is_file()
+    assert (run_dir / "verification").is_dir()
+    assert not (run_dir / "pose").exists()
+    assert not (run_dir / "report.json").exists()
+
+
+def test_failure_while_preparing_the_dataset_writes_nothing(tmp_path):
+    (tmp_path / "empty").mkdir()
+    config = config_from_dict({"output": {"root": str(tmp_path / "outputs")}})
+    with pytest.raises(JobFailed) as failed:
+        reconstruct(tmp_path / "empty", config, lambda s, t: None)
+    assert failed.value.run_dir is None
+    assert not (tmp_path / "outputs").exists()

@@ -34,6 +34,8 @@ from src.data.validation import ImageStats, ValidationReport, image_stats, valid
 from src.geometry.calibration import Intrinsics, load_camera_file, resolve_intrinsics
 from src.run import atomic_savez, write_json
 
+CAMERA_FILE = "camera.yaml"  # picked up beside the images
+
 log = logging.getLogger(__name__)
 
 
@@ -190,7 +192,7 @@ def find_calibration_file(directory: str | Path, config: Config) -> Path | None:
         return Path(config.camera.calibration_file)
     if not config.camera.auto_calibration_file:
         return None
-    beside = Path(directory) / "camera.yaml"
+    beside = Path(directory) / CAMERA_FILE
     return beside if beside.is_file() else None
 
 

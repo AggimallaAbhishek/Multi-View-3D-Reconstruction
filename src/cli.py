@@ -20,7 +20,7 @@ from src.geometry.calibration import (
     calibrate_from_checkerboard,
     save_camera_file,
 )
-from src.outputs import save_stage_outputs
+from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import Stage, run_pipeline
 from src.pointcloud.export import read_cameras_json, read_ply
 from src.run import create_run_dir, write_run_metadata
@@ -201,9 +201,7 @@ def _stage_command(args: argparse.Namespace) -> int:
 
     _report_calibration(config, result.dataset)
     label = args.command.replace("-", "_")
-    run_dir = create_run_dir(config.output.root, f"{label}_{result.extractor.name}")
-    write_run_metadata(run_dir, config)
-    result.dataset.save(run_dir / "dataset.json")
+    run_dir = new_run_dir(result, f"{label}_{result.extractor.name}")
 
     written, status = save_stage_outputs(result, run_dir, stage, draw=args.draw)
     print(f"Wrote {written}")

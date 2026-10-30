@@ -37,12 +37,28 @@ from src.pipeline import PipelineResult, Stage, stages_until
 from src.pointcloud.export import save_cloud, write_ply
 from src.reconstruction.incremental import FRAME as MULTI_VIEW_FRAME
 from src.reconstruction.two_view import FRAME as TWO_VIEW_FRAME
-from src.run import atomic_savez, read_json, write_csv, write_json
+from src.run import (
+    atomic_savez,
+    create_run_dir,
+    read_json,
+    write_csv,
+    write_json,
+    write_run_metadata,
+)
 from src.visualization.cameras import plot_cameras, plot_two_view
 from src.visualization.epipolar import draw_epipolar_lines
 from src.visualization.features import draw_keypoints
 from src.visualization.matches import draw_matches, plot_match_matrix
 from src.visualization.reprojection import plot_reprojection_histogram
+
+
+def new_run_dir(result: PipelineResult, label: str) -> Path:
+    """A new run folder under ``output.root`` with the run metadata and ``dataset.json``,
+    ready for ``save_stage_outputs``."""
+    run_dir = create_run_dir(result.config.output.root, label)
+    write_run_metadata(run_dir, result.config)
+    result.dataset.save(run_dir / "dataset.json")
+    return run_dir
 
 
 def save_stage_outputs(

@@ -4,7 +4,8 @@ A job runs the pipeline on an upload folder, then writes the run folder
 (``src.outputs``) and ``report.json``. Its state is what the page polls: the stage
 running now, the stages finished, timings, and the error if it failed. Stages are
 ``"dataset"`` (preparing the images, before the pipeline's first callback), the pipeline
-stages, and ``"outputs"`` (writing figures, clouds and the report).
+stages, and ``"outputs"`` (writing figures, clouds and the report). A job that fails
+after some stages finished still writes their outputs, so the page can link them.
 
 The work runs in a child process (``reconstruct_in_subprocess``): Open3D's offscreen
 renderer aborts the whole process outside the main thread, and a native crash should
@@ -27,9 +28,8 @@ from typing import Any, Literal
 
 from src.config import Config
 from src.evaluation.ground_truth import load_cameras_json
-from src.outputs import save_stage_outputs
-from src.pipeline import PipelineResult, run_pipeline
-from src.run import create_run_dir, write_run_metadata
+from src.outputs import new_run_dir, save_stage_outputs
+from src.pipeline import PipelineResult, Stage, run_pipeline
 from src.web.report import build_report, write_report
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,19 @@ ProgressFn = Callable[[str, dict[str, float]], None]
 JobFn = Callable[[Path, Config, ProgressFn], Path]  # -> run folder
 
 
+def new_job_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+class JobFailed(RuntimeError):
+    """The job failed; ``run_dir`` holds the outputs of the stages that finished (None:
+    nothing was written)."""
+
+    def __init__(self, message: str, run_dir: Path | None = None):
+        super().__init__(message)
+        self.run_dir = run_dir
+
+
 class JobBusy(RuntimeError):
     """A job is already queued or running."""
 
@@ -54,7 +67,7 @@ class JobBusy(RuntimeError):
 @dataclass
 class Job:
     id: str
-    upload_dir: Path
+    upload_dir: Path | None = None  # None for runs rediscovered from an earlier server
     status: Status = "queued"
     stage: str | None = None  # running now, or where it failed
     stages_done: list[str] = field(default_factory=list)
@@ -78,12 +91,34 @@ def reconstruct(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
     """Pipeline up to ``filter``, then the CLI's ``reconstruct`` run folder plus
     ``report.json`` (scored against ``gt_cameras.json`` when it was uploaded).
 
-    Must run on a main thread (it renders); see ``reconstruct_in_subprocess``."""
-    result = run_pipeline(
-        upload_dir, config, until="filter", on_stage=lambda s, r: progress(s, dict(r.timings))
-    )
-    progress("outputs", dict(result.timings))
-    return _write_outputs(result, upload_dir, config)
+    Raises ``JobFailed`` carrying the run folder with the outputs of the stages that
+    finished before the failure. Must run on a main thread (it renders); see
+    ``reconstruct_in_subprocess``."""
+    result: PipelineResult | None = None
+    started: list[Stage] = []
+
+    def on_stage(stage: Stage, current: PipelineResult) -> None:
+        nonlocal result
+        result = current  # filled in place, so it holds every finished stage on failure
+        started.append(stage)
+        progress(stage, dict(current.timings))
+
+    run_dir, pipeline_done = None, False
+    try:
+        result = run_pipeline(upload_dir, config, until="filter", on_stage=on_stage)
+        pipeline_done = True
+        progress("outputs", dict(result.timings))
+        run_dir = new_run_dir(result, RUN_LABEL)
+        save_stage_outputs(result, run_dir, "filter")
+        gt_path = upload_dir / GT_NAME
+        gt = load_cameras_json(gt_path) if gt_path.is_file() else None
+        write_report(build_report(result, gt), run_dir)
+    except Exception as exc:
+        finished = started if pipeline_done else started[:-1]  # the last one raised
+        if run_dir is None and finished:
+            run_dir = _save_partial(result, finished[-1])
+        raise JobFailed(str(exc), run_dir) from exc
+    return run_dir
 
 
 def reconstruct_in_subprocess(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
@@ -109,33 +144,39 @@ def reconstruct_in_subprocess(upload_dir: Path, config: Config, progress: Progre
                     ) from None
             if kind == "stage":
                 progress(*payload)
-            elif kind == "error":
-                raise RuntimeError(payload[0])
-            else:  # "done"
+            elif kind == "failed":
+                message, run_dir = payload
+                raise JobFailed(message, None if run_dir is None else Path(run_dir))
+            elif kind == "done":
                 return Path(payload[0])
+            else:
+                raise RuntimeError(f"unexpected message from the reconstruction: {kind!r}")
     finally:
         child.join(timeout=5)
         events.close()
 
 
 def _child(upload_dir: Path, config: Config, events: Any) -> None:
+    """Messages: ("stage", stage, timings), then ("done", run_dir) or
+    ("failed", message, run_dir | None)."""
     try:
         run_dir = reconstruct(upload_dir, config, lambda s, t: events.put(("stage", s, t)))
-    except Exception as exc:
+    except JobFailed as exc:
         traceback.print_exc()  # the server's terminal shows where it failed
-        events.put(("error", str(exc)))
+        events.put(("failed", str(exc), None if exc.run_dir is None else str(exc.run_dir)))
     else:
         events.put(("done", str(run_dir)))
 
 
-def _write_outputs(result: PipelineResult, upload_dir: Path, config: Config) -> Path:
-    run_dir = create_run_dir(config.output.root, RUN_LABEL)
-    write_run_metadata(run_dir, config)
-    result.dataset.save(run_dir / "dataset.json")
-    save_stage_outputs(result, run_dir, "filter")
-    gt_path = upload_dir / GT_NAME
-    gt = load_cameras_json(gt_path) if gt_path.is_file() else None
-    write_report(build_report(result, gt), run_dir)
+def _save_partial(result: PipelineResult, last_finished: Stage) -> Path | None:
+    """Best effort: a run folder with the outputs up to ``last_finished`` (None if it
+    could not even be created)."""
+    run_dir = None
+    try:
+        run_dir = new_run_dir(result, RUN_LABEL)
+        save_stage_outputs(result, run_dir, last_finished)
+    except Exception:
+        log.exception("could not write the outputs of the stages up to %s", last_finished)
     return run_dir
 
 
@@ -152,7 +193,7 @@ class JobManager:
             active = self._active()
             if active is not None:
                 raise JobBusy(active.id)
-            job = Job(id=job_id or uuid.uuid4().hex[:12], upload_dir=Path(upload_dir))
+            job = Job(id=job_id or new_job_id(), upload_dir=Path(upload_dir))
             self._jobs[job.id] = job
             thread = threading.Thread(
                 target=self._work, args=(job, config), name=f"job-{job.id}", daemon=True
@@ -168,9 +209,10 @@ class JobManager:
         """Every job of this server process, newest first."""
         return list(reversed(self._jobs.values()))
 
-    def busy(self) -> bool:
+    def active(self) -> Job | None:
+        """The queued or running job, if any."""
         with self._lock:
-            return self._active() is not None
+            return self._active()
 
     def wait(self, job_id: str, timeout: float | None = None) -> None:
         """Block until the job has finished (for tests and scripts)."""
@@ -185,7 +227,8 @@ class JobManager:
             run_dir = self._job(job.upload_dir, config, lambda s, t: self._advance(job, s, t))
         except Exception as exc:  # the job reports it; the server keeps running
             log.exception("job %s failed at stage %s", job.id, job.stage)
-            self._update(job, status="failed", error=str(exc))
+            run_dir = exc.run_dir if isinstance(exc, JobFailed) else None
+            self._update(job, status="failed", error=str(exc), run_dir=run_dir)
             return
         self._advance(job, None, job.timings)
         self._update(job, status="done", run_dir=run_dir)

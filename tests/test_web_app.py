@@ -34,11 +34,11 @@ class FakeManager:
 
     def __init__(self, busy=False):
         self.jobs: dict[str, Job] = {}
-        self.is_busy = busy
+        self.running = Job(id="other", status="running") if busy else None
 
     def submit(self, upload_dir, config, job_id=None):
-        if self.is_busy:
-            raise JobBusy("other")
+        if self.running is not None:
+            raise JobBusy(self.running.id)
         job = Job(id=job_id, upload_dir=Path(upload_dir))
         self.jobs[job.id] = job
         return job
@@ -49,8 +49,8 @@ class FakeManager:
     def list(self):
         return list(reversed(self.jobs.values()))
 
-    def busy(self):
-        return self.is_busy
+    def active(self):
+        return self.running
 
 
 def client_for(manager=None, **overrides):
@@ -175,6 +175,7 @@ def test_duplicate_image_names_are_rejected():
 def test_upload_while_busy_is_a_conflict():
     response = post(client_for(FakeManager(busy=True)), images("a.png", "b.png"))
     assert response.status_code == 409
+    assert response.json()["job_id"] == "other"  # the page links to it
     assert nothing_uploaded()
 
 
@@ -245,20 +246,44 @@ def test_previous_runs_are_rediscovered(tmp_path):
     new = tmp_path / "outputs" / "20261030-000000_web_reconstruct"
     for run_dir in (old, new):
         run_dir.mkdir(parents=True)
-        (run_dir / "report.json").write_text('{"total_s": 1.0}')
-    (tmp_path / "outputs" / "20261030-010000_reconstruct").mkdir()  # a CLI run
-    (tmp_path / "outputs" / "20261030-020000_web_reconstruct").mkdir()  # no report
+        (run_dir / "report.json").write_text('{"timings": {"dataset": 1.0, "features": 2.0}}')
+    suffixed = tmp_path / "outputs" / "20261030-000000_web_reconstruct_2"  # same second
+    (suffixed).mkdir()
+    (suffixed / "report.json").write_text("{}")
+    for name in (
+        "20261030-010000_reconstruct",  # a CLI run
+        "20261030-020000_web_reconstruct",  # no report
+        "20261030-030000_web_reconstruct_copy",  # not a run folder name
+    ):
+        (tmp_path / "outputs" / name).mkdir()
+        if name.endswith("copy"):
+            (tmp_path / "outputs" / name / "report.json").write_text("{}")
 
     manager = FakeManager()
     manager.jobs["live"] = Job(id="live", upload_dir=Path("up"), status="running")
     client = client_for(manager, output={"root": str(tmp_path / "outputs")})
 
     jobs = client.get("/api/jobs").json()
-    assert [j["id"] for j in jobs] == ["live", new.name, old.name]
-    assert jobs[1]["status"] == "done"
-    assert client.get(f"/api/jobs/{new.name}").json()["status"] == "done"
-    assert client.get(f"/api/jobs/{new.name}/report").json() == {"total_s": 1.0}
+    assert [j["id"] for j in jobs] == ["live", suffixed.name, new.name, old.name]
+    status = client.get(f"/api/jobs/{new.name}").json()
+    assert status["status"] == "done"
+    assert status["stages_done"] == ["dataset", "features", "outputs"]
+    assert status["timings"] == {"dataset": 1.0, "features": 2.0}
+    assert client.get(f"/api/jobs/{new.name}/report").json()["timings"]["features"] == 2.0
     assert client.get(f"/api/jobs/{new.name}/files/report.json").status_code == 200
+
+
+def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "verification").mkdir(parents=True)
+    (run_dir / "verification" / "verified_matrix.png").write_bytes(b"\x89PNG")
+    manager = FakeManager()
+    manager.jobs["f"] = Job(id="f", status="failed", stage="pose", run_dir=run_dir)
+    manager.jobs["g"] = Job(id="g", status="failed", stage="dataset")  # wrote nothing
+    client = client_for(manager)
+    assert client.get("/api/jobs/f/files/verification/verified_matrix.png").status_code == 200
+    assert client.get("/api/jobs/f/report").status_code == 409
+    assert client.get("/api/jobs/g/files/report.json").status_code == 404
 
 
 def test_page_is_served():
