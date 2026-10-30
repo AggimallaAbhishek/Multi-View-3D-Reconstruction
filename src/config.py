@@ -161,6 +161,18 @@ class PerformanceConfig:
 
 
 @dataclass(frozen=True)
+class WebConfig:
+    host: str = "127.0.0.1"
+    port: int = 8000
+    max_upload_mb: int = 500
+    max_images: int = 200
+    min_images: int = 2
+    image_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+    poll_interval_ms: int = 1000
+    open_browser: bool = True
+
+
+@dataclass(frozen=True)
 class Config:
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
@@ -177,6 +189,7 @@ class Config:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
     def to_dict(self) -> dict[str, Any]:
         """Plain-dict view, suitable for saving next to run outputs."""

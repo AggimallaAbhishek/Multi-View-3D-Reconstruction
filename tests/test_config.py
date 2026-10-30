@@ -22,6 +22,15 @@ def test_default_file_matches_dataclass_defaults():
     assert load_config() == Config()
 
 
+def test_web_defaults():
+    web = load_config().web
+    assert (web.host, web.port) == ("127.0.0.1", 8000)
+    assert (web.min_images, web.max_images, web.max_upload_mb) == (2, 200, 500)
+    assert web.image_extensions == (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+    assert web.poll_interval_ms == 1000
+    assert web.open_browser is True
+
+
 def test_missing_sections_use_defaults():
     cfg = config_from_dict({"features": {"detector": "orb"}})
     assert cfg.features == FeatureConfig(detector="orb")
@@ -33,8 +42,9 @@ def test_missing_sections_use_defaults():
     [
         {"featurez": {}},
         {"features": {"detectr": "sift"}},
+        {"web": {"nope": 1}},
     ],
-    ids=["unknown-section", "unknown-key"],
+    ids=["unknown-section", "unknown-key", "unknown-web-key"],
 )
 def test_unknown_keys_raise(raw):
     with pytest.raises(ConfigError, match="unknown key"):
@@ -49,8 +59,18 @@ def test_unknown_keys_raise(raw):
         {"features": {"max_features": True}},
         {"matching": {"ratio": "0.8"}},
         {"features": 3},
+        {"web": {"port": "x"}},
+        {"web": {"image_extensions": ".jpg"}},
     ],
-    ids=["bad-literal", "str-for-int", "bool-for-int", "str-for-float", "scalar-section"],
+    ids=[
+        "bad-literal",
+        "str-for-int",
+        "bool-for-int",
+        "str-for-float",
+        "scalar-section",
+        "str-for-web-port",
+        "scalar-for-web-extensions",
+    ],
 )
 def test_invalid_values_raise(raw):
     with pytest.raises(ConfigError):
