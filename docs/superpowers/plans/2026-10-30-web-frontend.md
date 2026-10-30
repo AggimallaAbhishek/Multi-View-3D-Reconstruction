@@ -142,34 +142,18 @@ writes `report.json` via `src/run.write_json`.
 
 Commit: `feat(web): reconstruction report builder`.
 
-## Task 5 — `src/web/jobs.py`
+## Task 5 — `src/web/jobs.py`  ✅
 
-**Test** (new `tests/test_web_jobs.py`; the pipeline is injected — no real
-reconstruction):
-- A fake `run(images_dir, config, on_stage)` that calls `on_stage` for three stages and
-  returns a sentinel; a fake `finish(result, upload_dir) -> run_dir`.
-- Before the pipeline's first callback the job reports `stage == "dataset"` (dataset
-  preparation fires no callback; the manager sets it before calling `run`).
-- `submit()` returns a `Job` with `status == "queued"`; after `manager.wait(job.id)`
-  (test helper that joins the thread) `status == "done"`, `stages_done == ["a","b","c"]`,
-  `run_dir` set, `timings` filled.
-- Fake raising `RuntimeError("boom")` during stage `"b"` → `status == "failed"`,
-  `stage == "b"`, `error == "boom"`.
-- Fake raising `DatasetError` → `failed`, message preserved.
-- While a job is running (fake blocks on a `threading.Event`), a second `submit` raises
-  `JobBusy`; after it finishes, submit works again.
-- `manager.get("missing")` returns `None`.
-- `job.to_dict()` is JSON-serialisable.
-
-**Implement:** `Job` dataclass, `JobBusy` exception, `JobManager(run, finish)` with
-`submit(upload_dir, config) -> Job`, `get(id)`, `list()`, `running()`. One
-`threading.Thread` per job, a `threading.Lock` around state. The default `run`/`finish`
-(used by the app) call `run_pipeline(..., until="filter", on_stage=...)`, then
-`create_run_dir(..., "web_reconstruct")`, `write_run_metadata`, `dataset.save`,
-`save_stage_outputs`, and `write_report(build_report(result, gt))` where `gt` is loaded
-from `upload_dir / "gt_cameras.json"` if present.
-
-Commit: `feat(web): background job manager`.
+Implemented as `JobManager(job=reconstruct_in_subprocess)`: one injected job function
+`job(upload_dir, config, progress) -> run_dir` (pipeline + `save_stage_outputs` +
+`report.json`), run by default in a spawned child process. Found while writing the
+end-to-end test: Open3D's offscreen render aborts the process (exit 133, SIGTRAP) outside
+the main thread, so the in-thread design of the spec would kill the server. Stages
+reported: `dataset`, the pipeline stages, `outputs`. Tests (`tests/test_web_jobs.py`):
+stage order and timings, `dataset` reported first, failures at a stage (incl. while
+writing outputs, `DatasetError`), one job at a time (`JobBusy`), `to_dict` JSON, errors
+relayed from the child, and the real job end to end on the rendered scene with ground
+truth (the crash regression).
 
 ## Task 6 — `src/web/app.py`
 
