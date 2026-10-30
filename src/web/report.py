@@ -89,8 +89,8 @@ def _ground_truth(
     errors = camera_pose_errors(cameras, [gt[names[m]] for m in matched])
     return {
         "cameras": len(matched),
-        "rotation_deg": _spread(errors.rotation_deg),
-        "centre": _spread(errors.centre),  # fraction of the true cameras' extent
+        "rotation_deg": _percentiles(errors.rotation_deg),
+        "centre": _percentiles(errors.centre),  # fraction of the true cameras' extent
         "per_camera": [
             {"image": names[m], "rotation_deg": float(r), "centre": float(c)}
             for m, r, c in zip(matched, errors.rotation_deg, errors.centre, strict=True)
@@ -98,7 +98,7 @@ def _ground_truth(
     }
 
 
-def _spread(values: np.ndarray) -> dict[str, float]:
+def _percentiles(values: np.ndarray) -> dict[str, float]:
     return {
         "median": float(np.median(values)),
         "p90": float(np.percentile(values, 90)),

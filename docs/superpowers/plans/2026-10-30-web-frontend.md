@@ -119,7 +119,7 @@ file name):
 - `build_report(result)`:
   - `images.total == 6`, `images.registered == 6`, `images.unregistered == []`
   - `points.sparse == len(rec.landmarks)`, `points.filtered == int(result.filtering.keep.sum())`
-  - `calibration.source == "file"`, `calibration.K` is a 3×3 list
+  - `calibration.sources == ["file"]`, `calibration.K` equals the first image's K
   - `reprojection.median_px` < `config.triangulation.max_reprojection_error_px`
   - `timings` has every stage key plus `"dataset"`; `"ground_truth"` key absent
 - `build_report(result, gt=cameras)`: `ground_truth.rotation_deg.median < 0.5`,
@@ -130,7 +130,9 @@ file name):
 - Fewer than 3 registered → `ground_truth == {"error": "...needs at least 3 registered
   images"}` (mirrors `evaluate_reconstruction`).
 - `report` round-trips through `json.dumps` (only plain types).
-- `calibration.source == "fallback"` when the scene is run without `camera.yaml` and
+- An unrelated 7th image → 6/7 registered, listed in `unregistered`, one warning naming it.
+  (Added at checkpoint 2; the report format is in spec §2.1 "`report.json`".)
+- `calibration.sources == ["fallback"]` when the scene is run without `camera.yaml` and
   `use_exif` finds nothing → `warnings` contains a fallback-intrinsics message.
 
 **Implement:** `build_report(result: PipelineResult, gt: dict[str, Camera] | None = None)

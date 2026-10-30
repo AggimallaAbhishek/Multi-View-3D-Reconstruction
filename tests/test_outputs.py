@@ -2,8 +2,7 @@ import pytest
 
 from src.config import config_from_dict
 from src.pipeline import run_pipeline
-from tests.images import write_image
-from tests.render import render_box_scene
+from tests.render import render_box_scene, write_scene
 
 # Every file `reconstruct` writes besides the per-pair diagnostic images and run metadata.
 RECONSTRUCT_FILES = [
@@ -35,19 +34,13 @@ RECONSTRUCT_FILES = [
 def scene_dir(tmp_path_factory):
     scene = render_box_scene(n_cameras=4, arc_deg=30.0)
     root = tmp_path_factory.mktemp("outputs")
-    for k, im in enumerate(scene.images):
-        write_image(root / "scene" / f"view_{k + 1:02d}.png", im)
-    K = scene.K
-    camera = root / "camera.yaml"
-    camera.write_text(
-        f"width: 800\nheight: 600\nfx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-    )
+    images, camera = write_scene(scene, root)
     raw = {
         "camera": {"calibration_file": str(camera)},
         "output": {"cache_dir": str(root / "cache")},
         "features": {"max_features": 3000},
     }
-    return root / "scene", raw
+    return images, raw
 
 
 @pytest.fixture(scope="module")

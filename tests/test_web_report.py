@@ -5,10 +5,10 @@ import pytest
 
 from src.config import config_from_dict
 from src.geometry.camera import Camera
-from src.pipeline import run_pipeline
+from src.pipeline import STAGES, run_pipeline
 from src.web.report import build_report, write_report
-from tests.images import write_image
-from tests.render import render_box_scene
+from tests.images import make_natural_texture, write_image
+from tests.render import render_box_scene, write_scene
 
 N_VIEWS = 6
 
@@ -16,24 +16,16 @@ N_VIEWS = 6
 @pytest.fixture(scope="module")
 def scene_dir(tmp_path_factory):
     scene = render_box_scene(n_cameras=N_VIEWS, arc_deg=40.0)
-    root = tmp_path_factory.mktemp("report")
-    names = [f"view_{k + 1:02d}.png" for k in range(N_VIEWS)]
-    for name, im in zip(names, scene.images, strict=True):
-        write_image(root / "scene" / name, im)
-    K = scene.K
-    camera = root / "camera.yaml"
-    camera.write_text(
-        f"width: 800\nheight: 600\nfx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-    )
+    images, camera = write_scene(scene, tmp_path_factory.mktemp("report"))
     raw = {
-        "output": {"cache_dir": str(root / "cache")},
+        "output": {"cache_dir": str(images.parent / "cache")},
         "features": {"max_features": 3000},
     }
     gt = {
-        name: Camera(K, R, t)
-        for name, R, t in zip(names, scene.rotations, scene.translations, strict=True)
+        f"view_{k + 1:02d}.png": Camera(scene.K, R, t)
+        for k, (R, t) in enumerate(zip(scene.rotations, scene.translations, strict=True))
     }
-    return root / "scene", camera, raw, gt
+    return images, camera, raw, gt
 
 
 @pytest.fixture(scope="module")
@@ -60,7 +52,7 @@ def test_report_summarises_a_full_reconstruction(result):
     np.testing.assert_allclose(report["calibration"]["K"], result.images[0].K)
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
-    assert list(report["timings"]) == list(result.timings)
+    assert list(report["timings"]) == ["dataset", *STAGES]
     assert report["total_s"] == pytest.approx(sum(result.timings.values()))
     assert report["warnings"] == []
     assert "ground_truth" not in report
@@ -86,10 +78,29 @@ def test_ground_truth_without_matching_names_is_reported_not_raised(result, scen
     assert report["images"]["registered"] == N_VIEWS  # the rest of the report is unaffected
 
 
-def test_ground_truth_needs_three_matched_cameras(result, scene_dir):
+def test_ground_truth_needs_three_registered_cameras_with_a_match(result, scene_dir):
     gt = dict(list(scene_dir[3].items())[:2])
     error = build_report(result, gt=gt)["ground_truth"]["error"]
     assert "at least 3" in error
+
+
+def test_unregistered_images_are_listed_and_warned_about(scene_dir, tmp_path):
+    import shutil
+
+    images, camera, raw, _ = scene_dir
+    folder = tmp_path / "scene"
+    shutil.copytree(images, folder)
+    # a photo of something else: no overlap with the box, so it cannot be registered
+    write_image(folder / "view_99.png", make_natural_texture(seed=7, width=800, height=600))
+    config = config_from_dict({**raw, "camera": {"calibration_file": str(camera)}})
+    report = build_report(run_pipeline(folder, config, until="filter"))
+
+    assert report["images"] == {
+        "total": N_VIEWS + 1,
+        "registered": N_VIEWS,
+        "unregistered": ["view_99.png"],
+    }
+    assert report["warnings"] == ["1 image(s) not registered: view_99.png"]
 
 
 def test_report_round_trips_through_json(result, scene_dir, tmp_path):

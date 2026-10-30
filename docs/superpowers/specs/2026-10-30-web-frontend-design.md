@@ -45,10 +45,31 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager, background threa
 | Unit | Responsibility | Depends on |
 |---|---|---|
 | `jobs.py` | `JobManager`: accepts one job at a time; runs it in a background thread; holds `Job` state (`id`, `status` ∈ queued/running/done/failed, `stage`, `stages_done`, `timings`, `error`, `run_dir`). The pipeline function is injected so tests can use a fake. No FastAPI imports. | `run_pipeline`, `save_stage_outputs`, `src/run.py` helpers, `report.py` |
-| `report.py` | `build_report(result, gt=None) -> dict`, written as `report.json` in the run folder: images total / registered / unregistered names, landmark counts (sparse, filtered), median reprojection error, calibration source and `K`, per-stage timings, and — when ground truth is given — rotation / position errors from `src/evaluation/metrics.py` (median, max, per camera). | `src/evaluation` |
+| `report.py` | `build_report(result, gt=None) -> dict`, written as `report.json` in the run folder (shape below). Works on partial results. | `src/evaluation` |
 | `app.py` | `create_app(config, manager) -> FastAPI`: the endpoints in §3; mounts `static/`. | `jobs`, `report` |
 | `static/index.html`, `static/app.js`, `static/style.css` | Upload, progress and results views (§4). three.js `PLYLoader` + `OrbitControls`, pinned version from cdn.jsdelivr.net. | API only |
 | `__main__.py` | `python -m src.web [--config CONFIG]`: starts uvicorn on `web.host:web.port` and opens the browser. | `app` |
+
+#### `report.json`
+
+```text
+images        {total, registered, unregistered: [names]}
+points        {sparse, filtered} | null            null: no reconstruction
+calibration   {sources: ["file"|"exif"|"fallback", ...] (sorted, usually one),
+               K: 3x3 of the first image at working resolution}
+reprojection  {n, mean_px, median_px, p90_px, max_px} | null
+timings       {dataset, features, ..., filter: seconds}   stages that ran, in order
+total_s       seconds
+warnings      [text]   fallback intrinsics, unregistered images, no reconstruction
+ground_truth  absent without gt_cameras.json; otherwise either {error: text} or
+              {cameras, rotation_deg: {median, p90, max}, centre: {median, p90, max},
+               per_camera: [{image, rotation_deg, centre}]}
+```
+
+`centre` is the camera-centre error after similarity alignment as a **fraction of the
+true cameras' extent** (RMS distance from their centroid), as in
+`src/evaluation/metrics.camera_pose_errors`; the page shows it as a percentage. Only
+registered images with a ground-truth camera are scored; fewer than 3 gives an error.
 
 ### 2.2 Changes to existing code (CLI behaviour unchanged)
 
@@ -116,7 +137,7 @@ One page, three states.
    ones. Polls every `poll_interval_ms`.
 3. **Results**
    - Summary cards: registered / total images, filtered points, median reprojection
-     error, calibration source, total time. Yellow warning for fallback intrinsics or
+     error, calibration source(s), total time. Yellow warning for fallback intrinsics or
      partial registration (listing unregistered images).
    - 3-D viewer: `point_clouds/filtered.ply` with vertex colours and camera frustums from
      `camera_poses/cameras.json`; toggle filtered/sparse; point-size slider; orbit
@@ -153,7 +174,7 @@ Test-first, using the repo's ground-truth fixtures.
   become `failed` with stage and message, second submit while running is refused.
 - `tests/test_web_report.py` — `build_report` on a real reconstruction of the
   `tests/render.py` scene, with its known cameras as ground truth: registered count,
-  calibration source, ground-truth rotation and position errors near zero; without ground
+  calibration sources, ground-truth rotation and position errors near zero; without ground
   truth the GT section is absent.
 - `tests/test_web_app.py` (`TestClient`) — 422 cases (too few images, bad extension,
   malformed YAML/JSON), 409 while running, 404 for unknown job, path traversal on
