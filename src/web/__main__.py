@@ -35,7 +35,10 @@ def main(argv: list[str] | None = None) -> None:
     if web.open_browser:
         url = f"http://{web.host}:{web.port}/"
         threading.Thread(target=_open_when_started, args=(server, url), daemon=True).start()
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C after shutting down cleanly
+        pass
 
 
 def _open_when_started(server: uvicorn.Server, url: str) -> None:

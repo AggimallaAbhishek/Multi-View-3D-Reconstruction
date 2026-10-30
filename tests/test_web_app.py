@@ -440,3 +440,20 @@ def test_main_opens_the_browser_once_the_server_is_up(monkeypatch, tmp_path, ope
     config.write_text(f"web:\n  port: 8123\n  open_browser: {str(open_browser).lower()}\n")
     entry.main(["--config", str(config)])
     assert opened == (["http://127.0.0.1:8123/"] if open_browser else [])
+
+
+def test_main_exits_quietly_on_ctrl_c(monkeypatch, tmp_path):
+    """uvicorn re-raises SIGINT after its graceful shutdown; no traceback for Ctrl+C."""
+    import src.web.__main__ as entry
+
+    class InterruptedServer:
+        def __init__(self, config):
+            self.started, self.should_exit = False, False
+
+        def run(self):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(entry.uvicorn, "Server", InterruptedServer)
+    config = tmp_path / "web.yaml"
+    config.write_text("web:\n  open_browser: false\n")
+    entry.main(["--config", str(config)])  # returns instead of raising
