@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import mimetypes
 import shutil
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -25,17 +27,31 @@ from src.data.dataset import CAMERA_FILE
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.geometry.calibration import load_camera_file
 from src.run import is_run_dir_name, read_json
-from src.web.jobs import JOB_STAGES, RUN_LABEL, Job, JobBusy, JobManager, new_job_id
+from src.web.jobs import (
+    JOB_STAGES,
+    RUN_LABEL,
+    Job,
+    JobBusy,
+    JobManager,
+    new_job_id,
+    terminate_children,
+)
 from src.web.report import REPORT_NAME
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    terminate_children()  # don't leave reconstructions running after the server stops
+
+
 def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     manager = manager or JobManager()
     output_root = Path(config.output.root)
-    app = FastAPI(title="Multi-view 3D reconstruction")
+    app = FastAPI(title="Multi-view 3D reconstruction", lifespan=_lifespan)
     previous: dict[str, Job] = {}  # finished runs never change: read each report once
 
     def previous_run(run_id: str) -> Job | None:

@@ -329,6 +329,17 @@ def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):
     assert client.get("/api/jobs/g/files/report.json").status_code == 404
 
 
+def test_shutdown_stops_running_reconstructions(monkeypatch):
+    import src.web.app
+
+    calls = []
+    monkeypatch.setattr(src.web.app, "terminate_children", lambda: calls.append(1))
+    with client_for() as client:
+        client.get("/api/config")
+        assert calls == []
+    assert calls == [1]
+
+
 def test_page_is_served():
     response = client_for().get("/")
     assert response.status_code == 200

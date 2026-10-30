@@ -7,7 +7,14 @@ import pytest
 from src.config import config_from_dict
 from src.data.loader import DatasetError
 from src.pipeline import STAGES
-from src.web.jobs import JobBusy, JobFailed, JobManager, reconstruct, reconstruct_in_subprocess
+from src.web.jobs import (
+    JobBusy,
+    JobFailed,
+    JobManager,
+    reconstruct,
+    reconstruct_in_subprocess,
+    terminate_children,
+)
 
 CONFIG = config_from_dict({})
 
@@ -228,3 +235,21 @@ def test_dataset_validation_failure_names_the_problems(tmp_path):
     with pytest.raises(JobFailed) as failed:
         reconstruct(folder, config, lambda s, t: None)
     assert "0 readable image(s)" in str(failed.value)  # the issues, not just the folder
+
+
+def test_terminate_children_stops_a_running_reconstruction(tmp_path):
+    """Server shutdown: uvicorn re-raises SIGTERM after its shutdown, which kills the server
+    without exit hooks, so daemon children would otherwise run on, orphaned."""
+    import time
+
+    _, images, config = rendered_upload(tmp_path)
+    manager = JobManager()
+    job = manager.submit(images, config)
+    deadline = time.monotonic() + 60
+    while manager.get(job.id).stage in ("dataset", None) and time.monotonic() < deadline:
+        time.sleep(0.05)  # the child has started and reported its first stage
+    terminate_children()
+    manager.wait(job.id, timeout=10)
+    job = manager.get(job.id)
+    assert job.status == "failed"
+    assert "crashed" in job.error

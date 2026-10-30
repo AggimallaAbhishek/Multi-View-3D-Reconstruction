@@ -35,6 +35,8 @@ from src.web.report import REPORT_NAME, build_report, write_report
 
 log = logging.getLogger(__name__)
 
+_children: set[multiprocessing.process.BaseProcess] = set()  # running reconstructions
+
 RUN_LABEL = "web_reconstruct"
 JOB_STAGES = ("dataset", *STAGES, "outputs")  # what a job reports, in order
 
@@ -137,6 +139,7 @@ def reconstruct_in_subprocess(upload_dir: Path, config: Config, progress: Progre
         target=_child, args=(Path(upload_dir), config, events), name="reconstruct", daemon=True
     )
     child.start()
+    _children.add(child)
     try:
         while True:
             try:
@@ -160,8 +163,19 @@ def reconstruct_in_subprocess(upload_dir: Path, config: Config, progress: Progre
             else:
                 raise RuntimeError(f"unexpected message from the reconstruction: {kind!r}")
     finally:
+        _children.discard(child)
         child.join(timeout=5)
         events.close()
+
+
+def terminate_children() -> None:
+    """Stop every running reconstruction process (server shutdown).
+
+    Needed because uvicorn re-raises SIGTERM after its shutdown: the default action kills
+    the server without running exit hooks, so ``daemon`` children would run on, orphaned.
+    Their jobs then fail as crashed."""
+    for child in list(_children):
+        child.terminate()
 
 
 def _child(upload_dir: Path, config: Config, events: Any) -> None:

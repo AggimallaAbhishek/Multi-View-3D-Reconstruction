@@ -267,8 +267,15 @@ async function follow(job) {
     if (token !== pollToken) return;
     try {
       job = await api(jobUrl(job.id));
+      $("failure").hidden = true; // back in contact after a blip
     } catch (error) {
       $("failure").hidden = false;
+      if (error.status === 404) { // jobs live in server memory: it was restarted mid-run
+        $("running-title").textContent = "Reconstruction lost";
+        $("failure").textContent = "The server was restarted while this reconstruction was running, so it stopped. Start it again.";
+        $("restart-failed").hidden = false;
+        return;
+      }
       $("failure").textContent = `Lost contact with the server: ${error.message}. Retrying…`;
     }
   }
