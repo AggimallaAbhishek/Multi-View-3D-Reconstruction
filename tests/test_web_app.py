@@ -366,3 +366,48 @@ def test_upload_to_results_end_to_end(tmp_path):
     ply = client.get(f"/api/jobs/{job_id}/files/point_clouds/filtered.ply")
     assert ply.status_code == 200
     assert ply.content.startswith(b"ply")
+
+
+# --- python -m src.web ------------------------------------------------------------------
+
+
+def test_main_parses_args(tmp_path):
+    from src.web.__main__ import build
+
+    config = tmp_path / "web.yaml"
+    config.write_text("web:\n  host: 0.0.0.0\n  poll_interval_ms: 250\n")
+    app, web = build(["--config", str(config), "--port", "9001"])
+    assert (web.host, web.port) == ("0.0.0.0", 9001)
+    assert TestClient(app).get("/api/config").json()["poll_interval_ms"] == 250
+
+
+def test_main_defaults_come_from_the_default_config():
+    from src.web.__main__ import build
+
+    _, web = build([])
+    assert (web.host, web.port, web.open_browser) == ("127.0.0.1", 8000, True)
+
+
+@pytest.mark.parametrize("open_browser", [True, False])
+def test_main_opens_the_browser_once_the_server_is_up(monkeypatch, tmp_path, open_browser):
+    import src.web.__main__ as entry
+
+    opened = []
+
+    class FakeServer:
+        def __init__(self, config):
+            self.config, self.started, self.should_exit = config, False, False
+
+        def run(self):
+            assert opened == []  # not before the server is listening
+            self.started = True
+            deadline = time.monotonic() + 5
+            while open_browser and not opened and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+    monkeypatch.setattr(entry.uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(entry.webbrowser, "open", opened.append)
+    config = tmp_path / "web.yaml"
+    config.write_text(f"web:\n  port: 8123\n  open_browser: {str(open_browser).lower()}\n")
+    entry.main(["--config", str(config)])
+    assert opened == (["http://127.0.0.1:8123/"] if open_browser else [])

@@ -209,7 +209,13 @@ after the API routes.
 
 Commit: `feat(web): FastAPI endpoints for uploads, jobs, reports and files`.
 
-## Task 7 — `python -m src.web`
+## Task 7 — `python -m src.web`  ✅
+
+Done. `build(argv)` returns `(app, config.web)` (not `(app, host, port)`): `main` also needs
+`open_browser`. `--port` overrides `web.port` the way the CLI's dotted-key options do. The
+browser opens once uvicorn reports `started`; the server starts only under `__main__`,
+since spawned job processes import the module as `__mp_main__`. Smoke-tested live: one
+listener during a job, 6/6 registered, the run listed again after a restart.
 
 **Test:** `tests/test_web_app.py::test_main_parses_args` — `src.web.__main__.build(argv)`
 returns `(app, host, port)` honouring `--config` and `--port`; uvicorn itself isn't
