@@ -250,7 +250,8 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
     for issue in report.issues:
         log.debug("%s: %s", issue.code, issue.message)
     if not report.ok:
-        raise DatasetError(f"dataset validation failed for {directory}", report=report)
+        reasons = "; ".join(issue.message for issue in report.errors)
+        raise DatasetError(f"dataset validation failed for {directory}: {reasons}", report=report)
     return Dataset(directory, prepared, report, calibration_file)
 
 

@@ -51,10 +51,13 @@ export function parsePly(buffer) {
 
   const positions = new Float32Array(count * 3);
   const colours = hasColour ? new Float32Array(count * 3) : null;
-  const store = (k, values) => {
-    positions.set([values[index.x], values[index.y], values[index.z]], 3 * k);
+  const { x, y, z, red, green, blue } = index;
+  const store = (k, values) => { // no per-point allocation: clouds can have millions
+    positions[3 * k] = values[x]; positions[3 * k + 1] = values[y]; positions[3 * k + 2] = values[z];
     if (colours) {
-      colours.set([values[index.red] * colourScale, values[index.green] * colourScale, values[index.blue] * colourScale], 3 * k);
+      colours[3 * k] = values[red] * colourScale;
+      colours[3 * k + 1] = values[green] * colourScale;
+      colours[3 * k + 2] = values[blue] * colourScale;
     }
   };
 
@@ -99,6 +102,8 @@ function robustSphere(positions) {
   const distances = xs.map((x, k) => Math.hypot(x - centre.x, ys[k] - centre.y, zs[k] - centre.z));
   return { centre, radius: Math.max(quantile(distances, 0.9), 1e-6) };
 }
+
+const srgbToLinear = (c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 // --- Viewer ---------------------------------------------------------------------------
 
@@ -152,12 +157,8 @@ export class Viewer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     if (colours) {
-      const linear = new Float32Array(colours.length); // PLY colours are sRGB
-      const c = new THREE.Color();
-      for (let i = 0; i < colours.length; i += 3) {
-        c.setRGB(colours[i], colours[i + 1], colours[i + 2], THREE.SRGBColorSpace);
-        linear[i] = c.r; linear[i + 1] = c.g; linear[i + 2] = c.b;
-      }
+      // PLY colours are sRGB; three.js wants linear vertex colours
+      const linear = colours.map(srgbToLinear);
       geometry.setAttribute("color", new THREE.BufferAttribute(linear, 3));
     }
     geometry.computeBoundingBox();

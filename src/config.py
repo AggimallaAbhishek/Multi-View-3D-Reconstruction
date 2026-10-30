@@ -222,6 +222,13 @@ def load_config(path: str | Path | None = None) -> Config:
     return config_from_dict(raw, source=str(path))
 
 
+def config_from_args(args: Any) -> Config:
+    """``args.config`` (None: the default config) with every command-line option whose
+    argparse ``dest`` is a dotted config key (``"web.port"``) applied."""
+    overrides = {key: value for key, value in vars(args).items() if "." in key}
+    return load_config(args.config).with_overrides(overrides)
+
+
 def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: top level must be a mapping")

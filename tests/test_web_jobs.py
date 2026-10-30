@@ -227,6 +227,4 @@ def test_dataset_validation_failure_names_the_problems(tmp_path):
     config = config_from_dict({"output": {"root": str(tmp_path / "outputs")}})
     with pytest.raises(JobFailed) as failed:
         reconstruct(folder, config, lambda s, t: None)
-    message = str(failed.value)
-    assert message.startswith("the photos can't be used: ")
-    assert str(folder) not in message  # the issues, not "validation failed for <path>"
+    assert "0 readable image(s)" in str(failed.value)  # the issues, not just the folder

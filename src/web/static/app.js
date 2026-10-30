@@ -35,12 +35,13 @@ const DOWNLOADS = [
   ["report.json", "Report", "report.json"],
 ];
 
-let config = null;      // GET /api/config
-let photos = new Map(); // name -> File
-let pollToken = 0;      // bumps to cancel a running poll loop
-let viewer = null;
 const CALIBRATION_SOURCES = { file: "camera.yaml", exif: "EXIF", fallback: "a guess" };
 
+let config = null;      // GET /api/config
+let photos = new Map(); // name -> File
+const thumbUrls = new Map(); // File -> object URL, made once per file
+let pollToken = 0;      // bumps to cancel a running poll loop
+let viewer = null;
 let viewerJob = null;   // {id, clouds: {filtered, sparse}}
 
 // --- API --------------------------------------------------------------------------------
@@ -154,15 +155,16 @@ function addPhotos(files) {
 }
 
 function clearPhotos() {
-  for (const img of $("thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
   photos = new Map();
   $("images").value = "";
   renderSelection();
 }
 
 function renderSelection() {
-  for (const img of $("thumbs").querySelectorAll("img")) URL.revokeObjectURL(img.src);
   const files = [...photos.values()];
+  for (const [file, url] of thumbUrls) {
+    if (!files.includes(file)) { URL.revokeObjectURL(url); thumbUrls.delete(file); }
+  }
   const images = files.filter((f) => isImage(f.name));
   const others = files.filter((f) => !isImage(f.name));
   const bytes = images.reduce((sum, f) => sum + f.size, 0);
@@ -173,7 +175,8 @@ function renderSelection() {
     (others.length ? ` · ${plural(others.length, "other file")} left out` : "");
   $("thumbs").replaceChildren(
     ...files.map((file) => {
-      const img = el("img", { alt: "", loading: "lazy", src: URL.createObjectURL(file) });
+      if (!thumbUrls.has(file)) thumbUrls.set(file, URL.createObjectURL(file));
+      const img = el("img", { alt: "", loading: "lazy", src: thumbUrls.get(file) });
       img.addEventListener("error", () => img.removeAttribute("src"), { once: true }); // e.g. TIFF
       return el("li", { class: isImage(file.name) ? "" : "rejected", title: file.name }, img, el("span", {}, file.name));
     }),
@@ -193,7 +196,6 @@ function renderSelection() {
 function showUploadMessage(text, action = null) {
   const box = $("upload-message");
   box.hidden = !text;
-  box.className = "message error";
   box.replaceChildren(...(text ? [el("div", {}, text), action].filter(Boolean) : []));
 }
 

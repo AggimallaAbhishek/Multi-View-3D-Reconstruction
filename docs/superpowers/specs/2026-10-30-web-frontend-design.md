@@ -160,7 +160,7 @@ Follows the system light/dark preference; usable at laptop and tablet widths.
 |---|---|
 | Too few / too many images, bad extension, over size | `422`, inline message, nothing written |
 | Malformed `camera.yaml` / `gt_cameras.json` | `422` naming the file, before queueing |
-| `DatasetError` | Job `failed`; the message lists the validation errors ("the photos can't be used: ...") rather than the upload folder |
+| `DatasetError` | Job `failed` with the CLI's message, which lists the validation errors (`ValidationReport.errors`) after the folder |
 | Exception in a stage | Job `failed`, `stage` set to the failing stage, `error` holds the message; page marks it ✗ and links outputs already written |
 | Partial registration | Job `done`; summary shows the count in yellow and lists unregistered images |
 | Ground-truth names don't match uploads | GT panel says so; rest of the report unaffected |

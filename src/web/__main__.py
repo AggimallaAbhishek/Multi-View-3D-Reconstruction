@@ -16,7 +16,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 
-from src.config import WebConfig, load_config
+from src.config import WebConfig, config_from_args
 from src.web.app import create_app
 
 
@@ -25,9 +25,7 @@ def build(argv: list[str] | None = None) -> tuple[FastAPI, WebConfig]:
     parser = argparse.ArgumentParser(prog="python -m src.web", description=__doc__.split("\n")[0])
     parser.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
     parser.add_argument("--port", dest="web.port", type=int, help="web.port")
-    args = parser.parse_args(argv)
-    overrides = {key: value for key, value in vars(args).items() if "." in key}
-    config = load_config(args.config).with_overrides(overrides)
+    config = config_from_args(parser.parse_args(argv))
     return create_app(config), config.web
 
 

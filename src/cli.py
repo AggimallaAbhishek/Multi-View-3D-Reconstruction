@@ -11,7 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.config import Config, load_config
+from src.config import Config, config_from_args, load_config
 from src.data.dataset import Dataset, prepare_dataset
 from src.data.loader import DatasetError, ImageRecord, discover_images, iter_images
 from src.data.validation import format_report
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument("--out", dest="output.root", help="output.root (run directories go here)")
     detector = argparse.ArgumentParser(add_help=False)
     # Options that override config keys use the dotted key as their argparse ``dest``;
-    # _config_from_args applies all of them through the validated Config.with_overrides.
+    # config_from_args applies all of them through the validated Config.with_overrides.
     detector.add_argument(
         "--detector", dest="features.detector", choices=["sift", "orb"], help="features.detector"
     )
@@ -143,12 +143,6 @@ def main(argv: list[str] | None = None) -> int:
 # --- helpers ----------------------------------------------------------------------------
 
 
-def _config_from_args(args: argparse.Namespace) -> Config:
-    """The YAML config with every dotted-key option given on the command line applied."""
-    overrides = {key: value for key, value in vars(args).items() if "." in key}
-    return load_config(args.config).with_overrides(overrides)
-
-
 def _report_calibration(config: Config, dataset: Dataset) -> None:
     if dataset.calibration_file and not config.camera.calibration_file:
         print(f"Using calibration {dataset.calibration_file} (found next to the images)")
@@ -164,7 +158,7 @@ def _print_dataset_error(exc: DatasetError) -> None:
 
 
 def _validate(args: argparse.Namespace) -> int:
-    config = _config_from_args(args)
+    config = config_from_args(args)
     try:
         dataset = prepare_dataset(args.images, config)
     except DatasetError as exc:
@@ -191,7 +185,7 @@ def _stage_command(args: argparse.Namespace) -> int:
     """features, matches, verify, pose, triangulate, two-view and reconstruct: run the
     pipeline up to ``args.stage`` and write the outputs of every stage that ran (see
     ``src.outputs``)."""
-    config = _config_from_args(args)
+    config = config_from_args(args)
     stage: Stage = args.stage
     try:
         result = run_pipeline(args.images, config, until=stage)

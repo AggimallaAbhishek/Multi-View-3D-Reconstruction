@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.config import Config
-from src.data.loader import DatasetError
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
@@ -126,7 +125,7 @@ def reconstruct(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
     except Exception as exc:
         if run_dir is None and result is not None:
             run_dir = _save_partial(result)
-        raise JobFailed(_describe(exc), run_dir) from exc
+        raise JobFailed(str(exc), run_dir) from exc
     return run_dir
 
 
@@ -175,14 +174,6 @@ def _child(upload_dir: Path, config: Config, events: Any) -> None:
         events.put(("failed", str(exc), None if exc.run_dir is None else str(exc.run_dir)))
     else:
         events.put(("done", str(run_dir)))
-
-
-def _describe(exc: Exception) -> str:
-    """The message the page shows: a failed dataset check lists its errors (the plain
-    message only names the upload folder)."""
-    report = exc.report if isinstance(exc, DatasetError) else None
-    errors = [i.message for i in report.issues if i.severity == "error"] if report else []
-    return "the photos can't be used: " + "; ".join(errors) if errors else str(exc)
 
 
 def _save_partial(result: PipelineResult) -> Path | None:
