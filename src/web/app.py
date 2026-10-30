@@ -70,7 +70,7 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
 
     @app.post("/api/jobs", status_code=201, response_model=None)
     def create_job(
-        images: Annotated[list[UploadFile], File()],
+        images: Annotated[list[UploadFile] | None, File()] = None,  # missing: 422 below
         camera: Annotated[UploadFile | None, File()] = None,
         ground_truth: Annotated[UploadFile | None, File()] = None,
     ) -> dict[str, str] | JSONResponse:
@@ -78,7 +78,7 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
             return busy(active.id)
         job_id = new_job_id()
         upload_dir = UPLOAD_ROOT / job_id
-        save_upload(images, camera, ground_truth, config, upload_dir)
+        save_upload(images or [], camera, ground_truth, config, upload_dir)
         try:
             manager.submit(upload_dir, config, job_id=job_id)
         except JobBusy as exc:  # another upload got in first
@@ -166,11 +166,13 @@ def save_upload(
     for name, load in loaders.items():
         if name not in to_save:
             continue
+        path = upload_dir / name
         try:
-            load(upload_dir / name)
+            load(path)
         except Exception as exc:  # any parse failure is the user's file, not ours
             shutil.rmtree(upload_dir)
-            _reject(f"{name} is invalid: {exc}")
+            reason = f"missing {exc}" if isinstance(exc, KeyError) else str(exc)
+            _reject(f"{name} is invalid: {reason.replace(f'{path}: ', '')}")
 
 
 def _size(upload: UploadFile) -> int:

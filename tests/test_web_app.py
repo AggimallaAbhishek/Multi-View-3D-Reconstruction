@@ -135,6 +135,28 @@ def test_invalid_camera_file_is_rejected(camera):
     assert nothing_uploaded()
 
 
+def test_upload_without_images_has_a_text_detail():
+    response = client_for().post(
+        "/api/jobs", files=[("camera", ("c.yaml", CAMERA_YAML, "text/plain"))]
+    )
+    assert response.status_code == 422
+    assert "at least 2" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("camera", "gt", "expected"),
+    [
+        (b"width: 64\n", None, "camera.yaml is invalid: missing key(s)"),
+        (None, b'{"cameras": [{"name": "a.png"}]}', "gt_cameras.json is invalid: missing 'K'"),
+    ],
+)
+def test_invalid_file_messages_do_not_show_server_paths(camera, gt, expected):
+    response = post(client_for(), images("a.png", "b.png"), camera=camera, gt=gt)
+    detail = response.json()["detail"]
+    assert detail.startswith(expected)
+    assert str(UPLOAD_ROOT) not in detail
+
+
 def test_invalid_ground_truth_is_rejected():
     response = post(client_for(), images("a.png", "b.png"), gt=b"{not json")
     assert response.status_code == 422
