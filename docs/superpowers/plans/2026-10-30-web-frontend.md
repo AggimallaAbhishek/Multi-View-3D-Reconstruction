@@ -226,7 +226,22 @@ port)`; opens the browser (`webbrowser.open`) after start when `web.open_browser
 
 Commit: `feat(web): command-line entry point`.
 
-## Task 8 — The page (`src/web/static/`)
+## Task 8 — The page (`src/web/static/`)  ✅
+
+Done (`index.html`, `style.css`, `app.js`, `viewer.js`). Deviations and additions:
+- PLY files are parsed in `viewer.js`, not with three's `PLYLoader`: it divides colours by
+  255, and Open3D writes float colours in 0..1 (the cloud rendered black).
+- `GET /api/config` also returns `stages` (`jobs.JOB_STAGES`), so the checklist isn't a
+  second copy of `src.pipeline.STAGES`.
+- Files that aren't photos are left out of the upload (and counted), not an error: there is
+  no per-file remove, and a dropped folder often holds other files.
+- A failed dataset check reports its error issues ("the photos can't be used: ..."), not
+  "dataset validation failed for <upload folder>".
+- Fit-to-view frames the bulk of the cloud (median centre, 90th-percentile radius) from
+  the cameras' mean viewing direction.
+Checked in Chrome (extension and headless): upload checks, a run end to end, progress,
+results in light/dark and at 768 px, ground truth, a failed run, a run with no cloud, the
+409 link, reopening previous runs. No console errors.
 
 Load the `frontend-design` skill first. Not unit-tested (spec §6); keep logic in the API.
 

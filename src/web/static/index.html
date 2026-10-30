@@ -4,9 +4,133 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Multi-view 3D reconstruction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112..125,600..800&family=Atkinson+Hyperlegible+Next:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="app.js"></script>
 </head>
-<body>
-  <!-- placeholder; the page is built in Task 8 -->
-  <h1>Multi-view 3D reconstruction</h1>
+<body data-state="upload">
+  <header class="masthead">
+    <div>
+      <h1>Multi-view 3D reconstruction</h1>
+      <p class="tagline">Structure from motion on your own photos, run on this machine.</p>
+    </div>
+    <label class="previous">
+      <span>Open previous run</span>
+      <select id="previous-runs">
+        <option value="">No runs yet</option>
+      </select>
+    </label>
+  </header>
+
+  <main>
+    <!-- 1. Upload ------------------------------------------------------------------ -->
+    <section class="view view-upload" aria-labelledby="upload-title">
+      <h2 id="upload-title" class="visually-hidden">Choose photos</h2>
+      <div class="upload-grid">
+        <label class="dropzone fiducial" id="dropzone">
+          <input type="file" id="images" multiple accept="image/*,.tif,.tiff" class="visually-hidden">
+          <span class="dropzone-title">Drop overlapping photos of one object or scene</span>
+          <span class="dropzone-sub">or <u>choose files</u></span>
+          <span class="dropzone-hint" id="dropzone-hint">At least 2 photos. Walk around the subject so neighbouring photos overlap by about two thirds.</span>
+        </label>
+
+        <aside class="extras">
+          <h3>Optional files</h3>
+          <div class="extra">
+            <label for="camera">Camera intrinsics <code>camera.yaml</code></label>
+            <input type="file" id="camera" accept=".yaml,.yml">
+            <p>Without it, the focal length comes from the photos' EXIF data or a default guess.</p>
+          </div>
+          <div class="extra">
+            <label for="ground-truth">Ground-truth poses <code>gt_cameras.json</code></label>
+            <input type="file" id="ground-truth" accept=".json">
+            <p>Scores the recovered camera poses against known ones.</p>
+          </div>
+          <button type="button" id="run" class="primary" disabled>Reconstruct</button>
+          <div class="message" id="upload-message" role="alert" hidden></div>
+        </aside>
+      </div>
+
+      <div class="selection" id="selection" hidden>
+        <div class="selection-bar">
+          <span id="selection-count"></span>
+          <button type="button" class="quiet" id="clear">Clear photos</button>
+        </div>
+        <ol class="thumbs" id="thumbs"></ol>
+      </div>
+    </section>
+
+    <!-- 2. Running ----------------------------------------------------------------- -->
+    <section class="view view-running" aria-labelledby="running-title">
+      <h2 id="running-title">Reconstructing</h2>
+      <p class="run-id" id="running-id"></p>
+      <ol class="stages" id="stages" aria-live="polite"></ol>
+      <div class="message error" id="failure" role="alert" hidden></div>
+      <div id="partial" hidden>
+        <h3>Results written before the failure</h3>
+        <div class="gallery" id="partial-gallery"></div>
+      </div>
+      <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
+    </section>
+
+    <!-- 3. Results ----------------------------------------------------------------- -->
+    <section class="view view-results" aria-labelledby="results-title">
+      <div class="results-head">
+        <div>
+          <h2 id="results-title">Reconstruction</h2>
+          <p class="run-id" id="results-id"></p>
+        </div>
+        <button type="button" class="quiet" id="restart">Start a new reconstruction</button>
+      </div>
+
+      <ul class="warnings" id="warnings" hidden></ul>
+
+      <figure class="viewer-frame fiducial">
+        <div class="viewer" id="viewer" tabindex="0" aria-label="3-D point cloud with camera positions. Drag to orbit, scroll to zoom, right-drag to pan."></div>
+        <div class="viewer-controls">
+          <div class="segmented" role="group" aria-label="Point cloud">
+            <button type="button" data-cloud="filtered" aria-pressed="true">Filtered</button>
+            <button type="button" data-cloud="sparse" aria-pressed="false">Sparse</button>
+          </div>
+          <label class="slider">Point size
+            <input type="range" id="point-size" min="1" max="8" step="0.5" value="2">
+          </label>
+          <button type="button" class="quiet" id="fit">Fit to view</button>
+        </div>
+        <p class="viewer-status" id="viewer-status"></p>
+        <figcaption class="datastrip" id="datastrip"></figcaption>
+      </figure>
+
+      <section class="panel" id="gt-panel" hidden aria-labelledby="gt-title">
+        <h3 id="gt-title">Against ground truth</h3>
+        <p class="panel-note">Camera positions are compared after aligning the two reconstructions (rotation, translation, scale). Position error is a percentage of the true cameras' spread.</p>
+        <div class="gt-summary" id="gt-summary"></div>
+        <table class="gt-table">
+          <thead><tr><th scope="col">Photo</th><th scope="col">Rotation error</th><th scope="col">Position error</th></tr></thead>
+          <tbody id="gt-rows"></tbody>
+        </table>
+      </section>
+
+      <section class="panel" aria-labelledby="diag-title">
+        <h3 id="diag-title">Diagnostics</h3>
+        <div class="gallery" id="gallery"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="dl-title">
+        <h3 id="dl-title">Downloads</h3>
+        <ul class="downloads" id="downloads"></ul>
+      </section>
+    </section>
+  </main>
 </body>
 </html>

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.config import Config
+from src.data.loader import DatasetError
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
@@ -36,6 +37,7 @@ from src.web.report import REPORT_NAME, build_report, write_report
 log = logging.getLogger(__name__)
 
 RUN_LABEL = "web_reconstruct"
+JOB_STAGES = ("dataset", *STAGES, "outputs")  # what a job reports, in order
 
 Status = Literal["queued", "running", "done", "failed"]
 # progress(stage, timings): ``stage`` starts now; ``timings`` holds the finished ones
@@ -60,7 +62,7 @@ class JobBusy(RuntimeError):
     """A job is already queued or running."""
 
     def __init__(self, job_id: str):
-        super().__init__(f"a reconstruction is already running (job {job_id})")
+        super().__init__(f"A reconstruction is already running (job {job_id})")
         self.job_id = job_id
 
 
@@ -124,7 +126,7 @@ def reconstruct(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
     except Exception as exc:
         if run_dir is None and result is not None:
             run_dir = _save_partial(result)
-        raise JobFailed(str(exc), run_dir) from exc
+        raise JobFailed(_describe(exc), run_dir) from exc
     return run_dir
 
 
@@ -173,6 +175,16 @@ def _child(upload_dir: Path, config: Config, events: Any) -> None:
         events.put(("failed", str(exc), None if exc.run_dir is None else str(exc.run_dir)))
     else:
         events.put(("done", str(run_dir)))
+
+
+def _describe(exc: Exception) -> str:
+    """The message the page shows: a failed dataset check lists its errors (the plain
+    message only names the upload folder)."""
+    report = getattr(exc, "report", None) if isinstance(exc, DatasetError) else None
+    errors = (
+        [issue.message for issue in report.issues if issue.severity == "error"] if report else []
+    )
+    return "the photos can't be used: " + "; ".join(errors) if errors else str(exc)
 
 
 def _save_partial(result: PipelineResult) -> Path | None:

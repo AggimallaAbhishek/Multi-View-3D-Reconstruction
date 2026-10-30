@@ -25,7 +25,7 @@ from src.data.dataset import CAMERA_FILE
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.geometry.calibration import load_camera_file
 from src.run import is_run_dir_name, read_json
-from src.web.jobs import RUN_LABEL, Job, JobBusy, JobManager, new_job_id
+from src.web.jobs import JOB_STAGES, RUN_LABEL, Job, JobBusy, JobManager, new_job_id
 from src.web.report import REPORT_NAME
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
@@ -66,6 +66,7 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
             "max_upload_mb": web.max_upload_mb,
             "min_images": config.dataset.min_images,
             "extensions": list(config.dataset.extensions),
+            "stages": list(JOB_STAGES),
         }
 
     @app.post("/api/jobs", status_code=201, response_model=None)

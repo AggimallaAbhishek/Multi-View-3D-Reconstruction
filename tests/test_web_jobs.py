@@ -217,3 +217,16 @@ def test_failure_while_preparing_the_dataset_writes_nothing(tmp_path):
         reconstruct(tmp_path / "empty", config, lambda s, t: None)
     assert failed.value.run_dir is None
     assert not (tmp_path / "outputs").exists()
+
+
+def test_dataset_validation_failure_names_the_problems(tmp_path):
+    folder = tmp_path / "upload"
+    folder.mkdir()
+    for name in ("a.png", "b.png"):
+        (folder / name).write_bytes(b"not an image")
+    config = config_from_dict({"output": {"root": str(tmp_path / "outputs")}})
+    with pytest.raises(JobFailed) as failed:
+        reconstruct(folder, config, lambda s, t: None)
+    message = str(failed.value)
+    assert message.startswith("the photos can't be used: ")
+    assert str(folder) not in message  # the issues, not "validation failed for <path>"

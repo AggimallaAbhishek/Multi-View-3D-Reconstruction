@@ -8,6 +8,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from src.config import config_from_dict  # noqa: E402
+from src.pipeline import STAGES  # noqa: E402
 from src.web.app import UPLOAD_ROOT, create_app  # noqa: E402
 from src.web.jobs import Job, JobBusy, JobManager  # noqa: E402
 
@@ -330,6 +331,7 @@ def test_config_for_the_page():
     assert data["max_upload_images"] == 200
     assert data["max_upload_mb"] == 500
     assert ".jpg" in data["extensions"]
+    assert data["stages"] == ["dataset", *STAGES, "outputs"]  # the page's checklist
 
 
 # --- end to end -------------------------------------------------------------------------
