@@ -36,7 +36,7 @@ browser (index.html + app.js, three.js from CDN)
 src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager, background thread)
                                    │
                                    ├─► src/pipeline.run_pipeline(..., on_stage=cb)
-                                   ├─► src/pipeline.save_stage_outputs(...)   (moved from cli)
+                                   ├─► src/outputs.save_stage_outputs(...)    (moved from cli)
                                    └─► src/web/report.py → report.json
 ```
 
@@ -56,9 +56,10 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager, background threa
    None = None)` — calls `on_stage(stage, result)` just before each stage runs. Dataset
    preparation happens before the first call, so the job manager marks the job's stage
    `"dataset"` itself before calling `run_pipeline`.
-2. The loop in `cli._stage_command` that writes each stage's outputs moves into a public
-   `save_stage_outputs(result, run_dir, stage, draw=0) -> tuple[Path | None, int]` (with
-   `_SAVERS`). The CLI calls it; the web job calls it. Both produce identical run folders.
+2. The per-stage writers (`_save_*`, `_SAVERS`) and the loop in `cli._stage_command` move
+   to a new module `src/outputs.py` (not `src/pipeline.py`, which stays free of file I/O)
+   with a public `save_stage_outputs(result, run_dir, stage, draw=0) -> tuple[Path | None,
+   int]`. The CLI calls it; the web job calls it. Both produce identical run folders.
 
 ### 2.3 Storage
 
@@ -158,8 +159,9 @@ Test-first, using the repo's ground-truth fixtures.
   malformed YAML/JSON), 409 while running, 404 for unknown job, path traversal on
   `/files/` refused, and one end-to-end run on rendered images: POST → poll to done →
   report → `filtered.ply` downloaded.
-- `tests/test_pipeline.py` (extend) — `on_stage` is called once per stage in order;
-  `save_stage_outputs` writes the same files the CLI wrote before the move.
+- `tests/test_pipeline.py` (extend) — `on_stage` is called once per stage in order.
+- `tests/test_outputs.py` — `save_stage_outputs` writes every stage's files, draws
+  diagnostics for the last stage only, and matches what `cli reconstruct` writes.
 - Web tests are skipped with `pytest.importorskip("fastapi")` when the `[web]` extra is
   not installed.
 - Manual: in the browser, upload all of `data/raw/templeRing` with `camera.yaml` and
