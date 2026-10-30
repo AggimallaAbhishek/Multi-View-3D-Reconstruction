@@ -47,7 +47,7 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager thread ⇄ child 
 | `jobs.py` | `JobManager`: accepts one job at a time; holds `Job` state (`id`, `status` ∈ queued/running/done/failed, `stage`, `stages_done`, `timings`, `error`, `run_dir`). Stages: `dataset`, the pipeline stages, `outputs`. The work (pipeline + run folder + report) runs in a **spawned child process** (`reconstruct_in_subprocess`); a server thread relays its progress through a queue. Reason: Open3D's offscreen render (`figures/filtered.png`) aborts the process (SIGTRAP) outside the main thread, and a native crash must end one job, not the server. The job function is injected so tests can use a fake. No FastAPI imports. | `run_pipeline`, `save_stage_outputs`, `src/run.py` helpers, `report.py` |
 | `report.py` | `build_report(result, gt=None) -> dict`, written as `report.json` in the run folder (shape below). Works on partial results. | `src/evaluation` |
 | `app.py` | `create_app(config, manager) -> FastAPI`: the endpoints in §3; mounts `static/`. | `jobs`, `report` |
-| `static/index.html`, `static/app.js`, `static/style.css` | Upload, progress and results views (§4). three.js `PLYLoader` + `OrbitControls`, pinned version from cdn.jsdelivr.net. | API only |
+| `static/index.html`, `static/app.js`, `static/viewer.js`, `static/style.css` | Upload, progress and results views (§4). three.js `OrbitControls`, pinned version from cdn.jsdelivr.net (external); PLY parsed in `viewer.js` (`PLYLoader` assumes 0–255 colours, Open3D writes 0–1). Fonts from Google Fonts (external; system fallbacks offline). | API only |
 | `__main__.py` | `python -m src.web [--config CONFIG]`: starts uvicorn on `web.host:web.port` and opens the browser. | `app` |
 
 #### `report.json`
@@ -120,6 +120,7 @@ from a CDN and labelled as external in the README and methodology docs.
 | `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409 {detail, job_id}` (the running job) if a job is running; `422 {detail}` on invalid input (nothing written). |
 | `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir}`; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
+| `GET` | `/api/jobs/{id}/files` | Relative paths of the files in the job's run folder (sorted; empty while running). The page shows only figures and downloads that exist, and links everything a failed job wrote. |
 | `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder (a failed job's too: the outputs of the stages that finished). The resolved path must lie inside the run folder, otherwise `404`. |
 | `GET` | `/api/config` | Page-relevant settings: `poll_interval_ms`, `max_upload_images`, `max_upload_mb` from `web`; `min_images`, `extensions` from `dataset`. |
 | `GET` | `/api/jobs` | In-memory jobs plus finished web runs rediscovered from `outputs/<stamp>_web_reconstruct[_n]/report.json` (newest first; `_n` when two runs start in the same second), so results survive a server restart. |
@@ -159,7 +160,7 @@ Follows the system light/dark preference; usable at laptop and tablet widths.
 |---|---|
 | Too few / too many images, bad extension, over size | `422`, inline message, nothing written |
 | Malformed `camera.yaml` / `gt_cameras.json` | `422` naming the file, before queueing |
-| `DatasetError` | Job `failed` with the CLI's message |
+| `DatasetError` | Job `failed`; the message lists the validation errors ("the photos can't be used: ...") rather than the upload folder |
 | Exception in a stage | Job `failed`, `stage` set to the failing stage, `error` holds the message; page marks it ✗ and links outputs already written |
 | Partial registration | Job `done`; summary shows the count in yellow and lists unregistered images |
 | Ground-truth names don't match uploads | GT panel says so; rest of the report unaffected |

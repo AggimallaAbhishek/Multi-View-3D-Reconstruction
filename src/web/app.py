@@ -108,6 +108,15 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(409, f"job {job_id} is {job.status}")
         return read_json(job.run_dir / REPORT_NAME)
 
+    @app.get("/api/jobs/{job_id}/files")
+    def list_files(job_id: str) -> list[str]:
+        """Paths (relative, sorted) of the files in the job's run folder: what a finished
+        job wrote, or what a failed one wrote before failing; empty while running."""
+        run_dir = find_job(job_id).run_dir
+        if run_dir is None:
+            return []
+        return sorted(p.relative_to(run_dir).as_posix() for p in run_dir.rglob("*") if p.is_file())
+
     @app.get("/api/jobs/{job_id}/files/{path:path}")
     def get_file(job_id: str, path: str) -> FileResponse:
         """A file of the run folder: a finished job's, or what a failed job wrote."""

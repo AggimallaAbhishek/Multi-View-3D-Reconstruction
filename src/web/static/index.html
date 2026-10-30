@@ -38,7 +38,7 @@
       <h2 id="upload-title" class="visually-hidden">Choose photos</h2>
       <div class="upload-grid">
         <label class="dropzone fiducial" id="dropzone">
-          <input type="file" id="images" multiple accept="image/*,.tif,.tiff" class="visually-hidden">
+          <input type="file" id="images" multiple class="visually-hidden">
           <span class="dropzone-title">Drop overlapping photos of one object or scene</span>
           <span class="dropzone-sub">or <u>choose files</u></span>
           <span class="dropzone-hint" id="dropzone-hint">At least 2 photos. Walk around the subject so neighbouring photos overlap by about two thirds.</span>
@@ -79,6 +79,7 @@
       <div id="partial" hidden>
         <h3>Results written before the failure</h3>
         <div class="gallery" id="partial-gallery"></div>
+        <ul class="file-list" id="partial-files"></ul>
       </div>
       <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
     </section>

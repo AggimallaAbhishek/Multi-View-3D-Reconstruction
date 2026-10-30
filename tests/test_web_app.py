@@ -237,6 +237,21 @@ def done_job(tmp_path):
     return client_for(manager)
 
 
+def test_file_list_of_a_finished_job(done_job):
+    assert done_job.get("/api/jobs/j/files").json() == [
+        "figures/filtered.png",
+        "point_clouds/filtered.ply",
+        "report.json",
+    ]
+
+
+def test_file_list_of_a_job_without_outputs_is_empty():
+    manager = FakeManager()
+    manager.jobs["r"] = Job(id="r", status="running")
+    assert client_for(manager).get("/api/jobs/r/files").json() == []
+    assert client_for(manager).get("/api/jobs/unknown/files").status_code == 404
+
+
 def test_report_of_a_finished_job(done_job):
     assert done_job.get("/api/jobs/j/report").json() == {"total_s": 3.5}
 
@@ -386,8 +401,10 @@ def test_main_parses_args(tmp_path):
 def test_main_defaults_come_from_the_default_config():
     from src.web.__main__ import build
 
+    from src.config import load_config
+
     _, web = build([])
-    assert (web.host, web.port, web.open_browser) == ("127.0.0.1", 8000, True)
+    assert web == load_config().web
 
 
 @pytest.mark.parametrize("open_browser", [True, False])

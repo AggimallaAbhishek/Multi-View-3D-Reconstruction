@@ -227,6 +227,7 @@ body[data-state="results"] .view-results { display: block; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 #partial { margin: 1.5rem 0; }
+.file-list { list-style: none; margin: 1.25rem 0 0; padding: 0; columns: 2 16rem; font: 0.8rem/1.7 var(--mono); }
 #failure { max-width: 34rem; margin-bottom: 1rem; }
 
 /* Results ----------------------------------------------------------------------------- */
@@ -274,6 +275,8 @@ body[data-state="results"] .view-results { display: block; }
 .datastrip dd { margin: 0.1rem 0 0; font-size: 1.05rem; font-weight: 600; color: #f0f4f5; }
 .datastrip dd small { font-size: 0.75rem; font-weight: 400; color: #9fb0b6; }
 .datastrip dd.warn { color: #f3d98a; }
+
+.cells { display: contents; } /* a <dl> whose cells lay out in the parent's flex row */
 
 .panel { margin-top: 2.5rem; }
 .panel-note { color: var(--muted); font-size: 0.85rem; margin: -0.4rem 0 1rem; max-width: 70ch; }

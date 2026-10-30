@@ -180,10 +180,8 @@ def _child(upload_dir: Path, config: Config, events: Any) -> None:
 def _describe(exc: Exception) -> str:
     """The message the page shows: a failed dataset check lists its errors (the plain
     message only names the upload folder)."""
-    report = getattr(exc, "report", None) if isinstance(exc, DatasetError) else None
-    errors = (
-        [issue.message for issue in report.issues if issue.severity == "error"] if report else []
-    )
+    report = exc.report if isinstance(exc, DatasetError) else None
+    errors = [i.message for i in report.issues if i.severity == "error"] if report else []
     return "the photos can't be used: " + "; ".join(errors) if errors else str(exc)
 
 

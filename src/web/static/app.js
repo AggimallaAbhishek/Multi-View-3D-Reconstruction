@@ -18,6 +18,8 @@ const STAGE_LABELS = {
   outputs: "Write results and figures",
 };
 
+// What the page shows of a run folder, by path (written by src/outputs.py); only files the
+// folder actually holds are shown (GET /api/jobs/{id}/files).
 const DIAGNOSTICS = [
   ["matches/match_matrix.png", "Feature matches between every pair of photos"],
   ["verification/verified_matrix.png", "Matches kept after geometric verification"],
@@ -37,7 +39,9 @@ let config = null;      // GET /api/config
 let photos = new Map(); // name -> File
 let pollToken = 0;      // bumps to cancel a running poll loop
 let viewer = null;
-let viewerJob = null;   // {id, cameras, clouds: {filtered, sparse}}
+const CALIBRATION_SOURCES = { file: "camera.yaml", exif: "EXIF", fallback: "a guess" };
+
+let viewerJob = null;   // {id, clouds: {filtered, sparse}}
 
 // --- API --------------------------------------------------------------------------------
 
@@ -61,7 +65,8 @@ async function api(path, options) {
   return body;
 }
 
-const fileUrl = (id, path) => `/api/jobs/${encodeURIComponent(id)}/files/${path}`;
+const jobUrl = (id, rest = "") => `/api/jobs/${encodeURIComponent(id)}${rest}`;
+const fileUrl = (id, path) => jobUrl(id, `/files/${path}`);
 
 // --- Formatting -------------------------------------------------------------------------
 
@@ -70,6 +75,7 @@ const seconds = (s) => (s < 10 ? s.toFixed(1) : Math.round(s).toString());
 const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.toFixed(1));
 const percent = (fraction) => `${small(fraction * 100)}%`;
 const megabytes = (bytes) => `${(bytes / 2 ** 20).toFixed(1)} MB`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -106,7 +112,7 @@ async function openJob(id) {
   pollToken++;
   openJobInUrl(id);
   try {
-    const job = await api(`/api/jobs/${encodeURIComponent(id)}`);
+    const job = await api(jobUrl(id));
     if (job.status === "done") await showResults(job);
     else follow(job);
   } catch (error) {
@@ -163,8 +169,8 @@ function renderSelection() {
 
   $("selection").hidden = files.length === 0;
   $("selection-count").textContent =
-    `${images.length} photo${images.length === 1 ? "" : "s"} · ${megabytes(bytes)}` +
-    (others.length ? ` · ${others.length} other file${others.length === 1 ? "" : "s"} left out` : "");
+    `${plural(images.length, "photo")} · ${megabytes(bytes)}` +
+    (others.length ? ` · ${plural(others.length, "other file")} left out` : "");
   $("thumbs").replaceChildren(
     ...files.map((file) => {
       const img = el("img", { alt: "", loading: "lazy", src: URL.createObjectURL(file) });
@@ -181,7 +187,7 @@ function renderSelection() {
 
   const run = $("run");
   run.disabled = Boolean(problem) || images.length === 0;
-  run.textContent = images.length ? `Reconstruct ${images.length} photo${images.length === 1 ? "" : "s"}` : "Reconstruct";
+  run.textContent = images.length ? `Reconstruct ${plural(images.length, "photo")}` : "Reconstruct";
 }
 
 function showUploadMessage(text, action = null) {
@@ -224,7 +230,7 @@ function renderStages(job) {
   $("stages").replaceChildren(
     ...config.stages.map((stage) => {
       let status = done.has(stage) ? "done" : "pending";
-      if (stage === job.stage) status = job.status === "failed" ? "failed" : "running";
+      if (stage === job.stage && job.status !== "done") status = job.status === "failed" ? "failed" : "running";
       const mark =
         status === "done" ? "✓" :
         status === "failed" ? "✗" :
@@ -258,7 +264,7 @@ async function follow(job) {
     await new Promise((resolve) => setTimeout(resolve, config.poll_interval_ms));
     if (token !== pollToken) return;
     try {
-      job = await api(`/api/jobs/${encodeURIComponent(job.id)}`);
+      job = await api(jobUrl(job.id));
     } catch (error) {
       $("failure").hidden = false;
       $("failure").textContent = `Lost contact with the server: ${error.message}. Retrying…`;
@@ -272,17 +278,20 @@ function showFailure(job) {
   const stage = STAGE_LABELS[job.stage] ?? job.stage;
   $("failure").replaceChildren(el("strong", {}, `${stage}: `), job.error || "unknown error");
   $("restart-failed").hidden = false;
-  if (job.run_dir) {
-    $("partial").hidden = false;
-    renderGallery($("partial-gallery"), job.id, () => { $("partial").hidden = !$("partial-gallery").children.length; });
-  }
   refreshPreviousRuns(job.id);
+  api(jobUrl(job.id, "/files")).then((files) => {
+    $("partial").hidden = !files.length;
+    renderGallery($("partial-gallery"), job.id, files);
+    $("partial-files").replaceChildren(
+      ...files.map((path) => el("li", {}, el("a", { href: fileUrl(job.id, path), target: "_blank", rel: "noopener" }, path))),
+    );
+  }).catch(() => {});
 }
 
 // --- Results ----------------------------------------------------------------------------
 
 async function showResults(job) {
-  const report = await api(`/api/jobs/${encodeURIComponent(job.id)}/report`);
+  const [report, files] = await Promise.all([api(jobUrl(job.id, "/report")), api(jobUrl(job.id, "/files"))]);
   show("results");
   $("previous-runs").value = job.id;
   $("results-id").textContent = runLabel(job);
@@ -293,10 +302,9 @@ async function showResults(job) {
 
   renderDataStrip(report);
   renderGroundTruth(report.ground_truth);
-  renderGallery($("gallery"), job.id);
-  const downloads = report.points ? DOWNLOADS : DOWNLOADS.filter(([path]) => path === "report.json");
+  renderGallery($("gallery"), job.id, files);
   $("downloads").replaceChildren(
-    ...downloads.map(([path, label, name]) =>
+    ...DOWNLOADS.filter(([path]) => files.includes(path)).map(([path, label, name]) =>
       el("li", {}, el("a", { href: fileUrl(job.id, path), download: name }, label, el("small", {}, name)))),
   );
   await loadViewer(job.id, report);
@@ -310,7 +318,7 @@ function renderDataStrip(report) {
   const { images, points, reprojection, calibration } = report;
   const fallback = calibration.sources.includes("fallback");
   $("datastrip").replaceChildren(
-    el("dl", { class: "datastrip-cells", style: "display: contents" },
+    el("dl", { class: "cells" },
       cell("Photos registered", `${images.registered}/${images.total}`, null, images.registered < images.total),
       points
         ? cell("Points", count(points.filtered), `of ${count(points.sparse)}`)
@@ -318,7 +326,7 @@ function renderDataStrip(report) {
       reprojection
         ? cell("Reprojection error", `${small(reprojection.median_px)} px`, `median · p90 ${small(reprojection.p90_px)}`)
         : cell("Reprojection error", "–"),
-      cell("Focal length from", calibration.sources.map((s) => ({ file: "camera.yaml", exif: "EXIF", fallback: "a guess" })[s] ?? s).join(", "), null, fallback),
+      cell("Focal length from", calibration.sources.map((s) => CALIBRATION_SOURCES[s] ?? s).join(", "), null, fallback),
       cell("Time", `${seconds(report.total_s)} s`)),
   );
 }
@@ -332,12 +340,11 @@ function renderGroundTruth(gt) {
     $("gt-rows").replaceChildren();
     return;
   }
-  const stat = (label, value) => el("div", {}, el("dt", {}, label), el("dd", {}, value));
   $("gt-summary").replaceChildren(
-    el("dl", { style: "display: contents" },
-      stat("Cameras scored", String(gt.cameras)),
-      stat("Rotation error", `${small(gt.rotation_deg.median)}° median · ${small(gt.rotation_deg.max)}° max`),
-      stat("Position error", `${percent(gt.centre.median)} median · ${percent(gt.centre.max)} max`)),
+    el("dl", { class: "cells" },
+      cell("Cameras scored", String(gt.cameras)),
+      cell("Rotation error", `${small(gt.rotation_deg.median)}° median · ${small(gt.rotation_deg.max)}° max`),
+      cell("Position error", `${percent(gt.centre.median)} median · ${percent(gt.centre.max)} max`)),
   );
   $("gt-rows").replaceChildren(
     ...[...gt.per_camera].sort((a, b) => a.image.localeCompare(b.image, undefined, { numeric: true })).map((c) =>
@@ -345,18 +352,14 @@ function renderGroundTruth(gt) {
   );
 }
 
-/** The diagnostic figures that exist for this run (missing ones are skipped). */
-function renderGallery(container, id, onSettled = () => {}) {
-  let pending = DIAGNOSTICS.length;
-  const settle = () => { if (--pending === 0) onSettled(); };
+/** The diagnostic figures among the run's ``files``. */
+function renderGallery(container, id, files) {
   container.replaceChildren(
-    ...DIAGNOSTICS.map(([path, caption]) => {
-      const img = el("img", { src: fileUrl(id, path), alt: caption, loading: "lazy" });
-      const figure = el("figure", {}, el("a", { href: fileUrl(id, path), target: "_blank", rel: "noopener" }, img), el("figcaption", {}, caption));
-      img.addEventListener("load", settle, { once: true });
-      img.addEventListener("error", () => { figure.remove(); settle(); }, { once: true });
-      return figure;
-    }),
+    ...DIAGNOSTICS.filter(([path]) => files.includes(path)).map(([path, caption]) =>
+      el("figure", {},
+        el("a", { href: fileUrl(id, path), target: "_blank", rel: "noopener" },
+          el("img", { src: fileUrl(id, path), alt: caption, loading: "lazy" })),
+        el("figcaption", {}, caption))),
   );
 }
 
@@ -441,6 +444,7 @@ function wire() {
 async function init() {
   wire();
   config = await api("/api/config");
+  $("images").accept = ["image/*", ...config.extensions].join(",");
   $("dropzone-hint").textContent =
     `At least ${config.min_images} photos (${config.extensions.map((e) => e.slice(1).toUpperCase()).join(", ")}). ` +
     "Walk around the subject so neighbouring photos overlap by about two thirds.";
