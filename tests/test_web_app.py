@@ -399,9 +399,8 @@ def test_main_parses_args(tmp_path):
 
 
 def test_main_defaults_come_from_the_default_config():
-    from src.web.__main__ import build
-
     from src.config import load_config
+    from src.web.__main__ import build
 
     _, web = build([])
     assert web == load_config().web
