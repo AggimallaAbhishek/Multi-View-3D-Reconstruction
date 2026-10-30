@@ -74,14 +74,16 @@ web:
   host: 127.0.0.1
   port: 8000
   max_upload_mb: 500
-  max_images: 200
-  min_images: 2
-  image_extensions: [.jpg, .jpeg, .png, .tif, .tiff]
+  max_upload_images: 200
   poll_interval_ms: 1000
   open_browser: true
 ```
 
-Read into a `WebConfig` dataclass in `src/config.py` like the other sections.
+Read into a `WebConfig` dataclass in `src/config.py` like the other sections. Accepted
+extensions and the minimum image count are **not** repeated here: uploads are checked
+against `dataset.extensions` (case-insensitive) and `dataset.min_images`, the same values
+the pipeline loads the folder with. `max_upload_images` rejects an upload; it is distinct
+from `dataset.max_images`, which subsamples.
 
 ### 2.5 Dependencies
 
@@ -93,7 +95,7 @@ from a CDN and labelled as external in the README and methodology docs.
 
 | Method | Path | Behaviour |
 |---|---|---|
-| `POST` | `/api/jobs` | Multipart: `images` (≥ `min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409` if a job is running; `422 {detail}` on invalid input (nothing written). |
+| `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409` if a job is running; `422 {detail}` on invalid input (nothing written). |
 | `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir}`; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder. The resolved path must lie inside the run folder, otherwise `404`. |

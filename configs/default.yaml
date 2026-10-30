@@ -119,8 +119,8 @@ web:                           # local web interface (python -m src.web); one jo
   host: 127.0.0.1              # localhost only: no authentication
   port: 8000
   max_upload_mb: 500           # total size of one upload (images + optional files)
-  max_images: 200
-  min_images: 2
-  image_extensions: [.jpg, .jpeg, .png, .tif, .tiff]
+  max_upload_images: 200       # uploads with more images are rejected (dataset.max_images
+                               # subsamples instead); accepted extensions and the minimum
+                               # count come from dataset.extensions / dataset.min_images
   poll_interval_ms: 1000       # how often the page asks for job progress
   open_browser: true           # open the page when the server starts

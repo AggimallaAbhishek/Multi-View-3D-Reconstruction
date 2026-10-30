@@ -40,13 +40,15 @@ table in Task 6.
 
 **Test** (`tests/test_config.py`, extend):
 - `load_config().web` has the defaults from the spec §2.4 (`host == "127.0.0.1"`,
-  `port == 8000`, `max_images == 200`, `min_images == 2`, extensions tuple, …).
+  `port == 8000`, …). (Checkpoint 1 reduced this to pinning `host`; `min_images` and
+  the extensions were dropped in favour of `dataset.*`, `max_images` renamed
+  `max_upload_images`.)
 - `config_from_dict({"web": {"port": "x"}})` raises `ConfigError` (wrong type).
 - `config_from_dict({"web": {"nope": 1}})` raises `ConfigError` (unknown key).
 
 **Implement:**
 - `src/config.py`: `@dataclass class WebConfig` with the fields of spec §2.4, typed like
-  the other sections (`image_extensions: tuple[str, ...]`); add
+  the other sections; add
   `web: WebConfig = field(default_factory=WebConfig)` to `Config`.
 - `configs/default.yaml`: a commented `web:` section with the same values.
 
@@ -178,7 +180,9 @@ Validation (no job created, nothing written under the upload root):
 - A `.txt` among images → 422 naming the file.
 - `IMG_0001.JPG` (upper-case extension) is accepted — matching is case-insensitive like
   `src/data/loader.discover_images`.
-- `max_images` exceeded (config override to 3, send 4) → 422.
+- `web.max_upload_images` exceeded (config override to 3, send 4) → 422.
+- Fewer than `dataset.min_images`, or an extension outside `dataset.extensions` → 422
+  (the same values the pipeline loads the folder with).
 - Total size over `max_upload_mb` (override to a tiny value) → 422.
 - `camera` that isn't valid YAML / lacks `fx` → 422 naming `camera.yaml`.
 - `ground_truth` that isn't valid JSON → 422 naming `gt_cameras.json`.
@@ -194,8 +198,8 @@ Job API with a fake manager:
 - `GET /api/jobs` includes a finished run rediscovered from a hand-written
   `outputs/20261030-000000_web_reconstruct/report.json`.
 - `GET /` serves `index.html`.
-- `GET /api/config` returns `poll_interval_ms`, `min_images`, `max_images`,
-  `max_upload_mb`, `image_extensions` from the config.
+- `GET /api/config` returns `poll_interval_ms`, `max_upload_images`, `max_upload_mb`
+  from `web` and `min_images`, `extensions` from `dataset`.
 
 End to end (real `JobManager`, rendered scene of 6 views + `camera.yaml` +
 `gt_cameras.json`, marked `@pytest.mark.slow` if the suite has such a marker, otherwise

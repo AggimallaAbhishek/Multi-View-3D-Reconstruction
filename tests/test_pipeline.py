@@ -46,23 +46,18 @@ def test_pipeline_stops_after_requested_stage(scene_dir, until, filled, empty):
     assert all(getattr(result, name) is None for name in empty)
 
 
-def test_on_stage_is_called_once_per_stage_in_order(scene_dir):
+def test_on_stage_is_called_before_each_stage_in_order(scene_dir):
     _, images, config = scene_dir
     calls = []
-    run_pipeline(images, config, until="verify", on_stage=lambda s, r: calls.append(s))
-    assert calls == list(stages_until("verify"))
-
-
-def test_on_stage_is_called_before_each_stage_runs(scene_dir):
-    _, images, config = scene_dir
-    seen = {}
 
     def record(stage, result):
-        seen[stage] = (list(result.timings), result.matches is None)
+        calls.append((stage, list(result.timings), result.matches is None))
 
-    run_pipeline(images, config, until="matches", on_stage=record)
-    assert seen["features"] == (["dataset"], True)
-    assert seen["matches"] == (["dataset", "features"], True)
+    run_pipeline(images, config, until="verify", on_stage=record)
+    assert [stage for stage, _, _ in calls] == list(stages_until("verify"))
+    # called before the stage runs: earlier stages are timed, this one's output is unset
+    assert calls[0] == ("features", ["dataset"], True)
+    assert calls[1] == ("matches", ["dataset", "features"], True)
 
 
 def test_pipeline_end_to_end_recovers_true_initial_pose(scene_dir):

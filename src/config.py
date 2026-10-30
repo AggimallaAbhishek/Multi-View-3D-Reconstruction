@@ -165,9 +165,7 @@ class WebConfig:
     host: str = "127.0.0.1"
     port: int = 8000
     max_upload_mb: int = 500
-    max_images: int = 200
-    min_images: int = 2
-    image_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+    max_upload_images: int = 200
     poll_interval_ms: int = 1000
     open_browser: bool = True
 
