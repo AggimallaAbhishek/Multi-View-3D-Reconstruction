@@ -1,4 +1,3 @@
-import json
 import time
 from pathlib import Path
 
@@ -13,20 +12,22 @@ from src.web.app import UPLOAD_ROOT, create_app  # noqa: E402
 from src.web.jobs import Job, JobBusy, JobManager  # noqa: E402
 
 CAMERA_YAML = b"width: 64\nheight: 48\nfx: 50\nfy: 50\ncx: 32\ncy: 24\n"
-GT_JSON = json.dumps(
-    {
-        "cameras": [
-            {
-                "name": "a.png",
-                "K": [[50, 0, 32], [0, 50, 24], [0, 0, 1]],
-                "R": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-                "t": [0, 0, 0],
-                "width": 64,
-                "height": 48,
-            }
-        ]
-    }
-).encode()
+
+
+def cameras_json() -> bytes:
+    """One ground-truth camera, written by the exporter the pipeline uses."""
+    import tempfile
+
+    import numpy as np
+
+    from src.geometry.camera import Camera
+    from src.pointcloud.export import write_cameras_json
+
+    K = np.array([[50.0, 0, 32], [0, 50, 24], [0, 0, 1]])
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "gt.json"
+        write_cameras_json(path, [Camera(K, np.eye(3), np.zeros(3))], ["a.png"], [(64, 48)])
+        return path.read_bytes()
 
 
 class FakeManager:
@@ -34,13 +35,15 @@ class FakeManager:
 
     def __init__(self, busy=False):
         self.jobs: dict[str, Job] = {}
+        self.uploads: dict[str, Path] = {}
         self.running = Job(id="other", status="running") if busy else None
 
     def submit(self, upload_dir, config, job_id=None):
         if self.running is not None:
             raise JobBusy(self.running.id)
-        job = Job(id=job_id, upload_dir=Path(upload_dir))
+        job = Job(id=job_id)
         self.jobs[job.id] = job
+        self.uploads[job.id] = Path(upload_dir)
         return job
 
     def get(self, job_id):
@@ -144,11 +147,13 @@ def test_invalid_ground_truth_is_rejected():
 
 def test_valid_upload_is_saved_and_submitted():
     manager = FakeManager()
-    response = post(client_for(manager), images("a.png", "b.png"), camera=CAMERA_YAML, gt=GT_JSON)
+    response = post(
+        client_for(manager), images("a.png", "b.png"), camera=CAMERA_YAML, gt=cameras_json()
+    )
     assert response.status_code == 201
     job_id = response.json()["job_id"]
     upload = UPLOAD_ROOT / job_id
-    assert manager.jobs[job_id].upload_dir == upload
+    assert manager.uploads[job_id] == upload
     assert sorted(p.name for p in upload.iterdir()) == [
         "a.png",
         "b.png",
@@ -188,7 +193,7 @@ def test_unknown_job_is_404():
 
 def test_job_status_and_report_before_done():
     manager = FakeManager()
-    manager.jobs["j"] = Job(id="j", upload_dir=Path("up"), status="running", stage="features")
+    manager.jobs["j"] = Job(id="j", status="running", stage="features")
     client = client_for(manager)
     status = client.get("/api/jobs/j").json()
     assert (status["id"], status["status"], status["stage"]) == ("j", "running", "features")
@@ -205,7 +210,7 @@ def done_job(tmp_path):
     (run_dir / "figures" / "filtered.png").write_bytes(b"\x89PNG")
     (tmp_path / "secret.txt").write_text("secret")
     manager = FakeManager()
-    manager.jobs["j"] = Job(id="j", upload_dir=Path("up"), status="done", run_dir=run_dir)
+    manager.jobs["j"] = Job(id="j", status="done", run_dir=run_dir)
     return client_for(manager)
 
 
@@ -260,7 +265,7 @@ def test_previous_runs_are_rediscovered(tmp_path):
             (tmp_path / "outputs" / name / "report.json").write_text("{}")
 
     manager = FakeManager()
-    manager.jobs["live"] = Job(id="live", upload_dir=Path("up"), status="running")
+    manager.jobs["live"] = Job(id="live", status="running")
     client = client_for(manager, output={"root": str(tmp_path / "outputs")})
 
     jobs = client.get("/api/jobs").json()

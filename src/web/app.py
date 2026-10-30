@@ -1,9 +1,10 @@
 """HTTP API and page of the web interface (spec §3).
 
-Uploads are validated before anything is written: image count and extensions (the
-``dataset`` limits the pipeline loads the folder with), total size, and the optional
-``camera.yaml`` / ``gt_cameras.json`` parsed with the loaders the job uses. A valid upload
-lands in ``data/raw/web_uploads/<job_id>/`` and goes to the ``JobManager``. Finished web
+Uploads are checked before anything is written: image count and extensions (the
+``dataset`` limits the pipeline loads the folder with) and total size. They are then saved
+to ``data/raw/web_uploads/<job_id>/``, where the optional ``camera.yaml`` /
+``gt_cameras.json`` are parsed with the loaders the job uses (the folder is removed if
+either is invalid), and go to the ``JobManager``. Finished web
 runs are rediscovered from ``<output.root>/<stamp>_web_reconstruct[_n]/report.json``, so
 results survive a server restart; their id is the run folder name.
 """
@@ -11,11 +12,9 @@ results survive a server restart; their id is the run folder name.
 from __future__ import annotations
 
 import mimetypes
-import re
 import shutil
-import tempfile
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,36 +22,30 @@ from fastapi.staticfiles import StaticFiles
 
 from src.config import Config
 from src.data.dataset import CAMERA_FILE
-from src.evaluation.ground_truth import load_cameras_json
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.geometry.calibration import load_camera_file
-from src.run import read_json
-from src.web.jobs import GT_NAME, RUN_LABEL, Job, JobBusy, JobManager, new_job_id
+from src.run import is_run_dir_name, read_json
+from src.web.jobs import RUN_LABEL, Job, JobBusy, JobManager, new_job_id
 from src.web.report import REPORT_NAME
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
 STATIC_DIR = Path(__file__).parent / "static"
-# src.run.create_run_dir names: <YYYYmmdd-HHMMSS>_<label>, suffixed _2, _3 ... on collision
-RUN_DIR_NAME = re.compile(rf"\d{{8}}-\d{{6}}_{RUN_LABEL}(_\d+)?")
 
 
 def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     manager = manager or JobManager()
     output_root = Path(config.output.root)
     app = FastAPI(title="Multi-view 3D reconstruction")
+    previous: dict[str, Job] = {}  # finished runs never change: read each report once
 
     def previous_run(run_id: str) -> Job | None:
         """A finished web run of an earlier server, from its run folder."""
-        run_dir = output_root / run_id
-        if not RUN_DIR_NAME.fullmatch(run_id) or not (run_dir / REPORT_NAME).is_file():
-            return None
-        timings = read_json(run_dir / REPORT_NAME).get("timings", {})
-        return Job(
-            id=run_id,
-            status="done",
-            stages_done=[*timings, "outputs"],
-            timings=timings,
-            run_dir=run_dir,
-        )
+        if run_id not in previous:
+            run_dir = output_root / run_id
+            if not is_run_dir_name(run_id, RUN_LABEL) or not (run_dir / REPORT_NAME).is_file():
+                return None
+            previous[run_id] = Job.finished_run(run_dir)
+        return previous[run_id]
 
     def find_job(job_id: str) -> Job:
         job = manager.get(job_id) or previous_run(job_id)
@@ -83,14 +76,9 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     ) -> dict[str, str] | JSONResponse:
         if (active := manager.active()) is not None:
             return busy(active.id)
-        to_save = validate_upload(images, camera, ground_truth, config)
         job_id = new_job_id()
         upload_dir = UPLOAD_ROOT / job_id
-        upload_dir.mkdir(parents=True)
-        for name, upload in to_save.items():
-            upload.file.seek(0)
-            with (upload_dir / name).open("wb") as out:
-                shutil.copyfileobj(upload.file, out)
+        save_upload(images, camera, ground_truth, config, upload_dir)
         try:
             manager.submit(upload_dir, config, job_id=job_id)
         except JobBusy as exc:  # another upload got in first
@@ -103,7 +91,8 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
         """This server's jobs (newest first), then earlier finished web runs."""
         jobs = manager.list()
         live = {job.run_dir.name for job in jobs if job.run_dir is not None}
-        names = sorted((p.parent.name for p in output_root.glob(f"*/{REPORT_NAME}")), reverse=True)
+        reports = output_root.glob(f"*_{RUN_LABEL}*/{REPORT_NAME}")
+        names = sorted((p.parent.name for p in reports), reverse=True)
         jobs += [run for n in names if n not in live and (run := previous_run(n))]
         return [job.to_dict() for job in jobs]
 
@@ -135,14 +124,16 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     return app
 
 
-def validate_upload(
+def save_upload(
     images: list[UploadFile],
     camera: UploadFile | None,
     ground_truth: UploadFile | None,
     config: Config,
-) -> dict[str, UploadFile]:
-    """The files to save, by their name in the upload folder; raises ``HTTPException``
-    422 naming the problem."""
+    upload_dir: Path,
+) -> None:
+    """Check the upload and save it to ``upload_dir`` (camera and ground truth under the
+    names the job looks for); raises ``HTTPException`` 422 naming the problem, with
+    nothing left on disk."""
     web = config.web
     allowed = {ext.lower() for ext in config.dataset.extensions}
     to_save: dict[str, UploadFile] = {}
@@ -160,25 +151,26 @@ def validate_upload(
     if len(to_save) > web.max_upload_images:
         _reject(f"{len(to_save)} images uploaded; at most {web.max_upload_images} allowed")
 
-    extras = {CAMERA_FILE: camera, GT_NAME: ground_truth}
-    total = sum(_size(u) for u in [*to_save.values(), *extras.values()] if u is not None)
+    loaders = {CAMERA_FILE: load_camera_file, GT_CAMERAS_FILE: load_cameras_json}
+    extras = {CAMERA_FILE: camera, GT_CAMERAS_FILE: ground_truth}
+    to_save |= {name: upload for name, upload in extras.items() if upload is not None}
+    total = sum(_size(upload) for upload in to_save.values())
     if total > web.max_upload_mb * 1024 * 1024:
         _reject(f"upload is {total / 2**20:.1f} MB; at most {web.max_upload_mb} MB allowed")
 
-    loaders = {CAMERA_FILE: load_camera_file, GT_NAME: load_cameras_json}
-    for name, upload in extras.items():
-        if upload is None:
+    upload_dir.mkdir(parents=True)
+    for name, upload in to_save.items():
+        upload.file.seek(0)
+        with (upload_dir / name).open("wb") as out:
+            shutil.copyfileobj(upload.file, out)
+    for name, load in loaders.items():
+        if name not in to_save:
             continue
-        with tempfile.TemporaryDirectory() as tmp:
-            copy = Path(tmp) / name
-            upload.file.seek(0)
-            copy.write_bytes(upload.file.read())
-            try:
-                loaders[name](copy)
-            except Exception as exc:  # any parse failure is the user's file, not ours
-                _reject(f"{name}: {str(exc).replace(str(copy), name)}")
-        to_save[name] = upload
-    return to_save
+        try:
+            load(upload_dir / name)
+        except Exception as exc:  # any parse failure is the user's file, not ours
+            shutil.rmtree(upload_dir)
+            _reject(f"{name} is invalid: {exc}")
 
 
 def _size(upload: UploadFile) -> int:
@@ -188,5 +180,5 @@ def _size(upload: UploadFile) -> int:
     return upload.file.tell()
 
 
-def _reject(detail: str) -> None:
+def _reject(detail: str) -> NoReturn:
     raise HTTPException(422, detail)

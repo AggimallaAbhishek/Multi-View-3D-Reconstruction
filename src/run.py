@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import platform
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
@@ -39,6 +40,12 @@ def create_run_dir(root: str | Path, label: str) -> Path:
         path = base.with_name(f"{base.name}_{n}")
     path.mkdir(parents=True)
     return path
+
+
+def is_run_dir_name(name: str, label: str) -> bool:
+    """Whether ``name`` is a folder name ``create_run_dir`` gives to a run labelled
+    ``label``."""
+    return re.fullmatch(rf"\d{{8}}-\d{{6}}_{re.escape(label)}(_\d+)?", name) is not None
 
 
 def worker_count(workers: int) -> int:

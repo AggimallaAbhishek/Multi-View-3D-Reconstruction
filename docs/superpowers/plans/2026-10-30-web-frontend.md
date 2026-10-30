@@ -157,7 +157,9 @@ truth (the crash regression).
 
 ## Task 6 — `src/web/app.py`  ✅
 
-Done. Also rejects duplicate and hidden file names and strips client-side directories
+Done. Upload checks live in `save_upload(..., upload_dir)`: it checks names, count and
+size first, then saves and parses `camera.yaml` / `gt_cameras.json` in place, removing the
+folder if either is invalid (no temp copy). Also rejects duplicate and hidden file names and strips client-side directories
 from upload names. `static/index.html` is a placeholder until Task 8.
 
 **Test** (new `tests/test_web_app.py`; `pytest.importorskip("fastapi")` at top;

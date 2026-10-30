@@ -27,14 +27,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.config import Config
-from src.evaluation.ground_truth import load_cameras_json
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
-from src.pipeline import PipelineResult, Stage, run_pipeline
-from src.web.report import build_report, write_report
+from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
+from src.run import read_json
+from src.web.report import REPORT_NAME, build_report, write_report
 
 log = logging.getLogger(__name__)
 
-GT_NAME = "gt_cameras.json"
 RUN_LABEL = "web_reconstruct"
 
 Status = Literal["queued", "running", "done", "failed"]
@@ -67,7 +67,6 @@ class JobBusy(RuntimeError):
 @dataclass
 class Job:
     id: str
-    upload_dir: Path | None = None  # None for runs rediscovered from an earlier server
     status: Status = "queued"
     stage: str | None = None  # running now, or where it failed
     stages_done: list[str] = field(default_factory=list)
@@ -86,6 +85,18 @@ class Job:
             "run_dir": None if self.run_dir is None else str(self.run_dir),
         }
 
+    @classmethod
+    def finished_run(cls, run_dir: Path) -> Job:
+        """A finished web run of an earlier server, from its ``report.json``."""
+        timings = read_json(run_dir / REPORT_NAME).get("timings", {})
+        return cls(
+            id=run_dir.name,
+            status="done",
+            stages_done=[*timings, "outputs"],
+            timings=timings,
+            run_dir=run_dir,
+        )
+
 
 def reconstruct(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
     """Pipeline up to ``filter``, then the CLI's ``reconstruct`` run folder plus
@@ -95,28 +106,24 @@ def reconstruct(upload_dir: Path, config: Config, progress: ProgressFn) -> Path:
     finished before the failure. Must run on a main thread (it renders); see
     ``reconstruct_in_subprocess``."""
     result: PipelineResult | None = None
-    started: list[Stage] = []
 
     def on_stage(stage: Stage, current: PipelineResult) -> None:
         nonlocal result
-        result = current  # filled in place, so it holds every finished stage on failure
-        started.append(stage)
+        result = current  # filled in place, so on failure it holds every finished stage
         progress(stage, dict(current.timings))
 
-    run_dir, pipeline_done = None, False
+    run_dir = None
     try:
         result = run_pipeline(upload_dir, config, until="filter", on_stage=on_stage)
-        pipeline_done = True
         progress("outputs", dict(result.timings))
         run_dir = new_run_dir(result, RUN_LABEL)
         save_stage_outputs(result, run_dir, "filter")
-        gt_path = upload_dir / GT_NAME
+        gt_path = upload_dir / GT_CAMERAS_FILE
         gt = load_cameras_json(gt_path) if gt_path.is_file() else None
         write_report(build_report(result, gt), run_dir)
     except Exception as exc:
-        finished = started if pipeline_done else started[:-1]  # the last one raised
-        if run_dir is None and finished:
-            run_dir = _save_partial(result, finished[-1])
+        if run_dir is None and result is not None:
+            run_dir = _save_partial(result)
         raise JobFailed(str(exc), run_dir) from exc
     return run_dir
 
@@ -168,10 +175,13 @@ def _child(upload_dir: Path, config: Config, events: Any) -> None:
         events.put(("done", str(run_dir)))
 
 
-def _save_partial(result: PipelineResult, last_finished: Stage) -> Path | None:
-    """Best effort: a run folder with the outputs up to ``last_finished`` (None if it
-    could not even be created)."""
-    run_dir = None
+def _save_partial(result: PipelineResult) -> Path | None:
+    """Best effort: a run folder with the outputs of the pipeline stages that finished
+    (None if none did, or the folder could not be created)."""
+    finished = [s for s in result.timings if s in STAGES]  # timed once a stage finishes
+    if not finished:
+        return None
+    last_finished, run_dir = finished[-1], None
     try:
         run_dir = new_run_dir(result, RUN_LABEL)
         save_stage_outputs(result, run_dir, last_finished)
@@ -193,10 +203,13 @@ class JobManager:
             active = self._active()
             if active is not None:
                 raise JobBusy(active.id)
-            job = Job(id=job_id or new_job_id(), upload_dir=Path(upload_dir))
+            job = Job(id=job_id or new_job_id())
             self._jobs[job.id] = job
             thread = threading.Thread(
-                target=self._work, args=(job, config), name=f"job-{job.id}", daemon=True
+                target=self._work,
+                args=(job, Path(upload_dir), config),
+                name=f"job-{job.id}",
+                daemon=True,
             )
             self._threads[job.id] = thread
         thread.start()
@@ -221,10 +234,10 @@ class JobManager:
     def _active(self) -> Job | None:
         return next((j for j in self._jobs.values() if j.status in ("queued", "running")), None)
 
-    def _work(self, job: Job, config: Config) -> None:
+    def _work(self, job: Job, upload_dir: Path, config: Config) -> None:
         self._update(job, status="running", stage="dataset")
         try:
-            run_dir = self._job(job.upload_dir, config, lambda s, t: self._advance(job, s, t))
+            run_dir = self._job(upload_dir, config, lambda s, t: self._advance(job, s, t))
         except Exception as exc:  # the job reports it; the server keeps running
             log.exception("job %s failed at stage %s", job.id, job.stage)
             run_dir = exc.run_dir if isinstance(exc, JobFailed) else None

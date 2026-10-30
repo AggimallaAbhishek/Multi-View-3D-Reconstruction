@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.config import load_config  # noqa: E402
-from src.evaluation.ground_truth import load_cameras_json, relative_pose  # noqa: E402
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json, relative_pose  # noqa: E402
 from src.evaluation.metrics import (  # noqa: E402
     camera_pose_errors,
     rotation_error_deg,
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    gt = load_cameras_json(args.images / "gt_cameras.json")
+    gt = load_cameras_json(args.images / GT_CAMERAS_FILE)
 
     result = run_pipeline(args.images, config, until="reconstruct")
     names = result.names

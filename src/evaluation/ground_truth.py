@@ -42,6 +42,9 @@ def load_middlebury_par(path: str | Path) -> dict[str, Camera]:
     return cameras
 
 
+GT_CAMERAS_FILE = "gt_cameras.json"  # ground truth beside the images (cameras.json format)
+
+
 def load_cameras_json(path: str | Path) -> dict[str, Camera]:
     """Ground-truth cameras by image name, from a ``cameras.json`` (the same format the
     pipeline exports; see ``src.pointcloud.export.write_cameras_json``)."""
