@@ -1,6 +1,7 @@
 import pytest
 
 from src.config import config_from_dict
+from src.outputs import save_stage_outputs
 from src.pipeline import run_pipeline
 from tests.render import render_box_scene, write_scene
 
@@ -54,8 +55,6 @@ def _files(run_dir):
 
 
 def test_save_stage_outputs_writes_every_stage_up_to_filter(filtered, tmp_path):
-    from src.outputs import save_stage_outputs
-
     written, status = save_stage_outputs(filtered, tmp_path, "filter")
     assert (written, status) == (tmp_path / "point_clouds" / "filtered.ply", 0)
     files = _files(tmp_path)
@@ -68,8 +67,6 @@ def test_save_stage_outputs_writes_every_stage_up_to_filter(filtered, tmp_path):
 
 
 def test_save_stage_outputs_draws_diagnostics_for_the_last_stage_only(filtered, tmp_path):
-    from src.outputs import save_stage_outputs
-
     save_stage_outputs(filtered, tmp_path, "matches", draw=2)
     files = _files(tmp_path)
     assert sum(name.endswith("_matches.png") for name in files) == 2
@@ -80,7 +77,6 @@ def test_cli_reconstruct_writes_what_save_stage_outputs_writes(scene_dir, filter
     import yaml
 
     from src.cli import main
-    from src.outputs import save_stage_outputs
 
     images, raw = scene_dir
     config = tmp_path / "config.yaml"

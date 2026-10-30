@@ -4,11 +4,10 @@ import numpy as np
 import pytest
 
 from src.config import config_from_dict
-from src.geometry.camera import Camera
 from src.pipeline import STAGES, run_pipeline
 from src.web.report import build_report, write_report
 from tests.images import make_natural_texture, write_image
-from tests.render import render_box_scene, write_scene
+from tests.render import render_box_scene, scene_cameras, write_scene
 
 N_VIEWS = 6
 
@@ -21,11 +20,7 @@ def scene_dir(tmp_path_factory):
         "output": {"cache_dir": str(images.parent / "cache")},
         "features": {"max_features": 3000},
     }
-    gt = {
-        f"view_{k + 1:02d}.png": Camera(scene.K, R, t)
-        for k, (R, t) in enumerate(zip(scene.rotations, scene.translations, strict=True))
-    }
-    return images, camera, raw, gt
+    return images, camera, raw, scene_cameras(scene)
 
 
 @pytest.fixture(scope="module")
@@ -93,7 +88,7 @@ def test_unregistered_images_are_listed_and_warned_about(scene_dir, tmp_path):
     # a photo of something else: no overlap with the box, so it cannot be registered
     write_image(folder / "view_99.png", make_natural_texture(seed=7, width=800, height=600))
     config = config_from_dict({**raw, "camera": {"calibration_file": str(camera)}})
-    report = build_report(run_pipeline(folder, config, until="filter"))
+    report = build_report(run_pipeline(folder, config, until="reconstruct"))
 
     assert report["images"] == {
         "total": N_VIEWS + 1,

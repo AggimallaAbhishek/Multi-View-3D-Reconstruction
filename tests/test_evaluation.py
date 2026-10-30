@@ -13,8 +13,7 @@ from src.evaluation.experiments import (
 )
 from src.evaluation.metrics import camera_pose_errors, cloud_errors, metric_scale
 from src.geometry.camera import Camera
-from tests.images import write_image
-from tests.render import render_box_scene
+from tests.render import render_box_scene, scene_cameras, write_scene
 from tests.synthetic import make_scene
 
 # --- metrics --------------------------------------------------------------------------
@@ -112,20 +111,13 @@ def test_named_runs_and_invalid_specs(tmp_path):
 def rendered(tmp_path_factory):
     scene = render_box_scene(n_cameras=4, arc_deg=30.0)
     root = tmp_path_factory.mktemp("experiment")
-    for k, im in enumerate(scene.images):
-        write_image(root / "scene" / f"view_{k + 1:02d}.png", im)
-    K = scene.K
-    (root / "scene" / "camera.yaml").write_text(
-        f"width: 800\nheight: 600\nfx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-    )
-    gt = {
-        f"view_{k + 1:02d}.png": Camera(K, R, t)
-        for k, (R, t) in enumerate(zip(scene.rotations, scene.translations, strict=True))
-    }
+    images, camera = write_scene(scene, root)
+    camera.rename(images / "camera.yaml")  # next to the images: picked up automatically
+    gt = scene_cameras(scene)
     config = config_from_dict(
         {"output": {"cache_dir": str(root / "cache")}, "features": {"max_features": 3000}}
     )
-    return root / "scene", gt, config
+    return images, gt, config
 
 
 def test_reference_cloud_lies_on_the_true_geometry(rendered):
