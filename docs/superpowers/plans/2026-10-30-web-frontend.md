@@ -144,6 +144,8 @@ Commit: `feat(web): reconstruction report builder`.
 reconstruction):
 - A fake `run(images_dir, config, on_stage)` that calls `on_stage` for three stages and
   returns a sentinel; a fake `finish(result, upload_dir) -> run_dir`.
+- Before the pipeline's first callback the job reports `stage == "dataset"` (dataset
+  preparation fires no callback; the manager sets it before calling `run`).
 - `submit()` returns a `Job` with `status == "queued"`; after `manager.wait(job.id)`
   (test helper that joins the thread) `status == "done"`, `stages_done == ["a","b","c"]`,
   `run_dir` set, `timings` filled.
@@ -174,6 +176,8 @@ per-test temp dir):
 Validation (no job created, nothing written under the upload root):
 - 1 image → 422 mentioning the minimum.
 - A `.txt` among images → 422 naming the file.
+- `IMG_0001.JPG` (upper-case extension) is accepted — matching is case-insensitive like
+  `src/data/loader.discover_images`.
 - `max_images` exceeded (config override to 3, send 4) → 422.
 - Total size over `max_upload_mb` (override to a tiny value) → 422.
 - `camera` that isn't valid YAML / lacks `fx` → 422 naming `camera.yaml`.

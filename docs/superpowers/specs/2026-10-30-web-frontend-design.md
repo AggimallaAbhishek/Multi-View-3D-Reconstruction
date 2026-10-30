@@ -52,8 +52,10 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager, background threa
 
 ### 2.2 Changes to existing code (CLI behaviour unchanged)
 
-1. `run_pipeline(images, config, until, on_stage: Callable[[Stage], None] | None = None)` —
-   calls `on_stage(stage)` before each stage runs.
+1. `run_pipeline(images, config, until, on_stage: Callable[[Stage, PipelineResult], None] |
+   None = None)` — calls `on_stage(stage, result)` just before each stage runs. Dataset
+   preparation happens before the first call, so the job manager marks the job's stage
+   `"dataset"` itself before calling `run_pipeline`.
 2. The loop in `cli._stage_command` that writes each stage's outputs moves into a public
    `save_stage_outputs(result, run_dir, stage, draw=0) -> tuple[Path | None, int]` (with
    `_SAVERS`). The CLI calls it; the web job calls it. Both produce identical run folders.
