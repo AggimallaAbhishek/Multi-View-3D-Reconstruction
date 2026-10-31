@@ -78,7 +78,7 @@ def reconstruct(
 
     def adjust_all() -> None:
         nonlocal focal_scale
-        result = adjust(registry, landmarks, features, ba, refine_focal=refine_focal)
+        result = adjust(registry, landmarks, features, ba, None, refine_focal, focal_scale)
         if result is not None:
             focal_scale *= result.focal_scale
 
@@ -119,12 +119,14 @@ def adjust(
     config: BundleAdjustmentConfig,
     free_views: Sequence[int] | None = None,
     refine_focal: bool = False,
+    applied_scale: float = 1.0,
 ) -> BundleAdjustmentResult | None:
     """Bundle-adjust the reconstruction in place. ``free_views`` (registration order)
     limits it to those cameras and the landmarks they see; the first camera always stays
     fixed. ``None`` adjusts every camera and landmark. ``refine_focal`` (global
     adjustments only) also refines the focal length shared by all cameras, the fixed
-    one included."""
+    one included; ``applied_scale`` is the focal scale already applied to the cameras'
+    K (for ``max_focal_change``)."""
     if refine_focal and free_views is not None:
         raise ValueError("the focal length is refined in global adjustments only")
     cameras, obs, X = landmarks.as_problem(registry, features)
@@ -139,8 +141,8 @@ def adjust(
     sub = obs.subset(new_index[obs.point] >= 0)
     sub = Observations(sub.view, new_index[sub.point], sub.xy)
     fixed = [v for v in range(len(cameras)) if v not in free]
-    result = bundle_adjust(cameras, sub, X[points], config, fixed, refine_focal)
-    for v in range(len(cameras)) if result.focal_scale != 1.0 else free:
+    result = bundle_adjust(cameras, sub, X[points], config, fixed, refine_focal, applied_scale)
+    for v in range(len(cameras)) if refine_focal else free:
         registry.update(registry.images[v], result.cameras[v])
     landmarks.position[points] = result.points
     errors = reprojection_errors(result.cameras, sub, result.points)

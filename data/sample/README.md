@@ -55,4 +55,6 @@ These were measured with `K` fixed in bundle adjustment. With the focal length r
 
 dinoSparseRing (16 views ~22° apart) is beyond the ~20° matching limit: 5/16 registered with the adaptive threshold (4/16 with the fixed one).
 
+Affine simulation (`features.affine_simulation`, ASIFT via OpenCV's `AffineFeature`, **external**) does not fix it. It lifts the weakest neighbour links — with `sift_contrast_threshold: 0.01`, the pairs 4–5, 5–6, 11–12 and 12–13 verify with 45 / 39 / 104 / 57 inliers instead of 13 / 12 / 22 / 21 — yet only 6/16 images register (rotation error 0.50° median). The limit is registration, not matching: PnP needs 2D–3D links, i.e. tracks the new image shares with **two** registered images, and at 22° spacing image 12 shares 104 tracks with the reconstruction but only 15 of them with two registered images. On templeRing affine simulation is harmful: 7× the landmarks but rotation error 1.22° (vs 0.15°) and 38 min (vs 12 s) — its keypoints, mapped back from warped views, are less precisely located and duplicated across views. It stays off by default.
+
 Own captures: document the camera, resolution, focal length, lighting and capture path for each scene in `data/raw/<scene>/README.md`.

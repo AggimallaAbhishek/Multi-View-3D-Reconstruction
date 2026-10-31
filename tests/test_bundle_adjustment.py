@@ -192,3 +192,13 @@ def test_a_focal_scale_beyond_the_limit_is_discarded(wrong_focal):
     assert result.focal_scale == 1.0
     assert all(np.array_equal(c.K, cams0[0].K) for c in result.cameras)
     assert result.final_rms_px == pytest.approx(fixed_k.final_rms_px)
+
+
+def test_the_focal_limit_applies_to_the_total_change(wrong_focal):
+    """K already rescaled by earlier adjustments counts: the limit bounds the total."""
+    cams0, obs, X0, _ = wrong_focal
+    config = BundleAdjustmentConfig(max_focal_change=1.2)  # the true change is 1 / 0.9
+    alone = bundle_adjust(cams0, obs, X0, config, fixed=(0,), refine_focal=True)
+    assert alone.focal_scale == pytest.approx(1 / 0.9, rel=2e-3)
+    after = bundle_adjust(cams0, obs, X0, config, (0,), refine_focal=True, applied_scale=1.1)
+    assert after.focal_scale == 1.0  # 1.1 * 1.11 > 1.2: discarded

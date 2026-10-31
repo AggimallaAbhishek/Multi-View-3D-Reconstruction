@@ -297,7 +297,7 @@ Prepared images, features and matches are cached under `outputs/cache/` (`output
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
-Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images); It does so only when every image starts with the same `K` (one camera at one zoom). `reconstruct` prints the refined value and writes it, with the scale, to `reconstruction.json`; the web page shows it. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
+Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images) — only when every image starts with the same `K` (one camera, zoom and working resolution). `reconstruct` prints the refined value and writes it, with the scale, to `reconstruction.json`; the web page shows it. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
 ### 7.4 Two-view reconstruction (milestone M1)
 
@@ -584,7 +584,7 @@ Directly suggested by the results:
 
 - **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
 - **Refine the principal point and radial distortion** in bundle adjustment too (the focal length is refined since E3b), and per-camera intrinsics for mixed-camera photo sets.
-- **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
+- **Register images from a relative pose** when PnP lacks 2D–3D links (sparse rings: dinoSparseRing's limit is triple overlap, not matching — affine simulation, now an option, lifts the matches but registers 6/16; see [`data/sample/README.md`](data/sample/README.md)). Learned matchers (SuperPoint/LightGlue) remain an alternative.
 - More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.

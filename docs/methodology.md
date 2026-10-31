@@ -18,7 +18,7 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 
 | Step | Method | Ours / external |
 |---|---|---|
-| Detection + description | SIFT (default; optional RootSIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` (**external**); cap and RootSIFT ours |
+| Detection + description | SIFT (default; optional RootSIFT, optional affine simulation = ASIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` / `AffineFeature` (**external**); cap and RootSIFT ours |
 | Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, from 0.04 down to 0.005 | ours |
 | Nearest neighbours | exact brute force, 2-NN | OpenCV `batchDistance` (**external**) |
 | Ratio test | keep `d₁ < r·d₂` (Lowe 2004), default `r` = 0.75 | ours |
@@ -97,7 +97,7 @@ E5: bundle adjustment cuts pose errors 4× and raises completeness from 0.38 to 
 ## 9. Structure refinement after each registration (ours)
 
 1. **Complete tracks:** attach keypoints of a landmark's track (in registered images) that now reproject within 2 px — mostly links PnP rejected at registration.
-2. **Filter observations, not points:** drop single observations that reproject farther than 2 px or lie behind their camera, then landmarks left with < 2 views or a triangulation angle < 1.5°. At triangulation one bad observation rejects a whole point, which grows stricter with track length; after adjustment a long track keeps its landmark. Measured after the final round: of the tracks seen by ≥ 3 registered images, 8 of 4240 on templeRing and 16 of 2151 on dinoRing end without a landmark, and only one of those 24 has a single bad keypoint (the rest have 2–11, i.e. wrongly merged tracks) — so re-triangulating tracks observation by observation, once listed as future work, would recover almost nothing.
+2. **Filter observations, not points:** drop single observations that reproject farther than 2 px or lie behind their camera, then landmarks left with < 2 views or a triangulation angle < 1.5°. At triangulation one bad observation rejects a whole point, which grows stricter with track length; after adjustment a long track keeps its landmark. Measured after the final round: of the tracks seen by ≥ 3 registered images, 8 of 4240 on templeRing and 16 of 2151 on dinoRing end without a landmark, and only one of those 24 has a single bad keypoint (the rest have 2–11, i.e. wrongly merged tracks) — so re-triangulating tracks observation by observation, once listed as future work, would recover almost nothing (`python scripts/track_coverage.py <images>`).
 3. **Re-triangulate** tracks left without a landmark.
 
 It runs after every registration (after its adjustment, when bundle adjustment is on), and the final global adjustment alternates with it until nothing changes (at most 3 rounds). It can be switched off independently (`bundle_adjustment.refine_structure`). Tested, with or without bundle adjustment: with 5 % of keypoints shifted 3.5 px (inside PnP's 4 px, outside triangulation's 2 px) every final observation is within 2 px; without refinement the shifted links stay in.
@@ -124,7 +124,7 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 |---|---|---|
 | Dataset discovery, validation (blur, duplicates), intrinsics resolution, `K` rescaling | ✔ | decoding, resizing, undistortion: OpenCV |
 | Checkerboard calibration | wrapper | `findChessboardCorners`, `cornerSubPix`, `calibrateCamera`: OpenCV |
-| Feature detection / description | strict cap, RootSIFT, cache | SIFT, ORB: OpenCV |
+| Feature detection / description | strict cap, adaptive SIFT threshold, RootSIFT, cache | SIFT, ORB, affine simulation (`AffineFeature`, ASIFT; optional): OpenCV |
 | Matching | ratio test, mutual check, pair selection, cache | `batchDistance` (2-NN), optional FLANN: OpenCV |
 | Robust E / F / H estimation | model selection, Sampson inliers, H/F ratio, E refinement residuals | USAC / RANSAC estimators, `findHomography`: OpenCV; `least_squares`: SciPy |
 | Normalised 8-point algorithm | ✔ (reference implementation) | — |
@@ -132,7 +132,7 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 | N-view DLT, point refinement, triangulation filters | ✔ | — |
 | Tracks (union-find), camera registry, landmarks | ✔ | — |
 | PnP registration | next-best-view, acceptance, retry | `solvePnPRansac` (SQPnP), `solvePnPRefineLM`: OpenCV |
-| Bundle adjustment | residuals, rotation parametrisation, sparsity, gauge and scale, schedule | `least_squares` (TRF): SciPy |
+| Bundle adjustment | residuals, exact Jacobian, rotation parametrisation, shared focal scale, gauge and scale, schedule | `least_squares` (TRF): SciPy; `Rodrigues` derivatives: OpenCV |
 | Structure refinement after BA | ✔ | — |
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |
 | Export, viewer, renders | `cameras.json`, scene assembly | PLY IO, visualiser, offscreen renderer: Open3D |

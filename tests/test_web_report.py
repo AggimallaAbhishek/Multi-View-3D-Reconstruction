@@ -46,9 +46,9 @@ def test_report_summarises_a_full_reconstruction(result):
     }
     assert report["calibration"]["sources"] == ["file"]
     calibration = report["calibration"]
-    np.testing.assert_allclose(calibration["K"], result.images[0].K)  # before adjustment
+    first = rec.registry.images[0]  # the image reconstruction.json reports K of
+    np.testing.assert_allclose(calibration["K"], result.images[first].K)  # before adjustment
     assert calibration["focal_scale"] == rec.focal_scale  # refined by bundle adjustment
-    first = rec.registry.images[0]
     np.testing.assert_allclose(
         rec.registry.camera(first).K, scale_focal(result.images[first].K, rec.focal_scale)
     )

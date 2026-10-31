@@ -191,29 +191,52 @@ def _correct_matches(extractor, image, H, radius=3.0):
     return int(np.sum(np.linalg.norm(mapped - pb, axis=1) < radius))
 
 
-@pytest.fixture(scope="module")
-def tilted():
-    """A natural texture and a homography that views it 60 deg off-axis (tilt 2: the
-    image is compressed 2x along one direction) and rotated 30 deg."""
+def _tilted_view(tilt: float, rotation_deg: float) -> np.ndarray:
+    """Homography viewing a 640x480 image off-axis: compressed ``tilt`` times along one
+    direction (tilt 2 = 60 deg, 2.5 = 66 deg) after a rotation."""
+    import cv2
+
+    c = np.array([[1, 0, -320], [0, 1, -240], [0, 0, 1.0]])
+    R = np.vstack([cv2.getRotationMatrix2D((0, 0), rotation_deg, 1.0), [0, 0, 1]])
+    return np.linalg.inv(c) @ np.diag([1 / tilt, 1.0, 1.0]) @ R @ c
+
+
+@pytest.mark.parametrize(
+    "tilt, rotation_deg, minimum",
+    [(2.0, 30, 100), (2.5, 50, 40)],  # measured 191 and 82; the second is off the tilt grid
+)
+def test_affine_simulation_matches_a_strongly_tilted_view(tilt, rotation_deg, minimum):
     import cv2
 
     image = cv2.cvtColor(make_natural_texture(2, 640, 480), cv2.COLOR_BGR2GRAY)
-    c = np.array([[1, 0, -320], [0, 1, -240], [0, 0, 1.0]])
-    R = np.vstack([cv2.getRotationMatrix2D((0, 0), 30, 1.0), [0, 0, 1]])
-    T = np.diag([1 / 2, 1.0, 1.0])
-    return image, np.linalg.inv(c) @ T @ R @ c
-
-
-def test_affine_simulation_matches_a_strongly_tilted_view(tilted):
-    image, H = tilted
+    H = _tilted_view(tilt, rotation_deg)
     plain = SIFTExtractor(max_features=4000)
     affine = SIFTExtractor(max_features=4000, affine_simulation=True)
     n_plain, n_affine = _correct_matches(plain, image, H), _correct_matches(affine, image, H)
-    assert n_affine > 100 and n_affine > 10 * n_plain  # measured: 191 vs 9
+    assert n_affine > minimum and n_affine > 10 * n_plain  # plain SIFT: 9 and 0
+
+
+def test_affine_simulation_chooses_the_contrast_threshold_with_plain_sift(faint, monkeypatch):
+    """The adaptive threshold is chosen by plain SIFT counts (cheap, and the same meaning
+    as without affine simulation); the affine detector then runs once."""
+    import cv2
+
+    calls = []
+    original = SIFTExtractor._detect_with
+
+    def spy(self, detector, image):
+        calls.append(isinstance(detector, cv2.AffineFeature))
+        return original(self, detector, image)
+
+    monkeypatch.setattr(SIFTExtractor, "_detect_with", spy)
+    extractor = SIFTExtractor(min_features=300, affine_simulation=True)
+    features = extractor.detect(faint)
+    assert calls.count(True) == 1 and calls[-1] and len(calls) > 1  # lowered, then affine
+    assert len(features) >= 300
 
 
 def test_affine_simulation_from_config_and_in_the_cache_key():
-    config = FeatureConfig(affine_simulation=True, affine_max_tilt=4.0)
+    config = FeatureConfig(affine_simulation=True, affine_max_tilt=4)
     extractor = create_extractor(config)
     assert isinstance(extractor, SIFTExtractor) and extractor.name == "sift"  # same matching
     signatures = {

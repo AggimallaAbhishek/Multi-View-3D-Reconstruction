@@ -63,7 +63,8 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
         "points": points,
         "calibration": {
             "sources": sources,
-            "K": result.images[0].K.tolist(),  # before bundle adjustment
+            # Before bundle adjustment, of the image reconstruction.json reports.
+            "K": result.images[registered[0] if registered else 0].K.tolist(),
             "focal_scale": None if rec is None else rec.focal_scale,
         },
         "reprojection": reprojection,

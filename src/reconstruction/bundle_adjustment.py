@@ -56,10 +56,12 @@ def bundle_adjust(
     config: BundleAdjustmentConfig,
     fixed: Collection[int] = (0,),
     refine_focal: bool = False,
+    applied_scale: float = 1.0,
 ) -> BundleAdjustmentResult:
-    """Refine ``cameras`` and ``points`` (and, with ``refine_focal``, the shared focal
-    length; a refined scale beyond ``config.max_focal_change`` is discarded and the
-    adjustment repeated with K fixed)."""
+    """Refine ``cameras`` and ``points`` and, with ``refine_focal``, the shared focal
+    length. ``applied_scale`` is the focal scale earlier adjustments already applied to
+    these K: if the total change would exceed ``config.max_focal_change``, the refined
+    scale is discarded and the adjustment repeated with K fixed."""
     n_cams, n_points = len(cameras), len(points)
     K = np.stack([c.K for c in cameras])
     full = pack(cameras, points, 1.0 if refine_focal else None)
@@ -90,7 +92,7 @@ def bundle_adjust(
 
     p = with_free(solution.x)
     s = float(p[-1]) if refine_focal else 1.0
-    if not 1 / config.max_focal_change <= s <= config.max_focal_change:
+    if not 1 / config.max_focal_change <= applied_scale * s <= config.max_focal_change:
         return bundle_adjust(cameras, obs, points, config, fixed)
     cam = p[: 6 * n_cams].reshape(n_cams, 6)
     refined = []
