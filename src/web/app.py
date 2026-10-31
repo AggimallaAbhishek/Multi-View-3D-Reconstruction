@@ -127,6 +127,24 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     def get_job(job_id: str) -> dict[str, Any]:
         return find_job(job_id).to_dict()
 
+    @app.delete("/api/jobs/{job_id}", status_code=204)
+    def delete_job(job_id: str) -> None:
+        """Remove a finished or failed run: its run folder and its entry."""
+        job = find_job(job_id)
+        if job.status in ("queued", "running"):
+            raise HTTPException(409, f"job {job_id} is {job.status}")
+        if job.run_dir is not None:
+            run_dir = job.run_dir.resolve()
+            # never anything but a web run folder directly under output.root
+            if run_dir.parent != output_root.resolve() or not is_run_dir_name(
+                run_dir.name, RUN_LABEL
+            ):
+                raise HTTPException(409, f"{job.run_dir} is not a web run folder")
+            shutil.rmtree(run_dir)
+        previous.pop(job_id, None)
+        if manager.get(job_id) is not None:
+            manager.forget(job_id)
+
     @app.get("/api/jobs/{job_id}/report")
     def get_report(job_id: str) -> Any:
         job = find_job(job_id)

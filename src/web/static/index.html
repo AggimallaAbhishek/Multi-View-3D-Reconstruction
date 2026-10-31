@@ -82,7 +82,16 @@
         <div class="gallery" id="partial-gallery"></div>
         <ul class="file-list" id="partial-files"></ul>
       </div>
-      <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
+      <div class="run-actions">
+        <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
+        <div class="delete-run" id="delete-failed" hidden>
+          <button type="button" class="quiet" data-delete="ask">Delete this run</button>
+          <span class="delete-confirm" hidden><span class="delete-question"></span>
+            <button type="button" class="danger" data-delete="confirm">Delete</button>
+            <button type="button" class="quiet" data-delete="cancel">Cancel</button>
+          </span>
+        </div>
+      </div>
     </section>
 
     <!-- 3. Results ----------------------------------------------------------------- -->
@@ -92,7 +101,16 @@
           <h2 id="results-title">Reconstruction</h2>
           <p class="run-id" id="results-id"></p>
         </div>
-        <button type="button" class="quiet" id="restart">Start a new reconstruction</button>
+        <div class="run-actions">
+          <button type="button" class="quiet" id="restart">Start a new reconstruction</button>
+          <div class="delete-run">
+            <button type="button" class="quiet" data-delete="ask">Delete this run</button>
+            <span class="delete-confirm" hidden><span class="delete-question"></span>
+              <button type="button" class="danger" data-delete="confirm">Delete</button>
+              <button type="button" class="quiet" data-delete="cancel">Cancel</button>
+            </span>
+          </div>
+        </div>
       </div>
 
       <ul class="warnings" id="warnings" hidden></ul>

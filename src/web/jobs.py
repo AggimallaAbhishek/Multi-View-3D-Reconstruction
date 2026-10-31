@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import queue
+import shutil
 import threading
 import traceback
 import uuid
@@ -241,7 +242,8 @@ class JobManager:
         self._lock = threading.Lock()
 
     def submit(self, upload_dir: Path, config: Config, job_id: str | None = None) -> Job:
-        """Start a job on ``upload_dir``; raises ``JobBusy`` if one is unfinished."""
+        """Start a job on ``upload_dir``, which is removed once the job has ended; raises
+        ``JobBusy`` if one is unfinished."""
         upload_dir = Path(upload_dir)
         photos = (  # outside the lock: polls wait on it
             len(discover_images(upload_dir, config.dataset.extensions))
@@ -271,6 +273,12 @@ class JobManager:
         """Every job of this server process, newest first."""
         return list(reversed(self._jobs.values()))
 
+    def forget(self, job_id: str) -> None:
+        """Drop a finished or failed job from the list (its run folder is the caller's)."""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+            self._threads.pop(job_id, None)
+
     def active(self) -> Job | None:
         """The queued or running job, if any."""
         with self._lock:
@@ -296,6 +304,8 @@ class JobManager:
             run_dir = exc.run_dir if isinstance(exc, JobFailed) else None
             self._update(job, status="failed", error=str(exc), run_dir=run_dir)
             return
+        finally:  # the run folder has the results; the upload was only their input
+            shutil.rmtree(upload_dir, ignore_errors=True)
         self._advance(job, None, job.timings)
         report = run_dir / REPORT_NAME
         photos, registered = image_counts(read_json(report) if report.is_file() else {})

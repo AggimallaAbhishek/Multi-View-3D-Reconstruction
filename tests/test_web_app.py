@@ -56,6 +56,9 @@ class FakeManager:
     def active(self):
         return self.running
 
+    def forget(self, job_id):
+        del self.jobs[job_id]
+
 
 def client_for(manager=None, **overrides):
     config = config_from_dict(overrides)
@@ -325,6 +328,55 @@ def test_rediscovered_run_lists_its_photos_and_registered_cameras(tmp_path):
     [listed] = client.get("/api/jobs").json()
     assert (listed["photos"], listed["registered"]) == (48, 19)
     assert listed["started"] == "20261031-120000"
+
+
+# --- deleting runs ------------------------------------------------------------------------
+
+
+def web_run(tmp_path, name="20261031-120000_web_reconstruct"):
+    run_dir = tmp_path / "outputs" / name
+    (run_dir / "point_clouds").mkdir(parents=True)
+    (run_dir / "report.json").write_text('{"images": {"total": 2, "registered": 2}}')
+    return run_dir
+
+
+def test_deleting_a_finished_run_removes_its_folder_and_entry(tmp_path):
+    run_dir = web_run(tmp_path)
+    manager = FakeManager()
+    manager.jobs["j"] = Job(id="j", status="done", run_dir=run_dir)
+    client = client_for(manager, output={"root": str(tmp_path / "outputs")})
+    assert client.delete("/api/jobs/j").status_code == 204
+    assert not run_dir.exists()
+    assert client.get("/api/jobs/j").status_code == 404
+    assert client.get("/api/jobs").json() == []
+
+
+def test_deleting_a_rediscovered_run_removes_it_for_good(tmp_path):
+    run_dir = web_run(tmp_path)
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    assert [j["id"] for j in client.get("/api/jobs").json()] == [run_dir.name]  # cached
+    assert client.delete(f"/api/jobs/{run_dir.name}").status_code == 204
+    assert not run_dir.exists()
+    assert client.get("/api/jobs").json() == []
+
+
+def test_a_running_job_cannot_be_deleted(tmp_path):
+    manager = FakeManager()
+    manager.jobs["r"] = Job(id="r", status="running")
+    client = client_for(manager)
+    assert client.delete("/api/jobs/r").status_code == 409
+    assert client.get("/api/jobs/r").status_code == 200
+    assert client.delete("/api/jobs/unknown").status_code == 404
+
+
+def test_only_web_run_folders_inside_the_output_root_are_deleted(tmp_path):
+    elsewhere = tmp_path / "precious" / "20261031-120000_web_reconstruct"
+    elsewhere.mkdir(parents=True)
+    manager = FakeManager()
+    manager.jobs["j"] = Job(id="j", status="done", run_dir=elsewhere)
+    client = client_for(manager, output={"root": str(tmp_path / "outputs")})
+    assert client.delete("/api/jobs/j").status_code == 409
+    assert elsewhere.exists()
 
 
 def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):

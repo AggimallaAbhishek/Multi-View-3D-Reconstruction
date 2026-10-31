@@ -43,6 +43,7 @@ const thumbUrls = new Map(); // File -> object URL, made once per file
 let pollToken = 0;      // bumps to cancel a running poll loop
 let viewer = null;
 let viewerJob = null;   // {id, clouds: {filtered, sparse}}
+let shownJob = null;    // the finished or failed job on screen: what "Delete this run" deletes
 
 // --- API --------------------------------------------------------------------------------
 
@@ -210,8 +211,9 @@ function renderSelection() {
   run.textContent = images.length ? `Reconstruct ${plural(images.length, "photo")}` : "Reconstruct";
 }
 
-function showUploadMessage(text, action = null) {
+function showUploadMessage(text, action = null, kind = "error") {
   const box = $("upload-message");
+  box.className = `message ${kind}`;
   box.hidden = !text;
   box.replaceChildren(...(text ? [el("div", {}, text), action].filter(Boolean) : []));
 }
@@ -271,6 +273,7 @@ async function follow(job) {
   $("failure").hidden = true;
   $("partial").hidden = true;
   $("restart-failed").hidden = true;
+  $("delete-failed").hidden = true;
   $("running-title").textContent = "Reconstructing";
 
   while (token === pollToken) {
@@ -304,6 +307,8 @@ function showFailure(job) {
   const stage = STAGE_LABELS[job.stage] ?? job.stage;
   $("failure").replaceChildren(el("strong", {}, `${stage}: `), job.error || "unknown error");
   $("restart-failed").hidden = false;
+  $("delete-failed").hidden = false;
+  showDeleteControls(job);
   refreshPreviousRuns(job.id);
   api(jobUrl(job.id, "/files")).then((files) => {
     $("partial").hidden = !files.length;
@@ -314,6 +319,40 @@ function showFailure(job) {
   }).catch(() => {});
 }
 
+// --- Deleting a run ---------------------------------------------------------------------
+
+/** "Delete this run" asks in the page (no browser dialog), then deletes ``shownJob``. */
+function showDeleteControls(job) {
+  shownJob = job;
+  for (const control of document.querySelectorAll(".delete-run")) {
+    control.querySelector(".delete-question").textContent = "Delete its results for good?";
+    askToDelete(control, false, false);
+  }
+}
+
+function askToDelete(control, asking, moveFocus = true) {
+  control.querySelector('[data-delete="ask"]').hidden = asking;
+  control.querySelector(".delete-confirm").hidden = !asking;
+  if (moveFocus) control.querySelector(asking ? '[data-delete="cancel"]' : '[data-delete="ask"]').focus();
+}
+
+async function deleteShownRun(control) {
+  const job = shownJob;
+  const confirm = control.querySelector('[data-delete="confirm"]');
+  confirm.disabled = true;
+  try {
+    await api(jobUrl(job.id), { method: "DELETE" });
+  } catch (error) {
+    control.querySelector(".delete-question").textContent = `Could not delete it: ${error.message}.`;
+    return;
+  } finally {
+    confirm.disabled = false;
+  }
+  await refreshPreviousRuns();
+  startOver();
+  showUploadMessage(`Deleted the run of ${runLabel(job)}.`, null, "notice");
+}
+
 // --- Results ----------------------------------------------------------------------------
 
 async function showResults(job) {
@@ -321,6 +360,7 @@ async function showResults(job) {
   show("results");
   $("previous-runs").value = job.id;
   $("results-id").textContent = runLabel(job);
+  showDeleteControls(job);
 
   const warnings = $("warnings");
   warnings.hidden = !report.warnings.length;
@@ -470,6 +510,11 @@ function wire() {
   $("run").addEventListener("click", submit);
   $("restart").addEventListener("click", startOver);
   $("restart-failed").addEventListener("click", startOver);
+  for (const control of document.querySelectorAll(".delete-run")) {
+    control.querySelector('[data-delete="ask"]').addEventListener("click", () => askToDelete(control, true));
+    control.querySelector('[data-delete="cancel"]').addEventListener("click", () => askToDelete(control, false));
+    control.querySelector('[data-delete="confirm"]').addEventListener("click", () => deleteShownRun(control));
+  }
   $("previous-runs").addEventListener("change", (e) => (e.target.value ? openJob(e.target.value) : startOver()));
   for (const button of document.querySelectorAll("[data-cloud]")) {
     button.addEventListener("click", () => switchCloud(button.dataset.cloud));

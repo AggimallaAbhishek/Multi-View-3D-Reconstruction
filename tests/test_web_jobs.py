@@ -77,13 +77,36 @@ def test_job_counts_its_photos_at_once_and_its_registered_cameras_when_done(tmp_
     assert (done["photos"], done["registered"]) == (3, 2)
 
 
+@pytest.mark.parametrize("fail_at", [None, "b"])
+def test_upload_is_removed_once_the_job_has_ended(tmp_path, fail_at):
+    upload = tmp_path / "up"
+    upload.mkdir()
+    (upload / "a.png").write_bytes(b"x")
+    manager = JobManager(job=fake_job(fail_at=fail_at))
+    job = manager.submit(upload, CONFIG)
+    manager.wait(job.id)
+    assert manager.get(job.id).status == ("done" if fail_at is None else "failed")
+    assert not upload.exists()
+
+
+def test_forgotten_job_is_no_longer_listed(tmp_path):
+    manager = JobManager(job=fake_job())
+    kept = manager.submit(tmp_path / "1", CONFIG)
+    manager.wait(kept.id)
+    gone = manager.submit(tmp_path / "2", CONFIG)
+    manager.wait(gone.id)
+    manager.forget(gone.id)
+    assert manager.get(gone.id) is None
+    assert [j.id for j in manager.list()] == [kept.id]
+
+
 def test_job_has_its_start_time_before_it_has_a_run_folder(tmp_path):
     """The page names runs by start time; a running job has no run folder to take it from."""
     from src.run import is_run_dir_name
 
     gate = threading.Event()
     manager = JobManager(job=fake_job(gate=gate))
-    job = manager.submit(tmp_path, CONFIG).to_dict()
+    job = manager.submit(tmp_path / "up", CONFIG).to_dict()
     gate.set()
     manager.wait(job["id"])
     assert job["run_dir"] is None
@@ -108,7 +131,7 @@ def test_reports_dataset_stage_before_the_pipeline_reports_any():
 
 def test_exception_in_a_stage_fails_the_job_at_that_stage(tmp_path):
     manager = JobManager(job=fake_job(fail_at="b"))
-    job = manager.submit(tmp_path, CONFIG)
+    job = manager.submit(tmp_path / "up", CONFIG)
     manager.wait(job.id)
 
     job = manager.get(job.id)
@@ -124,7 +147,7 @@ def test_dataset_error_message_is_kept(tmp_path):
         raise DatasetError("only 1 readable image(s); at least 2 required")
 
     manager = JobManager(job=job)
-    job_id = manager.submit(tmp_path, CONFIG).id
+    job_id = manager.submit(tmp_path / "up", CONFIG).id
     manager.wait(job_id)
     job = manager.get(job_id)
     assert (job.status, job.stage) == ("failed", "dataset")
@@ -133,7 +156,7 @@ def test_dataset_error_message_is_kept(tmp_path):
 
 def test_failure_while_writing_outputs_is_reported(tmp_path):
     manager = JobManager(job=fake_job(fail_at="outputs", exc=OSError("disk full")))
-    job = manager.submit(tmp_path, CONFIG)
+    job = manager.submit(tmp_path / "up", CONFIG)
     manager.wait(job.id)
     job = manager.get(job.id)
     assert (job.status, job.stage, job.error) == ("failed", "outputs", "disk full")
@@ -141,7 +164,7 @@ def test_failure_while_writing_outputs_is_reported(tmp_path):
 
 def test_failed_job_keeps_the_outputs_written_so_far(tmp_path):
     manager = JobManager(job=fake_job(fail_at="b", exc=JobFailed("boom", tmp_path / "run")))
-    job = manager.submit(tmp_path, CONFIG)
+    job = manager.submit(tmp_path / "up", CONFIG)
     manager.wait(job.id)
     job = manager.get(job.id)
     assert (job.status, job.error, job.run_dir) == ("failed", "boom", tmp_path / "run")
