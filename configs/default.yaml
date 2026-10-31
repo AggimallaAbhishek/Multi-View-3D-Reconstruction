@@ -90,7 +90,9 @@ registration:                  # adding an image to the reconstruction from 2D-3
   refine: true                 # Levenberg-Marquardt refinement of the pose on the inliers
   relative_pose_fallback: true # when PnP lacks links: pose from the essential matrix with the
                                # registered image sharing most tracks, scale from shared landmarks
-  fallback_epipolar_threshold_px: 1.5  # RANSAC threshold of that essential matrix
+  fallback_estimator: usac_accurate  # of that essential matrix (plain ransac was 1-3 deg off)
+  fallback_epipolar_threshold_px: 1.5  # and its inlier threshold; the pose is refined by the
+                               # bundle adjustment that follows (refine: applies to PnP)
   fallback_min_links: 6        # landmarks that must agree with the scale (vs min_inliers for PnP)
 
 bundle_adjustment:             # joint refinement of camera poses, points and the focal length

@@ -126,6 +126,7 @@ class RegistrationConfig:
     min_inlier_ratio: float = 0.25
     refine: bool = True
     relative_pose_fallback: bool = True
+    fallback_estimator: Literal["usac_accurate", "usac_magsac", "ransac"] = "usac_accurate"
     fallback_epipolar_threshold_px: float = 1.5
     fallback_min_links: int = 6
 

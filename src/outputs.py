@@ -385,9 +385,12 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
     files = save_cloud(run_dir, X, colors, cameras, [names[m] for m in images], sizes,
                        MULTI_VIEW_FRAME)  # fmt: skip
 
+    # A PnP failure the relative-pose fallback then rescued is not a failed attempt.
+    rescued = sum(a.success and a.method == "relative_pose" for a in rec.attempts)
+    failed = sum(not a.success for a in rec.attempts) - rescued
     print(
         f"Registered {len(images)} of {len(names)} images "
-        f"({sum(not a.success for a in rec.attempts)} failed attempts)"
+        f"({rescued} from a relative pose, {failed} failed attempts)"
     )
     print(
         f"Landmarks: {len(lm)}, observations {len(errors)} "

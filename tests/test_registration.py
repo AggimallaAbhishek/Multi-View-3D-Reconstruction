@@ -114,3 +114,42 @@ def test_relative_pose_needs_enough_landmarks_for_the_scale():
     registry, landmarks = _few_shared_landmarks(s, 3, [0, 1, 2], n_links=3)
     reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, s.scene.K, CFG)
     assert not reg.success and reg.reason == "too_few_links"  # fallback_min_links is 6
+
+
+def _fallback_case(n_links=8):
+    s = make_sfm_scene(n_cameras=4, n_points=400, focal=1000.0, arc_deg=60.0, noise_px=0.5)
+    registry, landmarks = _few_shared_landmarks(s, 3, [0, 1, 2], n_links)
+    return s, registry, landmarks
+
+
+def test_relative_pose_rejects_links_to_the_wrong_landmarks():
+    """Links whose landmarks are swapped around agree on no scale: no registration."""
+    s, registry, landmarks = _fallback_case(n_links=12)
+    _, ids = landmarks.correspondences(3, s.tracks)
+    landmarks.position[ids] = landmarks.position[np.roll(ids, 1)]
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, s.scene.K, CFG)
+    assert not reg.success and reg.reason == "too_few_links"
+
+
+def test_relative_pose_rejects_a_scale_behind_the_neighbour():
+    """Landmarks placed so that the rays meet them only for a negative baseline length
+    (camera on the far side of the neighbour): the scale is not trusted."""
+    s, registry, landmarks = _fallback_case(n_links=12)
+    scene = s.scene
+    # Every registered image shares all 400 tracks with image 3; ties go to image 0.
+    R3, t3 = scene.rotations[3], scene.translations[3]
+    t0 = R3 @ scene.rotations[0].T @ scene.translations[0]
+    baseline = t3 - t0  # s * t_rel with s > 0
+    _, ids = landmarks.correspondences(3, s.tracks)
+    X_cam = landmarks.position[ids] @ R3.T + t3  # on the rays of image 3
+    # R X'' + t0 - baseline = X_cam: the rays meet X'' for s = -|baseline|.
+    landmarks.position[ids] = (X_cam - t0 + baseline) @ R3
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, scene.K, CFG)
+    assert not reg.success
+
+
+def test_relative_pose_needs_enough_shared_tracks():
+    s, registry, landmarks = _fallback_case()
+    strict = dataclasses.replace(CFG, min_inliers=10_000)
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, s.scene.K, strict)
+    assert not reg.success and reg.reason == "too_few_matches"
