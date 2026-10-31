@@ -1,9 +1,9 @@
 // Point cloud and camera viewer (three.js, rendered on demand).
 //
 // The reconstruction frame follows OpenCV: x right, y down, z forward from the first
-// camera. three.js is y-up, so everything sits in one group rotated to put the cameras'
-// mean up direction (R^T [0, -1, 0]) on +y: upright photos give an upright cloud, even
-// when the first camera was tilted. Before cameras are known: 180° about x.
+// camera. three.js is y-up, so everything sits in one group rotated to put the scene's up
+// direction on +y (see sceneUp: the normal of a camera ring, else the cameras' mean image
+// up, R^T [0, -1, 0]). Before cameras are known: 180° about x.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -110,26 +110,57 @@ function robustSphere(positions) {
  * Cameras on a ring round the object (their centres enclose a loop): the ring's normal,
  * pointing away from where the cameras look (they usually look down at the object); the
  * image-up vectors are no guide there (rolled cameras, e.g. Middlebury templeRing).
- * Otherwise (an arc or a line of shots): the mean image-up. */
+ * Otherwise (an arc or a line of shots): the mean image-up.
+ *
+ * The loop test does not depend on the cameras' order (cameras.json lists them in
+ * registration order): the centres are sorted by angle in their best-fit plane first. */
 function sceneUp(centres, upSum, forwardSum) {
   const n = centres.length;
   const mean = centres.reduce((acc, c) => acc.add(c), new THREE.Vector3()).divideScalar(Math.max(n, 1));
-  const normal = new THREE.Vector3(); // Newell: twice the loop's vector area
-  let spread = 0;
-  centres.forEach((c, k) => {
-    const a = c.clone().sub(mean);
-    normal.add(a.clone().cross(centres[(k + 1) % n].clone().sub(mean)));
-    spread += a.lengthSq() / n;
-  });
-  const enclosesLoop = n >= 4 && normal.length() / 2 > 0.5 * Math.PI * spread; // ~1 for a ring, ~0.2 for a 40° arc
-  if (enclosesLoop) {
-    normal.normalize();
-    return normal.dot(forwardSum) > 0 ? normal.negate() : normal;
+  const offsets = centres.map((c) => c.clone().sub(mean));
+  const spread = offsets.reduce((acc, a) => acc + a.lengthSq(), 0) / Math.max(n, 1);
+  const plane = n >= 4 && principalPlane(offsets);
+  if (plane) {
+    const angle = (a) => Math.atan2(a.dot(plane[1]), a.dot(plane[0]));
+    const ring = [...offsets].sort((a, b) => angle(a) - angle(b));
+    const normal = new THREE.Vector3(); // Newell: twice the loop's vector area
+    ring.forEach((a, k) => normal.add(a.clone().cross(ring[(k + 1) % n])));
+    if (normal.length() / 2 > 0.5 * Math.PI * spread) { // ~1 for a ring, ~0.2 for a 40° arc
+      normal.normalize();
+      return normal.dot(forwardSum) > 0 ? normal.negate() : normal;
+    }
   }
   return upSum.length() > 0.3 * n ? upSum.clone().normalize() : new THREE.Vector3(0, -1, 0);
 }
 
-const srgbToLinear =(c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+/** The two main axes of a set of offsets from their mean (unit vectors), or null when
+ * they span less than a plane. */
+function principalPlane(offsets) {
+  const e = Array(9).fill(0); // covariance, row-major
+  for (const a of offsets) {
+    const v = [a.x, a.y, a.z];
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) e[3 * i + j] += v[i] * v[j];
+  }
+  const first = dominantAxis(e);
+  if (!first) return null;
+  const f = [first.x, first.y, first.z];
+  const lambda = f.reduce((acc, fi, i) => acc + fi * f.reduce((s, fj, j) => s + e[3 * i + j] * fj, 0), 0);
+  const second = dominantAxis(e.map((x, k) => x - lambda * f[Math.floor(k / 3)] * f[k % 3]), lambda);
+  return second && [first, second.addScaledVector(first, -second.dot(first)).normalize()];
+}
+
+/** Unit eigenvector of the largest eigenvalue of a symmetric 3×3 matrix (row-major), by
+ * power iteration; null if that eigenvalue is ~0 (relative to ``scale``). */
+function dominantAxis(e, scale = Math.max(...e.map(Math.abs))) {
+  const m = new THREE.Matrix3().set(...e);
+  const columns = [0, 1, 2].map((i) => new THREE.Vector3(e[i], e[3 + i], e[6 + i]));
+  const v = columns.reduce((a, b) => (b.lengthSq() > a.lengthSq() ? b : a)); // in the range of m
+  if (!(v.length() > 1e-6 * scale)) return null;
+  for (let k = 0; k < 100; k++) v.applyMatrix3(m).normalize();
+  return v;
+}
+
+const srgbToLinear = (c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 // --- Viewer ---------------------------------------------------------------------------
 
