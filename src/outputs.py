@@ -385,7 +385,7 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         f"Reprojection error: mean {stats.mean:.2f} px, median {stats.median:.2f} px, "
         f"90th percentile {stats.p90:.2f} px, max {stats.max:.2f} px"
     )
-    f0, f = r.images[images[0]].K[0, 0], cameras[0].K[0, 0]
+    f0, f = (summary["intrinsics"][k][0][0] for k in ("initial_K", "K"))
     if f != f0:
         print(f"Focal length refined: {f:.1f} px (started at {f0:.1f} px, {f / f0 - 1:+.1%})")
     if unregistered:

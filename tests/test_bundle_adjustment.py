@@ -7,7 +7,13 @@ from src.evaluation.metrics import align_similarity, rotation_error_deg
 from src.geometry.camera import Camera
 from src.geometry.reprojection import reprojection_errors
 from src.geometry.triangulation import Observations
-from src.reconstruction.bundle_adjustment import bundle_adjust, jacobian, residuals
+from src.reconstruction.bundle_adjustment import (
+    bundle_adjust,
+    jacobian,
+    pack,
+    residuals,
+    scale_focal,
+)
 from tests.synthetic import make_scene
 
 CFG = BundleAdjustmentConfig()
@@ -106,72 +112,56 @@ def test_robust_loss_resists_grossly_wrong_observations():
     )
 
 
-def test_jacobian_matches_finite_differences():
-    """The exact reprojection Jacobian (camera rotation and translation, point) against
-    SciPy's central differences, at a generic state: rotated, shifted, off the optimum."""
+@pytest.mark.parametrize("refine_focal", [False, True])
+def test_jacobian_matches_finite_differences(refine_focal):
+    """The exact reprojection Jacobian (camera rotation and translation, point and, with
+    ``refine_focal``, the focal scale shared by every camera, ``K @ diag(s, s, 1)``)
+    against SciPy's central differences, at a generic state: rotated, shifted, off the
+    optimum."""
     from scipy.optimize._numdiff import approx_derivative
 
     scene = make_scene(n_points=40, n_cameras=4, noise_px=0.5, seed=3)
     cameras, obs, X = _problem(scene)
     cameras, X = _perturbed(cameras, X, np.random.default_rng(1))
-    params = np.concatenate(
-        [np.concatenate([cv2.Rodrigues(c.R)[0].ravel(), c.t]) for c in cameras] + [X.ravel()]
-    )
+    s = 0.93 if refine_focal else None
+    params = pack(cameras, X, s)
     K = np.stack([c.K for c in cameras])
 
-    exact = jacobian(params, K, obs).toarray()
-    numeric = approx_derivative(lambda p: residuals(p, K, obs), params, method="3-point")
-    assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X))
+    if refine_focal:  # the residuals are those of the scaled cameras
+        scaled = [Camera(scale_focal(c.K, s), c.R, c.t) for c in cameras]
+        projected = [
+            scaled[v].project(X[p][None])[0][0] for v, p in zip(obs.view, obs.point, strict=True)
+        ]
+        np.testing.assert_allclose(
+            residuals(params, K, obs, True).reshape(-1, 2), np.array(projected) - obs.xy, atol=1e-9
+        )
+    exact = jacobian(params, K, obs, refine_focal).toarray()
+    numeric = approx_derivative(lambda p: residuals(p, K, obs, refine_focal), params)
+    assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X) + refine_focal)
     np.testing.assert_allclose(exact, numeric, rtol=1e-5, atol=1e-5 * np.abs(numeric).max())
 
 
-def _scaled(K, s):
-    return K @ np.diag([s, s, 1.0])
-
-
-def test_jacobian_with_focal_scale_matches_finite_differences():
-    """With ``refine_focal`` the parameters end in one focal scale shared by every camera
-    (``K @ diag(s, s, 1)``), and the Jacobian gains its column."""
-    from scipy.optimize._numdiff import approx_derivative
-
-    scene = make_scene(n_points=40, n_cameras=4, noise_px=0.5, seed=3)
-    cameras, obs, X = _problem(scene)
-    cameras, X = _perturbed(cameras, X, np.random.default_rng(1))
-    params = np.concatenate(
-        [np.concatenate([cv2.Rodrigues(c.R)[0].ravel(), c.t]) for c in cameras]
-        + [X.ravel(), [0.93]]
-    )
-    K = np.stack([c.K for c in cameras])
-
-    scaled = [Camera(_scaled(c.K, 0.93), c.R, c.t) for c in cameras]
-    expected = np.concatenate(
-        [scaled[v].project(X[obs.point[obs.view == v]])[0] - obs.xy[obs.view == v]
-         for v in range(len(cameras))]
-    )  # fmt: skip
-    order = np.argsort(obs.view, kind="stable")
-    np.testing.assert_allclose(
-        residuals(params, K, obs, refine_focal=True).reshape(-1, 2)[order], expected, atol=1e-9
-    )
-    exact = jacobian(params, K, obs, refine_focal=True).toarray()
-    numeric = approx_derivative(lambda p: residuals(p, K, obs, refine_focal=True), params)
-    assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X) + 1)
-    np.testing.assert_allclose(exact, numeric, rtol=1e-5, atol=1e-5 * np.abs(numeric).max())
-
-
-def test_refine_focal_recovers_a_wrong_focal_length():
-    """Started 10 % off, the shared focal length converges to the truth (and is applied to
-    the fixed camera too); with K held fixed the error stays and distorts the poses."""
+@pytest.fixture
+def wrong_focal():
+    """Cameras 10 % short in focal length, perturbed (camera 0 exact), and the truth."""
     scene = make_scene(n_points=400, n_cameras=8, noise_px=0.5, seed=4, arc_deg=120.0)
     true_cams, obs, X_true = _problem(scene)
-    wrong = [Camera(_scaled(c.K, 0.9), c.R, c.t) for c in true_cams]
+    wrong = [Camera(scale_focal(c.K, 0.9), c.R, c.t) for c in true_cams]
     cams0, X0 = _perturbed(wrong, X_true, np.random.default_rng(0), skip={0})
+    return cams0, obs, X0, true_cams
+
+
+def test_refine_focal_recovers_a_wrong_focal_length(wrong_focal):
+    """Started 10 % off, the shared focal length converges to the truth (and is applied to
+    the fixed camera too); with K held fixed the error stays and distorts the poses."""
+    cams0, obs, X0, true_cams = wrong_focal
 
     fixed_k = bundle_adjust(cams0, obs, X0, CFG, fixed=(0,))
     refined = bundle_adjust(cams0, obs, X0, CFG, fixed=(0,), refine_focal=True)
     assert fixed_k.focal_scale == 1.0
     assert refined.focal_scale == pytest.approx(1 / 0.9, rel=2e-3)
     for c in refined.cameras:
-        np.testing.assert_allclose(c.K, _scaled(cams0[0].K, refined.focal_scale))
+        np.testing.assert_allclose(c.K, scale_focal(cams0[0].K, refined.focal_scale))
     np.testing.assert_array_equal(refined.cameras[0].R, cams0[0].R)
     assert refined.final_rms_px < 0.5 * np.sqrt(2) < fixed_k.final_rms_px
 
@@ -188,16 +178,13 @@ def test_refine_focal_off_leaves_k_unchanged():
     cams, obs, X = _problem(scene)
     result = bundle_adjust(cams, obs, X, CFG, fixed=(0,))
     assert result.focal_scale == 1.0
-    assert all(c.K is cams[0].K or np.array_equal(c.K, cams[0].K) for c in result.cameras)
+    assert all(np.array_equal(c.K, cams[0].K) for c in result.cameras)
 
 
-def test_a_focal_scale_beyond_the_limit_is_discarded():
+def test_a_focal_scale_beyond_the_limit_is_discarded(wrong_focal):
     """A refined focal length that moved more than ``max_focal_change`` (here deliberately
     tight) is not trusted: the adjustment is repeated with K held fixed."""
-    scene = make_scene(n_points=400, n_cameras=8, noise_px=0.5, seed=4, arc_deg=120.0)
-    true_cams, obs, X_true = _problem(scene)
-    wrong = [Camera(_scaled(c.K, 0.9), c.R, c.t) for c in true_cams]
-    cams0, X0 = _perturbed(wrong, X_true, np.random.default_rng(0), skip={0})
+    cams0, obs, X0, _ = wrong_focal
 
     tight = BundleAdjustmentConfig(max_focal_change=1.05)  # the true change is 1 / 0.9
     result = bundle_adjust(cams0, obs, X0, tight, fixed=(0,), refine_focal=True)
