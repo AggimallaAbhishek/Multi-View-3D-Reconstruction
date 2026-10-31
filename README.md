@@ -566,7 +566,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
 2. **Calibration is required.** Bundle adjustment keeps `K` fixed; a 5 % focal-length error halves completeness and a guessed focal length gives a distorted model (E3).
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
-4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image.
+4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.
 6. Sparse clouds do not represent complete surfaces; no dense stage or mesh is produced.
 7. No metric scale without an external reference; one measured distance sets it (on templeRing consistent with the full fit to < 1 %).
@@ -585,7 +585,7 @@ Directly suggested by the results:
 - **Refine the focal length in bundle adjustment** (self-calibration), so an EXIF or guessed `K` no longer distorts the model (RQ3).
 - **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
 - **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
-- More datasets with ground truth (ETH3D, Tanks & Temples, dinoRing) and own captures.
+- More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.
 

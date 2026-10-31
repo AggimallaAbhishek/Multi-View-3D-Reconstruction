@@ -19,10 +19,13 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 | Step | Method | Ours / external |
 |---|---|---|
 | Detection + description | SIFT (default; optional RootSIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` (**external**); cap and RootSIFT ours |
+| Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, from 0.04 down to 0.005 | ours |
 | Nearest neighbours | exact brute force, 2-NN | OpenCV `batchDistance` (**external**) |
 | Ratio test | keep `d₁ < r·d₂` (Lowe 2004), default `r` = 0.75 | ours |
 | Mutual check | keep only matches that are each other's nearest neighbour | ours |
 | Pair selection | exhaustive up to 50 images, sequential window above | ours |
+
+SIFT's contrast threshold is absolute, so one value cannot suit every image: on Middlebury dinoRing (smooth plaster, lit from one side) the dark half of the ring kept 74–160 features per image at 0.04 (correlation with brightness 0.9), and registration stopped at 19/48 cameras. Lowering the threshold globally to 0.005 registers all 48, but also makes templeRing 2.5× slower for no gain in coverage. Lowering it only for images below 500 features registers all 48 dinoRing cameras (rotation error median 0.15°, max 0.28°) and leaves templeRing untouched — its sparsest image already has 597.
 
 Brute force is the default because, at 8000 SIFT features, it was as fast as FLANN and FLANN returned different matches on identical runs. E2 places the best ratio at 0.7–0.8; looser ratios verify more pairs but give fewer, worse points.
 

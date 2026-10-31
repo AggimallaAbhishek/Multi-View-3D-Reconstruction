@@ -133,6 +133,7 @@ EXIF orientation rotating images silently (use `cv2.IMREAD_IGNORE_ORIENTATION` o
 > - Observed: on a heavily blurred image SIFT still finds 265 features where ORB finds 0 — first data point for RQ4.
 > - Removed the unused `preprocessing.grayscale` key; added `features.sift_contrast_threshold` and `features.cache_dir`.
 > - The cache lives in a shared `outputs/cache/features/` (keyed by content), not per run as first planned, so it is reused across runs.
+> - Added later (found with dinoRing through the web interface): `features.sift_adaptive_min_features` / `sift_min_contrast_threshold` — an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, down to 0.005. dinoRing 19/48 → 48/48 registered; templeRing unchanged (every image already has ≥ 597).
 
 ### Tasks
 - `features/extractor.py`: `Extractor` interface with `SIFTExtractor` (default, `nfeatures` from config) and `ORBExtractor`. Return `Features(points: (N,2) float32, descriptors, sizes, angles)`.

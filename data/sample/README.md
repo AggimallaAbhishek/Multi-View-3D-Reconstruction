@@ -33,4 +33,24 @@ python scripts/evaluate_against_ground_truth.py data/raw/templeRing
 
 Before `E` refinement, three of the 229 pairwise poses erred by 5–12°: wide baselines (23–38°) with 75–169 inliers, where E is poorly conditioned; error grew as inliers fell (median 0.32° above 250 inliers, ~1° below 120). Refinement brought the worst down to 4.3°. Incremental SfM (Phase 8) therefore registers views by PnP and refines with bundle adjustment rather than chaining pairwise poses — its camera rotations (median 0.15°) are 3× more accurate than the pairwise estimates.
 
+## Results on dinoRing
+
+```bash
+python scripts/download_middlebury.py dinoRing
+python scripts/evaluate_against_ground_truth.py data/raw/dinoRing
+```
+
+48 views of a smooth plaster dinosaur on black, lit from one side: a low-texture case. With a fixed SIFT contrast threshold (0.04) the images had 74–221 features each, tracking their brightness (correlation 0.9), and only the 19 brightly lit views registered. With the per-image adaptive threshold (default since the fix: below 500 features, halve down to 0.005):
+
+| | Fixed threshold 0.04 | Adaptive (default) |
+|---|---|---|
+| Registered | 19/48 | **48/48** |
+| Landmarks | 500 | 3635 |
+| Camera rotation error, median / max | 0.24° / 0.57° | **0.15° / 0.28°** |
+| Camera centre error, median / max | 0.47 % / 1.00 % | 0.23 % / 0.45 % |
+| Reprojection error, mean | 0.52 px | 0.44 px |
+| Runtime (Apple M4, cold) | — | 26 s |
+
+dinoSparseRing (16 views ~22° apart) is beyond the ~20° matching limit: 5/16 registered with the adaptive threshold (4/16 with the fixed one).
+
 Own captures: document the camera, resolution, focal length, lighting and capture path for each scene in `data/raw/<scene>/README.md`.

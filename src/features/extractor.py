@@ -147,10 +147,11 @@ class SIFTExtractor(FeatureExtractor):
         self.name = "rootsift" if root_sift else "sift"
 
     def _detector(self, contrast_threshold: float | None = None) -> cv2.Feature2D:
+        if contrast_threshold is None:
+            contrast_threshold = self.contrast_threshold
         # Ask OpenCV for a little more than the cap so the strict cap picks the strongest.
         return cv2.SIFT_create(
-            nfeatures=self.max_features + 64,
-            contrastThreshold=contrast_threshold or self.contrast_threshold,
+            nfeatures=self.max_features + 64, contrastThreshold=contrast_threshold
         )
 
     def detect(self, image: np.ndarray) -> Features:
@@ -159,6 +160,8 @@ class SIFTExtractor(FeatureExtractor):
 
         SIFT's contrast threshold is absolute, so the dark side of an unevenly lit,
         low-texture object loses most of its features at a threshold that suits the rest.
+        ``min_features=0`` (the constructor's default; the config's is 500) keeps the
+        configured threshold for every image.
         """
         threshold = self.contrast_threshold
         features = self._detect_with(self._detector(threshold), image)
@@ -177,9 +180,10 @@ class SIFTExtractor(FeatureExtractor):
         return np.sqrt(descriptors / np.maximum(l1, 1e-12)).astype(np.float32)
 
     def signature(self) -> str:
-        adaptive = f"a{self.min_features}-f{self.min_contrast_threshold:g}"
-        threshold = f"c{self.contrast_threshold:g}-{adaptive}"
-        return f"{self.name}-n{self.max_features}-{threshold}-cv{cv2.__version__}"
+        return (
+            f"{self.name}-n{self.max_features}-c{self.contrast_threshold:g}"
+            f"-a{self.min_features}-f{self.min_contrast_threshold:g}-cv{cv2.__version__}"
+        )
 
 
 class ORBExtractor(FeatureExtractor):
