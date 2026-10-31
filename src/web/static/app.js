@@ -472,9 +472,16 @@ async function init() {
   $("dropzone-hint").textContent =
     `At least ${config.min_images} photos (${config.extensions.map((e) => e.slice(1).toUpperCase()).join(", ")}). ` +
     "Walk around the subject so neighbouring photos overlap by about two thirds.";
-  const match = location.hash.match(/^#job=(.+)$/);
   await refreshPreviousRuns();
+  openJobFromUrl();
+  // a #job= link pasted into an open tab, or edited by hand
+  window.addEventListener("hashchange", openJobFromUrl);
+}
+
+function openJobFromUrl() {
+  const match = location.hash.match(/^#job=(.+)$/);
   if (match) openJob(decodeURIComponent(match[1]));
+  else startOver();
 }
 
 init().catch((error) => showUploadMessage(`The page could not start: ${error.message}`));

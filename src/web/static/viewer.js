@@ -104,8 +104,9 @@ function robustSphere(positions) {
   return { centre, radius: Math.max(quantile(distances, 0.9), 1e-6) };
 }
 
-/** The scene's up direction in the reconstruction frame, from the cameras (centres, and
- * sums of their image-up and optical-axis vectors).
+/** The scene's up direction in the reconstruction frame, and whether the cameras form a
+ * ring round the object: ``{ up, ring }``, from the cameras (centres, and sums of their
+ * image-up and optical-axis vectors).
  *
  * Cameras on a ring round the object (their centres enclose a loop): the ring's normal,
  * pointing away from where the cameras look (they usually look down at the object); the
@@ -127,10 +128,11 @@ function sceneUp(centres, upSum, forwardSum) {
     ring.forEach((a, k) => normal.add(a.clone().cross(ring[(k + 1) % n])));
     if (normal.length() / 2 > 0.5 * Math.PI * spread) { // ~1 for a ring, ~0.2 for a 40° arc
       normal.normalize();
-      return normal.dot(forwardSum) > 0 ? normal.negate() : normal;
+      return { up: normal.dot(forwardSum) > 0 ? normal.negate() : normal, ring: true };
     }
   }
-  return upSum.length() > 0.3 * n ? upSum.clone().normalize() : new THREE.Vector3(0, -1, 0);
+  const up = upSum.length() > 0.3 * n ? upSum.clone().normalize() : new THREE.Vector3(0, -1, 0);
+  return { up, ring: false };
 }
 
 /** The two main axes of a set of offsets from their mean (unit vectors), or null when
@@ -265,9 +267,12 @@ export class Viewer {
     const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
     this.frustums = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: FRUSTUM_COLOUR }));
     this.group.add(this.frustums);
-    this.group.quaternion.setFromUnitVectors(sceneUp(this.cameraCentres, up, forward), new THREE.Vector3(0, 1, 0));
-    // cameras all round the object cancel out: no common viewing direction
-    this.cameraForward = forward.length() > 0.2 * cameras.length ? forward.normalize() : null;
+    const scene = sceneUp(this.cameraCentres, up, forward);
+    this.group.quaternion.setFromUnitVectors(scene.up, new THREE.Vector3(0, 1, 0));
+    // no common viewing direction for a ring, even when the cameras all look down steeply
+    // (their sum need not cancel: 0.28 per camera on Middlebury dinoRing), nor when they cancel
+    const common = !scene.ring && forward.length() > 0.2 * cameras.length;
+    this.cameraForward = common ? forward.normalize() : null;
     this.render();
   }
 
