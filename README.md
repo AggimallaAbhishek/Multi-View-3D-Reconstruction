@@ -3,7 +3,7 @@
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
 ![status](https://img.shields.io/badge/status-complete%20%C2%B7%20M3-brightgreen)
-![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-387%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -17,7 +17,7 @@
 3. [Objectives & Research Questions](#3-objectives--research-questions)
 4. [Scope](#4-scope)
 5. [System Architecture](#5-system-architecture)
-6. [Roadmap (Phase 0 → Phase 11)](#6-roadmap-phase-0--phase-11)
+6. [Roadmap (Phase 0 → Phase 12)](#6-roadmap-phase-0--phase-12)
 7. [Quick Start](#7-quick-start)
 8. [Repository Structure](#8-repository-structure)
 9. [Capturing a Dataset](#9-capturing-a-dataset)
@@ -78,7 +78,7 @@ Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completenes
 | Dense reconstruction | Future work (RQ5) |
 | Scaling | Metric scale from a known reference distance (Phase 10) |
 
-**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. Which parts are our own implementation and which come from these libraries is listed in [docs/methodology.md](docs/methodology.md#12-ours-vs-external). COLMAP is not used (a COLMAP baseline and dense reconstruction are future work).
+**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. Which parts are our own implementation and which come from these libraries is listed in [docs/methodology.md](docs/methodology.md#12-ours-vs-external). COLMAP is not used (a COLMAP baseline and dense reconstruction are future work). The optional web interface (§7.7) uses **FastAPI** and **uvicorn** (server) and **three.js** (browser viewer, loaded from a CDN) — all external.
 
 ---
 
@@ -170,7 +170,8 @@ flowchart TD
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct → filter); stage-by-stage data flow in [docs/architecture.md](docs/architecture.md) | In-memory results |
-| `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
+| `cli.py` / `run.py` / `outputs.py` | Commands per stage; run directories with config, environment and per-stage outputs (`outputs.py`, shared with the web interface); shared CSV writer | Reproducible run directories |
+| `web/` | Optional local web interface: FastAPI app (upload checks, job, report and file endpoints), one reconstruction at a time in a child process, `report.json`; static page with a three.js viewer | Browser UI, `report.json` |
 
 ### 5.3 Design principles
 
@@ -181,7 +182,7 @@ flowchart TD
 
 ---
 
-## 6. Roadmap (Phase 0 → Phase 11)
+## 6. Roadmap (Phase 0 → Phase 12)
 
 Detailed task lists, deliverables, exit criteria, and risks for every phase are in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
@@ -199,6 +200,7 @@ Detailed task lists, deliverables, exit criteria, and risks for every phase are 
 | 9 | Filtering, export (+ optional dense) | `filtered.ply`, `cameras.json`, optional COLMAP MVS | Reload round-trip; before/after point counts logged | **M2: multi-view** |
 | 10 | Evaluation & experiments | RQ1–RQ4 experiments (E1–E5), plots; COLMAP baseline future work | All experiments reproducible from config | — |
 | 11 | Documentation & presentation | Report, architecture/method docs, demo | Checklist complete | **M3: submission** |
+| 12 | Web interface | Local page: upload → progress → 3-D viewer + report | Browser reproduces the CLI's templeRing numbers | — |
 
 All phases are complete (see the checklist in §17); each phase's status notes in the roadmap record what was built, the decisions taken and the measurements behind them.
 
@@ -336,7 +338,20 @@ python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/
 
 Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence and plots: `notebooks/04_reconstruction_analysis.ipynb`.
 
-### 7.7 COLMAP (future work)
+### 7.7 Web interface (Phase 12)
+
+```bash
+uv pip install -e ".[web]"     # FastAPI, uvicorn, python-multipart (external)
+python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--port to change)
+```
+
+Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The page follows the run stage by stage, then shows the point cloud with its cameras (three.js, external), summary metrics, the ground-truth errors when `gt_cameras.json` was given, the diagnostic figures and downloads (`filtered.ply`, `cameras.json`, `report.json`). Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, so earlier results are listed again after a restart.
+
+![web interface on templeRing](docs/images/web_ui.png)
+
+Local only: the server listens on `127.0.0.1`, has no authentication and runs one reconstruction at a time. Upload limits and the poll interval are under `web:` in `configs/default.yaml`; the page needs internet access for three.js and the fonts. Through the page, templeRing gives exactly the CLI's numbers (Phase 12 in the roadmap).
+
+### 7.8 COLMAP (future work)
 
 The COLMAP baseline (E6, RQ5) and dense reconstruction are not implemented. COLMAP is a system dependency (`brew install colmap`; https://colmap.github.io/); installing the Python requirements does not install it.
 
@@ -365,6 +380,7 @@ Multi-View-3D-Reconstruction/
 ├── src/
 │   ├── config.py      # typed config (frozen dataclasses), YAML loader
 │   ├── run.py         # run directories, environment capture, CSV writer
+│   ├── outputs.py     # per-stage output writers (CLI and web)
 │   ├── pipeline.py    # run_pipeline → PipelineResult
 │   ├── cli.py
 │   ├── data/          loader.py · validation.py · preprocessing.py · dataset.py
@@ -376,7 +392,9 @@ Multi-View-3D-Reconstruction/
 │   ├── reconstruction/ two_view.py · tracks.py · camera_registry.py · landmarks.py
 │   │                  registration.py · bundle_adjustment.py · incremental.py
 │   ├── pointcloud/    coloring.py · filtering.py · export.py
-│   └── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
+│   ├── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
+│   └── web/           __main__.py · app.py · jobs.py · report.py
+│                      static/ index.html · app.js · viewer.js · style.css
 ├── tests/
 │   ├── synthetic.py              # 3D points + cameras with exact ground truth
 │   ├── render.py                 # rendered textured box scene from known cameras
@@ -469,6 +487,8 @@ outputs/<timestamp>_two_view_sift/
 
 `reconstruct` runs the same stages and continues to `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`) and `figures/filtered.png`; its `point_clouds/sparse.ply` (every landmark), `filtered.ply` and `camera_poses/cameras.json` hold the **multi-view** reconstruction, and the two-view cloud and renders are not written.
 
+The web interface writes the same layout as `reconstruct` to `outputs/<timestamp>_web_reconstruct/`, plus `report.json` (counts, calibration source, reprojection and ground-truth errors, timings).
+
 Not produced: dense clouds and meshes (future work). A complete textured mesh is **not** expected from sparse SfM alone. Experiment runs have their own layout (§7.6).
 
 **Demo:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → metrics.
@@ -521,7 +541,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-315 tests run in ~18 s (`pytest -q`). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+387 tests run in ~40 s (`pytest -q`; the web tests are skipped without the `[web]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
@@ -567,7 +587,7 @@ Directly suggested by the results:
 - **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
 - More datasets with ground truth (ETH3D, Tanks & Temples, dinoRing) and own captures.
 
-Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · simple web/desktop UI.
+Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.
 
 ---
 
@@ -593,6 +613,7 @@ Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refineme
 - [x] **Phase 9** Filtering & export — *M2* ✅ (optional dense not done)
 - [x] **Phase 10** Evaluation & experiments ✅ (E1–E5; E6 COLMAP baseline future work)
 - [x] **Phase 11** Documentation & presentation — *M3* ✅
+- [x] **Phase 12** Web interface ✅
 
 **Definition of success:** reliably turn a suitable set of overlapping photos into a coherent multi-view 3D reconstruction, explain the geometry behind it, and back it with quantitative, reproducible evidence.
 

@@ -134,6 +134,7 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |
 | Export, viewer, renders | `cameras.json`, scene assembly | PLY IO, visualiser, offscreen renderer: Open3D |
 | Evaluation, experiments, reports | ✔ | k-d tree: SciPy; plots: Matplotlib; tables: pandas |
+| Web interface | endpoints, upload checks, jobs, `report.json`, page, PLY parsing, scene orientation | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
 | Dense reconstruction, COLMAP baseline | — | not used (future work) |
 
 No component of the pipeline is provided by COLMAP.

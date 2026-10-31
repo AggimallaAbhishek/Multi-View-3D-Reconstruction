@@ -310,6 +310,11 @@ unchanged.
 - `pytest -q` green; commit `docs: phase 12 web interface`; open a PR to `main` on
   request.
 
+Done: ROADMAP Phase 12 (status with the templeRing numbers, tasks, tests, exit criteria;
+gantt row); README §7.7 Web interface with the screenshot, FastAPI / uvicorn / three.js
+labelled external, roadmap row, modules, structure, outputs, test count (387), checklist;
+architecture.md web data-flow diagram; methodology.md ours-vs-external row.
+
 ## Order and checkpoints
 
 0 → 1 → 2 → 3 (stop: show CLI output unchanged) → 4 → 5 → 6 → 7 → 8 (stop: show
