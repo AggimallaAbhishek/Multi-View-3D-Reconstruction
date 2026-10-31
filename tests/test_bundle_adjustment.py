@@ -7,7 +7,7 @@ from src.evaluation.metrics import align_similarity, rotation_error_deg
 from src.geometry.camera import Camera
 from src.geometry.reprojection import reprojection_errors
 from src.geometry.triangulation import Observations
-from src.reconstruction.bundle_adjustment import bundle_adjust
+from src.reconstruction.bundle_adjustment import bundle_adjust, jacobian, residuals
 from tests.synthetic import make_scene
 
 CFG = BundleAdjustmentConfig()
@@ -104,3 +104,22 @@ def test_robust_loss_resists_grossly_wrong_observations():
     assert _max_pose_error(plain.cameras, true_cams) > 3 * _max_pose_error(
         robust.cameras, true_cams
     )
+
+
+def test_jacobian_matches_finite_differences():
+    """The exact reprojection Jacobian (camera rotation and translation, point) against
+    SciPy's central differences, at a generic state: rotated, shifted, off the optimum."""
+    from scipy.optimize._numdiff import approx_derivative
+
+    scene = make_scene(n_points=40, n_cameras=4, noise_px=0.5, seed=3)
+    cameras, obs, X = _problem(scene)
+    cameras, X = _perturbed(cameras, X, np.random.default_rng(1))
+    params = np.concatenate(
+        [np.concatenate([cv2.Rodrigues(c.R)[0].ravel(), c.t]) for c in cameras] + [X.ravel()]
+    )
+    K = np.stack([c.K for c in cameras])
+
+    exact = jacobian(params, K, obs).toarray()
+    numeric = approx_derivative(lambda p: residuals(p, K, obs), params, method="3-point")
+    assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X))
+    np.testing.assert_allclose(exact, numeric, rtol=1e-5, atol=1e-5 * np.abs(numeric).max())
