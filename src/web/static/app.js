@@ -466,7 +466,9 @@ function wire() {
 async function init() {
   wire();
   config = await api("/api/config");
-  $("images").accept = ["image/*", ...config.extensions].join(",");
+  // the optional files too, so they can be chosen with the photos (see OPTIONAL_FILES)
+  const optional = Object.keys(OPTIONAL_FILES).map((name) => name.slice(name.lastIndexOf(".")));
+  $("images").accept = ["image/*", ...config.extensions, ...optional].join(",");
   $("dropzone-hint").textContent =
     `At least ${config.min_images} photos (${config.extensions.map((e) => e.slice(1).toUpperCase()).join(", ")}). ` +
     "Walk around the subject so neighbouring photos overlap by about two thirds.";
