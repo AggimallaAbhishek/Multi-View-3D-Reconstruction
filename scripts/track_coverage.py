@@ -62,7 +62,8 @@ def main() -> int:
     bad = tri.errors > config.triangulation.max_reprojection_error_px
     n_bad = np.bincount(obs.point, weights=bad, minlength=len(missing)).astype(int)
     print(f"rejected by: {dict(Counter(tri.rejected_by))}")
-    print(f"observations beyond the threshold per track: {dict(sorted(Counter(n_bad.tolist()).items()))}")
+    per_track = dict(sorted(Counter(n_bad.tolist()).items()))
+    print(f"observations beyond the threshold per track: {per_track}")
     return 0
 
 
