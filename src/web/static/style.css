@@ -115,7 +115,7 @@ button.quiet:hover { border-color: var(--ink); }
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: 0.4rem 0.6rem;
-  max-width: 22rem;
+  max-width: min(30rem, 100%);
 }
 
 main { padding: 1.75rem var(--gutter) 4rem; max-width: var(--page); margin: 0 auto; }
@@ -256,7 +256,8 @@ body[data-state="results"] .view-results { display: block; }
   padding: 0.4rem 0.8rem; font-size: 0.8rem;
 }
 .segmented button[aria-pressed="true"] { background: #3cc2b5; color: #062320; }
-.slider { display: inline-flex; align-items: center; gap: 0.5rem; background: rgb(12 16 19 / 0.7); padding: 0.3rem 0.6rem; border-radius: var(--radius); }
+.slider, .labelled { display: inline-flex; align-items: center; gap: 0.5rem; background: rgb(12 16 19 / 0.7); padding: 0.3rem 0.6rem; border-radius: var(--radius); }
+.labelled .segmented button { padding: 0.25rem 0.7rem; }
 .slider input { accent-color: #3cc2b5; width: 7rem; }
 .viewer-status {
   position: absolute; inset: 0; display: grid; place-items: center; margin: 0;

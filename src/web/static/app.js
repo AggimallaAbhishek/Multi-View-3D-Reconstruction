@@ -97,10 +97,11 @@ function runLabel(job, detailed = false) {
   const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
   const when = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : `Run ${name}`;
   if (!detailed) return when;
-  const parts = [when];
-  if (job.photos != null) parts.push(plural(job.photos, "photo"));
-  if (job.registered != null) parts.push(`${job.registered}/${job.photos} registered`);
-  const label = parts.join(" · ");
+  const counts =
+    job.registered != null ? `${job.registered}/${job.photos} registered`
+    : job.photos != null ? plural(job.photos, "photo")
+    : null;
+  const label = counts ? `${when} · ${counts}` : when;
   return job.status === "done" ? label : `${label} (${job.status})`;
 }
 
@@ -420,11 +421,23 @@ async function loadViewer(id, report) {
     viewerJob.clouds.filtered = cloud;
     viewer.setCloud(cloud);
     viewer.setCameras(cameras.cameras);
-    viewer.fit();
+    viewer.fit(fitTarget());
     status.textContent = "";
   } catch (error) {
     status.textContent = `Could not show the point cloud: ${error.message}`;
   }
+}
+
+/** What "Fit to" frames: "object" (the cloud) or "cameras" (the cloud and every camera). */
+function fitTarget() {
+  return document.querySelector("[data-fit][aria-pressed='true']").dataset.fit;
+}
+
+function fitTo(target) {
+  for (const button of document.querySelectorAll("[data-fit]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.fit === target));
+  }
+  viewer?.fit(target);
 }
 
 function setCloudButtons(active) {
@@ -466,7 +479,9 @@ function wire() {
     button.addEventListener("click", () => switchCloud(button.dataset.cloud));
   }
   $("point-size").addEventListener("input", (e) => viewer?.setPointSize(Number(e.target.value)));
-  $("fit").addEventListener("click", () => viewer?.fit());
+  for (const button of document.querySelectorAll("[data-fit]")) {
+    button.addEventListener("click", () => fitTo(button.dataset.fit)); // again: re-frame
+  }
 }
 
 async function init() {

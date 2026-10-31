@@ -284,14 +284,14 @@ export class Viewer {
     }
   }
 
-  /** Frame the cloud and cameras, looking the way the photos did. */
-  fit() {
+  /** Frame the cloud ("object") or the cloud and every camera ("cameras"), looking the
+   * way the photos did. */
+  fit(target = "object") {
     this.group.updateMatrixWorld();
     const sphere = this.points && robustSphere(this.points.geometry.attributes.position.array);
     if (!sphere) return;
-    // cameras round the object (no common viewing direction): frame their ring too
-    const ring = this.cameraForward ? 0 : Math.max(0, ...this.cameraCentres.map((c) => c.distanceTo(sphere.centre)));
-    const radius = Math.max(sphere.radius, ring);
+    const cameras = target === "cameras" ? this.cameraCentres.map((c) => c.distanceTo(sphere.centre)) : [];
+    const radius = Math.max(sphere.radius, ...cameras);
     const centre = sphere.centre.clone().applyMatrix4(this.group.matrixWorld);
     // a little further back, so the cameras in front of the cloud stay in view
     const distance = (1.3 * radius) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
