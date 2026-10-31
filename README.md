@@ -297,7 +297,7 @@ Prepared images, features and matches are cached under `outputs/cache/` (`output
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
-Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images); `reconstruct` prints the refined value and writes it to `reconstruction.json`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
+Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images); It does so only when every image starts with the same `K` (one camera at one zoom). `reconstruct` prints the refined value and writes it, with the scale, to `reconstruction.json`; the web page shows it. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
 ### 7.4 Two-view reconstruction (milestone M1)
 
@@ -565,7 +565,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 ## 15. Limitations
 
 1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
-2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset), and one shared focal length assumes one camera at one zoom.
+2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset), and one shared focal length assumes one camera at one zoom — photos whose starting `K` differ keep `K` fixed.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.

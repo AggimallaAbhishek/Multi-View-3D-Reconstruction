@@ -254,6 +254,7 @@ def test_reconstruct_refines_a_wrong_focal_length():
     refined = reconstruct(*args, Config())  # refine_focal is on by default
     assert len(refined.registry) == len(fixed.registry) == 10
 
+    assert refined.focal_scale == pytest.approx(1 / 0.9, rel=2e-3) and fixed.focal_scale == 1.0
     for m in refined.registry.images:
         np.testing.assert_allclose(refined.registry.camera(m).K, scene.K, rtol=2e-3)
         np.testing.assert_array_equal(fixed.registry.camera(m).K, wrong_K)
@@ -261,3 +262,16 @@ def test_reconstruct_refines_a_wrong_focal_length():
     rot_refined, centre_refined = _pose_errors(refined, scene, 4, 5)
     assert rot_refined.max() < 0.1 < 0.2 < rot_fixed.max()
     assert centre_refined.max() < 0.05
+
+
+def test_focal_length_is_not_refined_for_photos_with_different_intrinsics():
+    """One shared focal scale assumes one camera: with images whose starting K differ
+    (other cameras or zoom), K is kept."""
+    s = make_sfm_scene(n_cameras=8, n_points=600, focal=1000.0, arc_deg=150.0, noise_px=0.5)
+    scene = s.scene
+    intrinsics = [scene.K] * 8
+    intrinsics[7] = scene.K @ np.diag([1.01, 1.01, 1.0])  # one photo from another camera
+    rec = reconstruct(initial_pair(scene, 3, 4), intrinsics, s.tracks, s.features, Config())
+    assert len(rec.registry) == 8 and rec.focal_scale == 1.0
+    for m in rec.registry.images:
+        np.testing.assert_array_equal(rec.registry.camera(m).K, intrinsics[m])

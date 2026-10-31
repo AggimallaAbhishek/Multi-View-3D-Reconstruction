@@ -37,14 +37,11 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
             "less accurate"
         )
 
-    first, refined_K = 0, None  # K before and after bundle adjustment, of one image
     if rec is None:
         registered, unregistered, points, reprojection = [], list(names), None, None
         warnings.append("no reconstruction: no image pair qualified as the initial pair")
     else:
         registered = rec.registry.images
-        first = registered[0]
-        refined_K = rec.registry.camera(first).K.tolist()
         unregistered = [names[m] for m in rec.unregistered(len(names))]
         points = {
             "sparse": len(rec.landmarks),
@@ -66,8 +63,8 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
         "points": points,
         "calibration": {
             "sources": sources,
-            "K": result.images[first].K.tolist(),
-            "refined_K": refined_K,
+            "K": result.images[0].K.tolist(),  # before bundle adjustment
+            "focal_scale": None if rec is None else rec.focal_scale,
         },
         "reprojection": reprojection,
         "timings": dict(result.timings),

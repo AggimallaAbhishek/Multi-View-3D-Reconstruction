@@ -5,6 +5,7 @@ import pytest
 
 from src.config import config_from_dict
 from src.pipeline import STAGES, run_pipeline
+from src.reconstruction.bundle_adjustment import scale_focal
 from src.web.report import build_report, write_report
 from tests.images import make_natural_texture, write_image
 from tests.render import render_box_scene, scene_cameras, write_scene
@@ -44,9 +45,13 @@ def test_report_summarises_a_full_reconstruction(result):
         "filtered": int(result.filtering.keep.sum()),
     }
     assert report["calibration"]["sources"] == ["file"]
-    first = rec.registry.images[0]  # K before and after bundle adjustment, of one image
-    np.testing.assert_allclose(report["calibration"]["K"], result.images[first].K)
-    np.testing.assert_allclose(report["calibration"]["refined_K"], rec.registry.camera(first).K)
+    calibration = report["calibration"]
+    np.testing.assert_allclose(calibration["K"], result.images[0].K)  # before adjustment
+    assert calibration["focal_scale"] == rec.focal_scale  # refined by bundle adjustment
+    first = rec.registry.images[0]
+    np.testing.assert_allclose(
+        rec.registry.camera(first).K, scale_focal(result.images[first].K, rec.focal_scale)
+    )
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
     assert list(report["timings"]) == ["dataset", *STAGES]
@@ -119,7 +124,7 @@ def test_partial_run_with_fallback_intrinsics_warns(scene_dir):
         "unregistered": [im.name for im in partial.images],
     }
     assert report["points"] is None and report["reprojection"] is None
-    assert report["calibration"]["refined_K"] is None
+    assert report["calibration"]["focal_scale"] is None
     assert any("fallback" in w for w in report["warnings"])
     assert any("no reconstruction" in w for w in report["warnings"])
     json.dumps(report)

@@ -346,7 +346,11 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         "observations": len(errors),
         "mean_track_length": float(track_lengths.mean()) if len(lm) else None,
         "reprojection": stats.to_dict(),
-        "intrinsics": {"initial_K": r.images[images[0]].K.tolist(), "K": cameras[0].K.tolist()},
+        "intrinsics": {
+            "initial_K": r.images[images[0]].K.tolist(),
+            "K": cameras[0].K.tolist(),
+            "focal_scale": rec.focal_scale,
+        },
         "settings": {k: cfg.to_dict()[k] for k in ("registration", "bundle_adjustment")},
         "frame": MULTI_VIEW_FRAME,
     }
@@ -385,9 +389,12 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         f"Reprojection error: mean {stats.mean:.2f} px, median {stats.median:.2f} px, "
         f"90th percentile {stats.p90:.2f} px, max {stats.max:.2f} px"
     )
-    f0, f = (summary["intrinsics"][k][0][0] for k in ("initial_K", "K"))
-    if f != f0:
-        print(f"Focal length refined: {f:.1f} px (started at {f0:.1f} px, {f / f0 - 1:+.1%})")
+    if rec.focal_scale != 1.0:
+        f0 = r.images[images[0]].K[0, 0]
+        print(
+            f"Focal length refined: {f0 * rec.focal_scale:.1f} px "
+            f"(started at {f0:.1f} px, {rec.focal_scale - 1:+.1%})"
+        )
     if unregistered:
         print(f"[WARNING] not registered: {', '.join(unregistered)}")
     print(f"Sparse cloud: {len(X)} coloured points -> {files.ply}")

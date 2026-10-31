@@ -292,7 +292,8 @@ def test_cli_reconstruct_exports_multi_view_cloud_under_the_standard_names(scene
     # Intrinsics before and after bundle adjustment (which refines the focal length).
     np.testing.assert_allclose(summary["intrinsics"]["K"], cameras[0].K)
     start = np.array(summary["intrinsics"]["initial_K"])
-    np.testing.assert_allclose(start[:, 2], np.array(summary["intrinsics"]["K"])[:, 2])
+    s = summary["intrinsics"]["focal_scale"]
+    np.testing.assert_allclose(start @ np.diag([s, s, 1.0]), summary["intrinsics"]["K"])
     assert sorted(p.name for p in (run_dir / "point_clouds").iterdir()) == [
         "filtered.ply", "sparse.ply"
     ]  # fmt: skip

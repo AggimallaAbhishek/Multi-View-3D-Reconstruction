@@ -35,6 +35,7 @@ class Reconstruction:
     registry: CameraRegistry
     landmarks: Landmarks
     attempts: list[Registration]  # every registration tried, in order, failures included
+    focal_scale: float = 1.0  # refined / starting focal length (bundle adjustment)
 
     def reprojection_errors(self, features: Sequence[Features]) -> np.ndarray:
         """Pixel error of every observation, in ``landmarks`` observation order, (M,)."""
@@ -63,14 +64,27 @@ def reconstruct(
     its adjustment) is followed by ``refine_structure``. At the end, global adjustment
     and refinement alternate until refinement changes nothing (at most
     ``max_refinements`` rounds); either can be off.
+
+    With ``refine_focal``, global adjustments refine one focal scale shared by every
+    image — only when all images start with the same K (one camera). Images registered
+    later start from the refined focal length.
     """
     ba = config.bundle_adjustment
-    intrinsics = list(intrinsics)  # rescaled whenever an adjustment refines the focal length
+    refine_focal = ba.refine_focal and all(np.array_equal(K, intrinsics[0]) for K in intrinsics)
+    focal_scale = 1.0
     registry, landmarks = initialize(pair, intrinsics, tracks, features, config.triangulation)
     attempts: list[Registration] = []
     failed: set[int] = set()
+
+    def adjust_all() -> None:
+        nonlocal focal_scale
+        result = adjust(registry, landmarks, features, ba, refine_focal=refine_focal)
+        if result is not None:
+            focal_scale *= result.focal_scale
+
     while (m := next_best_view(registry, landmarks, tracks, len(features), failed)) is not None:
-        reg = register_image(m, landmarks, tracks, features, intrinsics[m], config.registration)
+        K = scale_focal(intrinsics[m], focal_scale)
+        reg = register_image(m, landmarks, tracks, features, K, config.registration)
         attempts.append(reg)
         if not reg.success:
             failed.add(m)
@@ -82,7 +96,7 @@ def reconstruct(
         if ba.enabled:
             n_added = len(registry) - 2
             if ba.global_every > 0 and n_added % ba.global_every == 0:
-                _apply_focal_scale(intrinsics, adjust(registry, landmarks, features, ba))
+                adjust_all()
             elif ba.local_window > 0:
                 newest = range(len(registry) - ba.local_window, len(registry))
                 adjust(registry, landmarks, features, ba, free_views=newest)
@@ -90,18 +104,12 @@ def reconstruct(
             refine_structure(registry, landmarks, tracks, features, config.triangulation)
     for _ in range(ba.max_refinements if ba.enabled or ba.refine_structure else 0):
         if ba.enabled:
-            _apply_focal_scale(intrinsics, adjust(registry, landmarks, features, ba))
+            adjust_all()
         if not ba.refine_structure or not refine_structure(
             registry, landmarks, tracks, features, config.triangulation
         ):
             break
-    return Reconstruction(registry, landmarks, attempts)
-
-
-def _apply_focal_scale(intrinsics: list[np.ndarray], result: BundleAdjustmentResult | None) -> None:
-    """Apply a refined focal scale to the intrinsics of images still to register."""
-    if result is not None and result.focal_scale != 1.0:
-        intrinsics[:] = [scale_focal(K, result.focal_scale) for K in intrinsics]
+    return Reconstruction(registry, landmarks, attempts, focal_scale)
 
 
 def adjust(
@@ -110,11 +118,15 @@ def adjust(
     features: Sequence[Features],
     config: BundleAdjustmentConfig,
     free_views: Sequence[int] | None = None,
+    refine_focal: bool = False,
 ) -> BundleAdjustmentResult | None:
     """Bundle-adjust the reconstruction in place. ``free_views`` (registration order)
     limits it to those cameras and the landmarks they see; the first camera always stays
-    fixed. ``None`` adjusts every camera and landmark, and with ``config.refine_focal``
-    also the focal length shared by all cameras (the fixed one included)."""
+    fixed. ``None`` adjusts every camera and landmark. ``refine_focal`` (global
+    adjustments only) also refines the focal length shared by all cameras, the fixed
+    one included."""
+    if refine_focal and free_views is not None:
+        raise ValueError("the focal length is refined in global adjustments only")
     cameras, obs, X = landmarks.as_problem(registry, features)
     free = set(range(1, len(cameras)))
     if free_views is not None:
@@ -127,9 +139,8 @@ def adjust(
     sub = obs.subset(new_index[obs.point] >= 0)
     sub = Observations(sub.view, new_index[sub.point], sub.xy)
     fixed = [v for v in range(len(cameras)) if v not in free]
-    refine_focal = config.refine_focal and free_views is None
     result = bundle_adjust(cameras, sub, X[points], config, fixed, refine_focal)
-    for v in range(len(cameras)) if refine_focal else free:
+    for v in range(len(cameras)) if result.focal_scale != 1.0 else free:
         registry.update(registry.images[v], result.cameras[v])
     landmarks.position[points] = result.points
     errors = reprojection_errors(result.cameras, sub, result.points)
