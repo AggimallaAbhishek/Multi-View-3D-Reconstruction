@@ -316,6 +316,16 @@ def test_previous_runs_are_rediscovered(tmp_path):
     assert client.get(f"/api/jobs/{new.name}/files/report.json").status_code == 200
 
 
+def test_rediscovered_run_lists_its_photos_and_registered_cameras(tmp_path):
+    run_dir = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    run_dir.mkdir(parents=True)
+    report = '{"images": {"total": 48, "registered": 19, "unregistered": []}, "timings": {}}'
+    (run_dir / "report.json").write_text(report)
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    [listed] = client.get("/api/jobs").json()
+    assert (listed["photos"], listed["registered"]) == (48, 19)
+
+
 def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):
     run_dir = tmp_path / "run"
     (run_dir / "verification").mkdir(parents=True)

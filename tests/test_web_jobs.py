@@ -53,6 +53,30 @@ def test_job_runs_through_every_stage(tmp_path):
     assert job.error is None
 
 
+def test_job_counts_its_photos_at_once_and_its_registered_cameras_when_done(tmp_path):
+    upload = tmp_path / "up"
+    upload.mkdir()
+    for name in ("a.png", "b.JPG", "c.png", "camera.yaml", "gt_cameras.json"):
+        (upload / name).write_bytes(b"x")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    report = {"images": {"total": 3, "registered": 2, "unregistered": ["c.png"]}}
+    (run_dir / "report.json").write_text(json.dumps(report))
+    gate = threading.Event()
+
+    def job(upload_dir, config, progress):
+        gate.wait(5)
+        return run_dir
+
+    manager = JobManager(job=job)
+    running = manager.submit(upload, CONFIG).to_dict()
+    gate.set()
+    manager.wait(running["id"])
+    done = manager.get(running["id"]).to_dict()
+    assert (running["photos"], running["registered"]) == (3, None)
+    assert (done["photos"], done["registered"]) == (3, 2)
+
+
 def test_reports_dataset_stage_before_the_pipeline_reports_any():
     gate = threading.Event()
     seen = []

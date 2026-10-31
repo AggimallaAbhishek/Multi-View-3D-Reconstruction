@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.config import Config
+from src.data.loader import discover_images
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
@@ -76,6 +77,8 @@ class Job:
     timings: dict[str, float] = field(default_factory=dict)  # seconds per pipeline stage
     error: str | None = None
     run_dir: Path | None = None
+    photos: int | None = None  # in the upload
+    registered: int | None = None  # cameras, once done
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,18 +89,24 @@ class Job:
             "timings": dict(self.timings),
             "error": self.error,
             "run_dir": None if self.run_dir is None else str(self.run_dir),
+            "photos": self.photos,
+            "registered": self.registered,
         }
 
     @classmethod
     def finished_run(cls, run_dir: Path) -> Job:
         """A finished web run of an earlier server, from its ``report.json``."""
-        timings = read_json(run_dir / REPORT_NAME).get("timings", {})
+        report = read_json(run_dir / REPORT_NAME)
+        timings = report.get("timings", {})
+        images = report.get("images", {})
         return cls(
             id=run_dir.name,
             status="done",
             stages_done=[*timings, "outputs"],
             timings=timings,
             run_dir=run_dir,
+            photos=images.get("total"),
+            registered=images.get("registered"),
         )
 
 
@@ -218,11 +227,17 @@ class JobManager:
             active = self._active()
             if active is not None:
                 raise JobBusy(active.id)
-            job = Job(id=job_id or new_job_id())
+            upload_dir = Path(upload_dir)
+            photos = (
+                len(discover_images(upload_dir, config.dataset.extensions))
+                if upload_dir.is_dir()
+                else None
+            )
+            job = Job(id=job_id or new_job_id(), photos=photos)
             self._jobs[job.id] = job
             thread = threading.Thread(
                 target=self._work,
-                args=(job, Path(upload_dir), config),
+                args=(job, upload_dir, config),
                 name=f"job-{job.id}",
                 daemon=True,
             )
@@ -259,7 +274,15 @@ class JobManager:
             self._update(job, status="failed", error=str(exc), run_dir=run_dir)
             return
         self._advance(job, None, job.timings)
-        self._update(job, status="done", run_dir=run_dir)
+        report = run_dir / REPORT_NAME
+        images = read_json(report).get("images", {}) if report.is_file() else {}
+        self._update(
+            job,
+            status="done",
+            run_dir=run_dir,
+            photos=images.get("total", job.photos),  # the run's own count if it subsampled
+            registered=images.get("registered"),
+        )
 
     def _advance(self, job: Job, stage: str | None, timings: dict[str, float]) -> None:
         """Mark the current stage finished and ``stage`` running (None: all finished)."""

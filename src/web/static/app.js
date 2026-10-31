@@ -90,12 +90,18 @@ function el(tag, attrs = {}, ...children) {
 }
 
 /** A job's name: the start time from its run folder (<YYYYmmdd-HHMMSS>_web_reconstruct[_n]),
- * else its id. The dropdown adds the status of unfinished or failed jobs. */
-function runLabel(job, withStatus = false) {
+ * else its id. The dropdown adds the photo count, the cameras registered and the status of
+ * unfinished or failed jobs, so runs of the same day can be told apart. */
+function runLabel(job, detailed = false) {
   const name = job.run_dir ? job.run_dir.split("/").pop() : job.id;
   const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
   const when = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : `Run ${name}`;
-  return withStatus && job.status !== "done" ? `${when} (${job.status})` : when;
+  if (!detailed) return when;
+  const parts = [when];
+  if (job.photos != null) parts.push(plural(job.photos, "photo"));
+  if (job.registered != null) parts.push(`${job.registered}/${job.photos} registered`);
+  const label = parts.join(" · ");
+  return job.status === "done" ? label : `${label} (${job.status})`;
 }
 
 // --- State ------------------------------------------------------------------------------
