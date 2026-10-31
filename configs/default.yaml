@@ -34,6 +34,10 @@ features:
   max_features: 8000           # strict cap; the strongest responses are kept
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
   sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
+  sift_adaptive_min_features: 500  # an image with fewer is detected again with the contrast
+                               # threshold halved, down to sift_min_contrast_threshold
+                               # (dark or low-texture images; 0 = always the threshold above)
+  sift_min_contrast_threshold: 0.005
   warn_min_features: 100       # warn about images with fewer features...
   warn_min_coverage: 0.25      # ...or keypoints on less than this share of the coverage grid
   coverage_grid: 8             # coverage is measured on a grid x grid partition of the image

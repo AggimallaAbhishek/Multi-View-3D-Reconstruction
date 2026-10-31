@@ -65,6 +65,8 @@ class FeatureConfig:
     max_features: int = 8000
     root_sift: bool = False
     sift_contrast_threshold: float = 0.04
+    sift_adaptive_min_features: int = 500
+    sift_min_contrast_threshold: float = 0.005
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
     coverage_grid: int = 8

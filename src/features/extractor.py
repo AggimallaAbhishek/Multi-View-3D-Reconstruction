@@ -94,8 +94,11 @@ class FeatureExtractor(ABC):
 
     def detect(self, image: np.ndarray) -> Features:
         """Detect and describe keypoints in a grayscale or BGR image."""
+        return self._detect_with(self._detector(), image)
+
+    def _detect_with(self, detector: cv2.Feature2D, image: np.ndarray) -> Features:
         gray = to_gray(image)
-        keypoints, descriptors = self._detector().detectAndCompute(gray, None)
+        keypoints, descriptors = detector.detectAndCompute(gray, None)
         if not keypoints:
             return self._empty()
 
@@ -128,17 +131,42 @@ class SIFTExtractor(FeatureExtractor):
     descriptor_dim = 128
     descriptor_dtype = np.float32
 
-    def __init__(self, max_features: int = 8000, root_sift: bool = False, contrast_threshold=0.04):
+    def __init__(
+        self,
+        max_features: int = 8000,
+        root_sift: bool = False,
+        contrast_threshold: float = 0.04,
+        min_features: int = 0,
+        min_contrast_threshold: float = 0.005,
+    ):
         super().__init__(max_features)
         self.root_sift = root_sift
         self.contrast_threshold = contrast_threshold
+        self.min_features = min_features
+        self.min_contrast_threshold = min_contrast_threshold
         self.name = "rootsift" if root_sift else "sift"
 
-    def _detector(self) -> cv2.Feature2D:
+    def _detector(self, contrast_threshold: float | None = None) -> cv2.Feature2D:
         # Ask OpenCV for a little more than the cap so the strict cap picks the strongest.
         return cv2.SIFT_create(
-            nfeatures=self.max_features + 64, contrastThreshold=self.contrast_threshold
+            nfeatures=self.max_features + 64,
+            contrastThreshold=contrast_threshold or self.contrast_threshold,
         )
+
+    def detect(self, image: np.ndarray) -> Features:
+        """Detect and describe keypoints; while the image has fewer than ``min_features``,
+        detect again with the contrast threshold halved, down to ``min_contrast_threshold``.
+
+        SIFT's contrast threshold is absolute, so the dark side of an unevenly lit,
+        low-texture object loses most of its features at a threshold that suits the rest.
+        """
+        threshold = self.contrast_threshold
+        features = self._detect_with(self._detector(threshold), image)
+        floor = self.min_contrast_threshold * (1 - 1e-9)  # so rounding can't skip the floor
+        while len(features) < self.min_features and threshold / 2 >= floor:
+            threshold /= 2
+            features = self._detect_with(self._detector(threshold), image)
+        return features
 
     def _postprocess(self, descriptors: np.ndarray) -> np.ndarray:
         if not self.root_sift:
@@ -149,7 +177,9 @@ class SIFTExtractor(FeatureExtractor):
         return np.sqrt(descriptors / np.maximum(l1, 1e-12)).astype(np.float32)
 
     def signature(self) -> str:
-        return f"{self.name}-n{self.max_features}-c{self.contrast_threshold:g}-cv{cv2.__version__}"
+        adaptive = f"a{self.min_features}-f{self.min_contrast_threshold:g}"
+        threshold = f"c{self.contrast_threshold:g}-{adaptive}"
+        return f"{self.name}-n{self.max_features}-{threshold}-cv{cv2.__version__}"
 
 
 class ORBExtractor(FeatureExtractor):
@@ -172,6 +202,8 @@ def create_extractor(config: FeatureConfig) -> FeatureExtractor:
             max_features=config.max_features,
             root_sift=config.root_sift,
             contrast_threshold=config.sift_contrast_threshold,
+            min_features=config.sift_adaptive_min_features,
+            min_contrast_threshold=config.sift_min_contrast_threshold,
         )
     if config.detector == "orb":
         return ORBExtractor(max_features=config.max_features)

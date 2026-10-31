@@ -13,7 +13,7 @@ from src.features.extractor import (
     write_feature_statistics,
 )
 from src.visualization.features import draw_keypoints
-from tests.images import make_texture
+from tests.images import make_natural_texture, make_texture
 
 pytestmark = pytest.mark.filterwarnings("error")  # extraction must not emit warnings
 
@@ -126,6 +126,51 @@ def test_orb_is_repeatable_under_rotation(gray):
     assert _repeatability(ORBExtractor(max_features=1500), gray, 30, 1.0) > 0.3
 
 
+# --- adaptive contrast threshold (low-texture, unevenly lit objects) --------------------
+
+
+def _dimmed(divisor: float) -> np.ndarray:
+    """A grey texture with its contrast divided by ``divisor``."""
+    import cv2
+
+    texture = cv2.cvtColor(make_natural_texture(1), cv2.COLOR_BGR2GRAY).astype(np.float64)
+    return np.clip(100 + (texture - texture.mean()) / divisor, 0, 255).astype(np.uint8)
+
+
+def _opencv_sift_count(image: np.ndarray, contrast_threshold: float) -> int:
+    """Independent reference: OpenCV's SIFT at one fixed threshold, no wrapper."""
+    import cv2
+
+    return len(cv2.SIFT_create(contrastThreshold=contrast_threshold).detect(image, None))
+
+
+@pytest.fixture(scope="module")
+def faint():
+    """Almost no SIFT features at the default threshold (0.04), thousands at 0.005."""
+    return _dimmed(12)
+
+
+def test_faint_image_is_redetected_until_it_has_enough_features(faint):
+    assert _opencv_sift_count(faint, 0.04) < 300  # the default threshold alone misses it
+    adaptive = create_extractor(FeatureConfig(sift_adaptive_min_features=300)).detect(faint)
+    assert len(adaptive) >= 300
+
+
+def test_image_with_enough_features_is_detected_once_at_the_configured_threshold():
+    """Half contrast: ~2200 features at 0.04, the cap (8000) at 0.02, so an extra step shows."""
+    dim = _dimmed(2)
+    at_default = _opencv_sift_count(dim, 0.04)
+    assert at_default < _opencv_sift_count(dim, 0.02)  # a lower threshold would show
+    adaptive = create_extractor(FeatureConfig(sift_adaptive_min_features=at_default)).detect(dim)
+    assert len(adaptive) == at_default
+
+
+def test_threshold_is_never_lowered_below_the_floor(faint):
+    adaptive = FeatureConfig(sift_adaptive_min_features=10**6, sift_min_contrast_threshold=0.01)
+    stopped = create_extractor(adaptive).detect(faint)  # target out of reach: 0.04 → 0.02 → 0.01
+    assert len(stopped) == _opencv_sift_count(faint, 0.01) < _opencv_sift_count(faint, 0.005)
+
+
 # --- factory, persistence, cache --------------------------------------------------------
 
 
@@ -134,6 +179,14 @@ def test_create_extractor_from_config():
     assert isinstance(create_extractor(FeatureConfig(detector="orb")), ORBExtractor)
     root = create_extractor(FeatureConfig(detector="sift", root_sift=True))
     assert root.signature() != create_extractor(FeatureConfig()).signature()
+
+
+@pytest.mark.parametrize(
+    "change", [{"sift_adaptive_min_features": 0}, {"sift_min_contrast_threshold": 0.0025}]
+)
+def test_adaptive_settings_are_part_of_the_cache_key(change):
+    default = create_extractor(FeatureConfig()).signature()
+    assert create_extractor(FeatureConfig(**change)).signature() != default
 
 
 @pytest.mark.parametrize("image", ["texture", "blank"])
