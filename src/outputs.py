@@ -52,10 +52,10 @@ from src.visualization.matches import draw_matches, plot_match_matrix
 from src.visualization.reprojection import plot_reprojection_histogram
 
 
-def new_run_dir(result: PipelineResult, label: str) -> Path:
-    """A new run folder under ``output.root`` with the run metadata and ``dataset.json``,
-    ready for ``save_stage_outputs``."""
-    run_dir = create_run_dir(result.config.output.root, label)
+def new_run_dir(result: PipelineResult, label: str, stamp: str | None = None) -> Path:
+    """A new run folder under ``output.root`` (stamped now, or with ``stamp``) with the run
+    metadata and ``dataset.json``, ready for ``save_stage_outputs``."""
+    run_dir = create_run_dir(result.config.output.root, label, stamp)
     write_run_metadata(run_dir, result.config)
     result.dataset.save(run_dir / "dataset.json")
     return run_dir

@@ -24,7 +24,7 @@ def fake_job(stages=("a", "b", "c"), fail_at=None, exc=None, gate=None):
     ``exc``, default ``RuntimeError("boom")``) or waits."""
     exc = exc or RuntimeError("boom")
 
-    def job(upload_dir, config, progress):
+    def job(upload_dir, config, progress, stamp=None):
         timings = {"dataset": 0.1}
         for stage in (*stages, "outputs"):
             progress(stage, dict(timings))
@@ -64,7 +64,7 @@ def test_job_counts_its_photos_at_once_and_its_registered_cameras_when_done(tmp_
     (run_dir / "report.json").write_text(json.dumps(report))
     gate = threading.Event()
 
-    def job(upload_dir, config, progress):
+    def job(upload_dir, config, progress, stamp=None):
         gate.wait(5)
         return run_dir
 
@@ -77,11 +77,24 @@ def test_job_counts_its_photos_at_once_and_its_registered_cameras_when_done(tmp_
     assert (done["photos"], done["registered"]) == (3, 2)
 
 
+def test_job_has_its_start_time_before_it_has_a_run_folder(tmp_path):
+    """The page names runs by start time; a running job has no run folder to take it from."""
+    from src.run import is_run_dir_name
+
+    gate = threading.Event()
+    manager = JobManager(job=fake_job(gate=gate))
+    job = manager.submit(tmp_path, CONFIG).to_dict()
+    gate.set()
+    manager.wait(job["id"])
+    assert job["run_dir"] is None
+    assert is_run_dir_name(f"{job['started']}_web", "web")  # the run folders' stamp format
+
+
 def test_reports_dataset_stage_before_the_pipeline_reports_any():
     gate = threading.Event()
     seen = []
 
-    def job(upload_dir, config, progress):
+    def job(upload_dir, config, progress, stamp=None):
         seen.append(manager.get("j").stage)  # before any progress call
         gate.wait(5)
         return Path("outputs")
@@ -107,7 +120,7 @@ def test_exception_in_a_stage_fails_the_job_at_that_stage(tmp_path):
 
 
 def test_dataset_error_message_is_kept(tmp_path):
-    def job(upload_dir, config, progress):
+    def job(upload_dir, config, progress, stamp=None):
         raise DatasetError("only 1 readable image(s); at least 2 required")
 
     manager = JobManager(job=job)

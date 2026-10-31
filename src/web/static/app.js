@@ -89,19 +89,16 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-/** A job's name: the start time from its run folder (<YYYYmmdd-HHMMSS>_web_reconstruct[_n]),
- * else its id. The dropdown adds the photo count, the cameras registered and the status of
+/** A job's name: its start time (YYYYmmdd-HHMMSS, as run folders are named), else its id.
+ * The dropdown adds the cameras registered (or the photo count) and the status of
  * unfinished or failed jobs, so runs of the same day can be told apart. */
 function runLabel(job, detailed = false) {
-  const name = job.run_dir ? job.run_dir.split("/").pop() : job.id;
-  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
-  const when = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : `Run ${name}`;
+  const m = (job.started ?? "").match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/);
+  const when = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : `Run ${job.id}`;
   if (!detailed) return when;
-  const counts =
-    job.registered != null ? `${job.registered}/${job.photos} registered`
-    : job.photos != null ? plural(job.photos, "photo")
-    : null;
-  const label = counts ? `${when} · ${counts}` : when;
+  let label = when;
+  if (job.registered != null && job.photos != null) label += ` · ${job.registered}/${job.photos} registered`;
+  else if (job.photos != null) label += ` · ${plural(job.photos, "photo")}`;
   return job.status === "done" ? label : `${label} (${job.status})`;
 }
 
@@ -404,7 +401,7 @@ async function loadViewer(id, report) {
   const status = $("viewer-status");
   viewer ??= new Viewer($("viewer"));
   viewerJob = { id, clouds: {} };
-  setCloudButtons("filtered");
+  setPressed("cloud", "filtered");
   document.querySelector(".viewer-controls").hidden = !report.points;
   if (!report.points) {
     viewer.setCloud({ positions: new Float32Array(), colours: null });
@@ -421,35 +418,34 @@ async function loadViewer(id, report) {
     viewerJob.clouds.filtered = cloud;
     viewer.setCloud(cloud);
     viewer.setCameras(cameras.cameras);
-    viewer.fit(fitTarget());
+    viewer.fit(fitTarget);
     status.textContent = "";
   } catch (error) {
     status.textContent = `Could not show the point cloud: ${error.message}`;
   }
 }
 
-/** What "Fit to" frames: "object" (the cloud) or "cameras" (the cloud and every camera). */
-function fitTarget() {
-  return document.querySelector("[data-fit][aria-pressed='true']").dataset.fit;
-}
+/** What "Fit to" frames: "object" (the cloud) or "cameras" (the cloud and every camera);
+ * kept when another run is opened. */
+let fitTarget = "object";
 
 function fitTo(target) {
-  for (const button of document.querySelectorAll("[data-fit]")) {
-    button.setAttribute("aria-pressed", String(button.dataset.fit === target));
-  }
+  fitTarget = target;
+  setPressed("fit", target);
   viewer?.fit(target);
 }
 
-function setCloudButtons(active) {
-  for (const button of document.querySelectorAll("[data-cloud]")) {
-    button.setAttribute("aria-pressed", String(button.dataset.cloud === active));
+/** Press the button of a segmented control (``data-<key>`` buttons) whose value is ``value``. */
+function setPressed(key, value) {
+  for (const button of document.querySelectorAll(`[data-${key}]`)) {
+    button.setAttribute("aria-pressed", String(button.dataset[key] === value));
   }
 }
 
 async function switchCloud(name) {
   if (!viewerJob) return;
   const { id, clouds } = viewerJob;
-  setCloudButtons(name);
+  setPressed("cloud", name);
   try {
     clouds[name] ??= await fetchCloud(id, name);
     if (viewerJob.id === id) viewer.setCloud(clouds[name]);

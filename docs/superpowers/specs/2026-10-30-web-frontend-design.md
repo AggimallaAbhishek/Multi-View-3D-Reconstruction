@@ -44,7 +44,7 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager thread ⇄ child 
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `jobs.py` | `JobManager`: accepts one job at a time; holds `Job` state (`id`, `status` ∈ queued/running/done/failed, `stage`, `stages_done`, `timings`, `error`, `run_dir`). Stages: `dataset`, the pipeline stages, `outputs`. The work (pipeline + run folder + report) runs in a **spawned child process** (`reconstruct_in_subprocess`); a server thread relays its progress through a queue. Reason: Open3D's offscreen render (`figures/filtered.png`) aborts the process (SIGTRAP) outside the main thread, and a native crash must end one job, not the server. The job function is injected so tests can use a fake. No FastAPI imports. | `run_pipeline`, `save_stage_outputs`, `src/run.py` helpers, `report.py` |
+| `jobs.py` | `JobManager`: accepts one job at a time; holds `Job` state (`id`, `status` ∈ queued/running/done/failed, `stage`, `stages_done`, `timings`, `error`, `run_dir`, `photos` (counted from the upload, then the report's total), `registered` (from `report.json` once done), `started` (`YYYYmmdd-HHMMSS`, the run folders' stamp)). Stages: `dataset`, the pipeline stages, `outputs`. The work (pipeline + run folder + report) runs in a **spawned child process** (`reconstruct_in_subprocess`); a server thread relays its progress through a queue. Reason: Open3D's offscreen render (`figures/filtered.png`) aborts the process (SIGTRAP) outside the main thread, and a native crash must end one job, not the server. The job function is injected so tests can use a fake. No FastAPI imports. | `run_pipeline`, `save_stage_outputs`, `src/run.py` helpers, `report.py` |
 | `report.py` | `build_report(result, gt=None) -> dict`, written as `report.json` in the run folder (shape below). Works on partial results. | `src/evaluation` |
 | `app.py` | `create_app(config, manager) -> FastAPI`: the endpoints in §3; mounts `static/`. | `jobs`, `report` |
 | `static/index.html`, `static/app.js`, `static/viewer.js`, `static/style.css` | Upload, progress and results views (§4). three.js `OrbitControls`, pinned version from cdn.jsdelivr.net (external); PLY parsed in `viewer.js` (`PLYLoader` assumes 0–255 colours, Open3D writes 0–1). Fonts from Google Fonts (external; system fallbacks offline). | API only |
@@ -118,7 +118,7 @@ from a CDN and labelled as external in the README and methodology docs.
 | Method | Path | Behaviour |
 |---|---|---|
 | `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409 {detail, job_id}` (the running job) if a job is running; `422 {detail}` on invalid input (nothing written). |
-| `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir}`; `404` if unknown. |
+| `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir, photos, registered, started}`; `404` if unknown. `GET /api/jobs` lists the same objects. |
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/files` | Relative paths of the files in the job's run folder (sorted; empty while running). The page shows only figures and downloads that exist, and links everything a failed job wrote. |
 | `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder (a failed job's too: the outputs of the stages that finished). The resolved path must lie inside the run folder, otherwise `404`. |
@@ -133,7 +133,8 @@ One page, three states.
 
 1. **Upload** — drag-and-drop zone with thumbnails and count; optional pickers for
    `camera.yaml` and `gt_cameras.json`; **Run** button; "Open previous run" dropdown fed by
-   `GET /api/jobs`. Validation errors from the API shown inline.
+   `GET /api/jobs`, each run labelled with its start time and registered / total photos
+   (or the photo count, and the status, while unfinished). Validation errors from the API shown inline.
 2. **Running** — checklist of stages (dataset, then `src/pipeline.STAGES`: features,
    matches, verify, pose, triangulate, cloud, reconstruct, filter, then `outputs`): spinner on the current one, ✓ and time on finished
    ones. Polls every `poll_interval_ms`.
@@ -142,8 +143,8 @@ One page, three states.
      error, calibration source(s), total time. Yellow warning for fallback intrinsics or
      partial registration (listing unregistered images).
    - 3-D viewer: `point_clouds/filtered.ply` with vertex colours and camera frustums from
-     `camera_poses/cameras.json`; toggle filtered/sparse; point-size slider; orbit
-     controls.
+     `camera_poses/cameras.json`; toggle filtered/sparse; point-size slider; "Fit to"
+     Object (the cloud, default) / Cameras (the cloud and every camera); orbit controls.
    - Ground-truth panel (only with ground truth): median / max rotation error, position
      error, per-camera table.
    - Diagnostics gallery with captions: `matches/match_matrix.png`,

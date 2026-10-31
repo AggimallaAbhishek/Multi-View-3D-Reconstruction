@@ -324,6 +324,7 @@ def test_rediscovered_run_lists_its_photos_and_registered_cameras(tmp_path):
     client = client_for(output={"root": str(tmp_path / "outputs")})
     [listed] = client.get("/api/jobs").json()
     assert (listed["photos"], listed["registered"]) == (48, 19)
+    assert listed["started"] == "20261031-120000"
 
 
 def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):
@@ -407,6 +408,8 @@ def test_upload_to_results_end_to_end(tmp_path):
         assert time.monotonic() < deadline, status
         time.sleep(0.5)
     assert status["status"] == "done", status["error"]
+    # one name: the run folder carries the time the page shows (and shows after a restart)
+    assert Path(status["run_dir"]).name.startswith(f"{status['started']}_")
 
     report = client.get(f"/api/jobs/{job_id}/report").json()
     assert report["images"] == {"total": 6, "registered": 6, "unregistered": []}
