@@ -289,6 +289,10 @@ def test_cli_reconstruct_exports_multi_view_cloud_under_the_standard_names(scene
     cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "cameras.json")
     assert sorted(names) == sorted(p.name for p in images.glob("*.png"))
     assert all((c.project(points)[1] > 0).mean() > 0.9 for c in cameras)
+    # Intrinsics before and after bundle adjustment (which refines the focal length).
+    np.testing.assert_allclose(summary["intrinsics"]["K"], cameras[0].K)
+    start = np.array(summary["intrinsics"]["initial_K"])
+    np.testing.assert_allclose(start[:, 2], np.array(summary["intrinsics"]["K"])[:, 2])
     assert sorted(p.name for p in (run_dir / "point_clouds").iterdir()) == [
         "filtered.ply", "sparse.ply"
     ]  # fmt: skip

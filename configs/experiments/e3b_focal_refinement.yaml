@@ -1,0 +1,18 @@
+# RQ3 follow-up: the E3 calibration sweep with bundle_adjustment.refine_focal on (the default
+# since this experiment), so the global adjustments refine one focal scale shared by all
+# images. Compare with e3_calibration.
+name: e3b_focal_refinement
+question: RQ3 - does refining the focal length in bundle adjustment undo a wrong calibration?
+runs:
+  focal -20%: {camera.focal_scale: 0.8, bundle_adjustment.refine_focal: true}
+  focal -10%: {camera.focal_scale: 0.9, bundle_adjustment.refine_focal: true}
+  focal -5%: {camera.focal_scale: 0.95, bundle_adjustment.refine_focal: true}
+  calibrated: {bundle_adjustment.refine_focal: true}
+  focal +5%: {camera.focal_scale: 1.05, bundle_adjustment.refine_focal: true}
+  focal +10%: {camera.focal_scale: 1.1, bundle_adjustment.refine_focal: true}
+  focal +20%: {camera.focal_scale: 1.2, bundle_adjustment.refine_focal: true}
+  guessed (no camera.yaml):
+    {camera.auto_calibration_file: false, bundle_adjustment.refine_focal: true}
+plot:
+  y: [registered_fraction, rotation_error_median_deg, centre_error_median,
+      reprojection_mean_px, completeness, accuracy_median]

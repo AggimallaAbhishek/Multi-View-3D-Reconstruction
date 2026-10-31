@@ -22,6 +22,8 @@ LABELS = {
     "landmarks": "landmarks",
     "filtered_points": "points (filtered)",
     "mean_track_length": "mean track length",
+    "focal_px": "focal length (px)",
+    "focal_error": "focal length error",
     "inlier_ratio_mean": "mean inlier ratio",
     "verified_pairs": "verified pairs",
     "features_mean": "features per image",

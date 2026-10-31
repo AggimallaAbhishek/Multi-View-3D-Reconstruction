@@ -380,6 +380,17 @@ function cell(label, value, note = null, warn = false) {
   return el("div", {}, el("dt", {}, label), el("dd", { class: warn ? "warn" : "" }, value, note ? " " : null, note ? el("small", {}, note) : null));
 }
 
+// Focal length after bundle adjustment (which refines it), with where it started from.
+function focalCell(calibration, fallback) {
+  const source = calibration.sources.map((s) => CALIBRATION_SOURCES[s] ?? s).join(", ");
+  const start = calibration.K[0][0];
+  const final = calibration.refined_K ? calibration.refined_K[0][0] : start;
+  const note = Math.abs(final / start - 1) < 5e-4
+    ? `from ${source}`
+    : `refined from ${Math.round(start)} px (${source})`;
+  return cell("Focal length", `${Math.round(final)} px`, note, fallback);
+}
+
 function renderDataStrip(report) {
   const { images, points, reprojection, calibration } = report;
   const fallback = calibration.sources.includes("fallback");
@@ -392,7 +403,7 @@ function renderDataStrip(report) {
       reprojection
         ? cell("Reprojection error", `${small(reprojection.median_px)} px`, `median · p90 ${small(reprojection.p90_px)}`)
         : cell("Reprojection error", "–"),
-      cell("Focal length from", calibration.sources.map((s) => CALIBRATION_SOURCES[s] ?? s).join(", "), null, fallback),
+      focalCell(calibration, fallback),
       cell("Time", `${seconds(report.total_s)} s`)),
   );
 }

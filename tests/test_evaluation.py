@@ -150,6 +150,10 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
         assert row["completeness"] > 0.5
         assert row["time_total_s"] >= row["time_reconstruct_s"] > 0
         assert row["raw_matches_mean"] >= row["matches_mean"] > 0  # per pair, before/after
+        true_fx = next(iter(gt.values())).K[0, 0]
+        # Started from the true calibration; refined (default) or kept, it stays there.
+        assert row["focal_px"] == pytest.approx(true_fx, rel=5e-3)
+        assert row["focal_error"] == pytest.approx(row["focal_px"] / true_fx - 1)
     assert rows[0]["bundle_adjustment.enabled"] is True
     assert rows[1]["bundle_adjustment.enabled"] is False
 

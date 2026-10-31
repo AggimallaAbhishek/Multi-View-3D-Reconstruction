@@ -52,8 +52,8 @@ METRICS = (
     "images", "features_mean", "pairs", "raw_matches_mean", "matches_mean", "verified_pairs",
     "inlier_ratio_mean",
     "registered", "registered_fraction", "landmarks", "observations", "mean_track_length",
-    "reprojection_mean_px", "reprojection_median_px", "filtered_points",
-    "rotation_error_median_deg", "rotation_error_max_deg",
+    "reprojection_mean_px", "reprojection_median_px", "filtered_points", "focal_px",
+    "focal_error", "rotation_error_median_deg", "rotation_error_max_deg",
     "centre_error_median", "centre_error_max", "metric_scale_error",
     "completeness", "accuracy_median", "chamfer",
     *(f"time_{stage}_s" for stage in TIMED), "time_total_s",
@@ -167,6 +167,7 @@ def collect_metrics(
         reprojection_mean_px=rp.mean,
         reprojection_median_px=rp.median,
         filtered_points=int(keep.sum()),
+        focal_px=float(np.median([c.K[0, 0] for c in cameras])),  # refined if refine_focal
     )
     if gt is None or len(images) < 3:
         return row
@@ -180,6 +181,7 @@ def collect_metrics(
         centre_error_median=float(np.median(errors.centre)),
         centre_error_max=float(errors.centre.max()),
         metric_scale_error=one / errors.scale - 1.0,
+        focal_error=row["focal_px"] / float(np.median([c.K[0, 0] for c in truth])) - 1.0,
     )
     if reference is not None:
         tolerance = result.config.evaluation.completeness_tolerance

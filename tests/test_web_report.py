@@ -45,6 +45,8 @@ def test_report_summarises_a_full_reconstruction(result):
     }
     assert report["calibration"]["sources"] == ["file"]
     np.testing.assert_allclose(report["calibration"]["K"], result.images[0].K)
+    first = rec.registry.camera(rec.registry.images[0])
+    np.testing.assert_allclose(report["calibration"]["refined_K"], first.K)  # after BA
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
     assert list(report["timings"]) == ["dataset", *STAGES]
@@ -117,6 +119,7 @@ def test_partial_run_with_fallback_intrinsics_warns(scene_dir):
         "unregistered": [im.name for im in partial.images],
     }
     assert report["points"] is None and report["reprojection"] is None
+    assert report["calibration"]["refined_K"] is None
     assert any("fallback" in w for w in report["warnings"])
     assert any("no reconstruction" in w for w in report["warnings"])
     json.dumps(report)

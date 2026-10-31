@@ -29,16 +29,21 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
     sources = sorted({im.intrinsics_source for im in result.images})
     warnings = []
     if "fallback" in sources:
+        refined = result.config.bundle_adjustment.refine_focal
         warnings.append(
             "intrinsics from the fallback focal length (no camera.yaml or EXIF): "
-            "poses and shape may be less accurate"
+            f"{'bundle adjustment refines the focal length, but ' if refined else ''}"
+            "the principal point is assumed at the image centre, so poses and shape may be "
+            "less accurate"
         )
 
+    refined_K = None
     if rec is None:
         registered, unregistered, points, reprojection = [], list(names), None, None
         warnings.append("no reconstruction: no image pair qualified as the initial pair")
     else:
         registered = rec.registry.images
+        refined_K = rec.registry.camera(registered[0]).K.tolist()
         unregistered = [names[m] for m in rec.unregistered(len(names))]
         points = {
             "sparse": len(rec.landmarks),
@@ -58,7 +63,11 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
             "unregistered": unregistered,
         },
         "points": points,
-        "calibration": {"sources": sources, "K": result.images[0].K.tolist()},
+        "calibration": {
+            "sources": sources,
+            "K": result.images[0].K.tolist(),
+            "refined_K": refined_K,
+        },
         "reprojection": reprojection,
         "timings": dict(result.timings),
         "total_s": sum(result.timings.values()),

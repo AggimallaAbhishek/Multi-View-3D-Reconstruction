@@ -123,3 +123,69 @@ def test_jacobian_matches_finite_differences():
     numeric = approx_derivative(lambda p: residuals(p, K, obs), params, method="3-point")
     assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X))
     np.testing.assert_allclose(exact, numeric, rtol=1e-5, atol=1e-5 * np.abs(numeric).max())
+
+
+def _scaled(K, s):
+    return K @ np.diag([s, s, 1.0])
+
+
+def test_jacobian_with_focal_scale_matches_finite_differences():
+    """With ``refine_focal`` the parameters end in one focal scale shared by every camera
+    (``K @ diag(s, s, 1)``), and the Jacobian gains its column."""
+    from scipy.optimize._numdiff import approx_derivative
+
+    scene = make_scene(n_points=40, n_cameras=4, noise_px=0.5, seed=3)
+    cameras, obs, X = _problem(scene)
+    cameras, X = _perturbed(cameras, X, np.random.default_rng(1))
+    params = np.concatenate(
+        [np.concatenate([cv2.Rodrigues(c.R)[0].ravel(), c.t]) for c in cameras]
+        + [X.ravel(), [0.93]]
+    )
+    K = np.stack([c.K for c in cameras])
+
+    scaled = [Camera(_scaled(c.K, 0.93), c.R, c.t) for c in cameras]
+    expected = np.concatenate(
+        [scaled[v].project(X[obs.point[obs.view == v]])[0] - obs.xy[obs.view == v]
+         for v in range(len(cameras))]
+    )  # fmt: skip
+    order = np.argsort(obs.view, kind="stable")
+    np.testing.assert_allclose(
+        residuals(params, K, obs, refine_focal=True).reshape(-1, 2)[order], expected, atol=1e-9
+    )
+    exact = jacobian(params, K, obs, refine_focal=True).toarray()
+    numeric = approx_derivative(lambda p: residuals(p, K, obs, refine_focal=True), params)
+    assert exact.shape == (2 * len(obs.view), 6 * len(cameras) + 3 * len(X) + 1)
+    np.testing.assert_allclose(exact, numeric, rtol=1e-5, atol=1e-5 * np.abs(numeric).max())
+
+
+def test_refine_focal_recovers_a_wrong_focal_length():
+    """Started 10 % off, the shared focal length converges to the truth (and is applied to
+    the fixed camera too); with K held fixed the error stays and distorts the poses."""
+    scene = make_scene(n_points=400, n_cameras=8, noise_px=0.5, seed=4, arc_deg=120.0)
+    true_cams, obs, X_true = _problem(scene)
+    wrong = [Camera(_scaled(c.K, 0.9), c.R, c.t) for c in true_cams]
+    cams0, X0 = _perturbed(wrong, X_true, np.random.default_rng(0), skip={0})
+
+    fixed_k = bundle_adjust(cams0, obs, X0, CFG, fixed=(0,))
+    refined = bundle_adjust(cams0, obs, X0, CFG, fixed=(0,), refine_focal=True)
+    assert fixed_k.focal_scale == 1.0
+    assert refined.focal_scale == pytest.approx(1 / 0.9, rel=2e-3)
+    for c in refined.cameras:
+        np.testing.assert_allclose(c.K, _scaled(cams0[0].K, refined.focal_scale))
+    np.testing.assert_array_equal(refined.cameras[0].R, cams0[0].R)
+    assert refined.final_rms_px < 0.5 * np.sqrt(2) < fixed_k.final_rms_px
+
+    def centre_error(cams):
+        est = np.array([c.centre for c in cams])
+        true = np.array([c.centre for c in true_cams])
+        return np.linalg.norm(align_similarity(est, true).apply(est) - true, axis=1).max()
+
+    assert centre_error(refined.cameras) < 0.02 < centre_error(fixed_k.cameras)
+
+
+def test_refine_focal_off_leaves_k_unchanged():
+    scene = make_scene(n_points=100, n_cameras=4, noise_px=0.5, seed=2)
+    cams, obs, X = _problem(scene)
+    result = bundle_adjust(cams, obs, X, CFG, fixed=(0,))
+    assert result.focal_scale == 1.0
+    assert all(c.K is cams[0].K or np.array_equal(c.K, cams[0].K) for c in result.cameras)
