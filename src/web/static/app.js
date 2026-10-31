@@ -149,9 +149,22 @@ function isImage(name) {
   return dot > 0 && config.extensions.includes(name.slice(dot).toLowerCase());
 }
 
+// files dropped or chosen with the photos under these names fill the optional fields
+const OPTIONAL_FILES = { "camera.yaml": "camera", "gt_cameras.json": "ground-truth" };
+
 function addPhotos(files) {
-  for (const file of files) photos.set(file.name, file);
+  for (const file of files) {
+    const field = OPTIONAL_FILES[file.name];
+    if (field) setFile($(field), file);
+    else photos.set(file.name, file);
+  }
   renderSelection();
+}
+
+function setFile(input, file) {
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
 }
 
 function clearPhotos() {

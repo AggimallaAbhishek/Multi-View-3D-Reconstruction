@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.config import Config
@@ -40,6 +40,16 @@ from src.web.report import REPORT_NAME
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class _PageFiles(StaticFiles):
+    """The page's files, which browsers must revalidate (ETag) on every load: without a
+    Cache-Control header they may run a cached app.js after the page was updated."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 @asynccontextmanager
@@ -146,7 +156,7 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         return FileResponse(target, media_type=media_type)
 
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    app.mount("/", _PageFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
 

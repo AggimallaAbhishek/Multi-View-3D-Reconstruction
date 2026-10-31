@@ -346,6 +346,16 @@ def test_page_is_served():
     assert "<html" in response.text.lower()
 
 
+@pytest.mark.parametrize("path", ["/", "/app.js", "/viewer.js", "/style.css"])
+def test_page_files_are_revalidated_on_every_load(path):
+    """Without Cache-Control, browsers reuse a cached app.js after the page was updated."""
+    client = client_for()
+    response = client.get(path)
+    assert response.headers["cache-control"] == "no-cache"
+    etag = response.headers["etag"]
+    assert client.get(path, headers={"If-None-Match": etag}).status_code == 304
+
+
 def test_config_for_the_page():
     data = (
         client_for(web={"poll_interval_ms": 250}, dataset={"min_images": 3})
