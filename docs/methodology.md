@@ -86,9 +86,9 @@ Camera poses and points are refined jointly by minimising the robustified reproj
 
 $$\min_{\{R_c, t_c\}, \{X_p\}} \sum_{(c,p)} \rho\!\left(\left\lVert \pi\!\left(K_c (R_c X_p + t_c)\right) - \mathbf{x}_{cp} \right\rVert^2\right)$$
 
-- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; `K` is fixed.
+- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; in global adjustments also one **focal scale** `s` shared by every camera (`bundle_adjustment.refine_focal`, default on): `K_c → K_c · diag(s, s, 1)`, so the focal lengths (and skew) scale and the principal point stays. One `s` for all images assumes one physical camera at one zoom. Local adjustments (5 cameras) keep `K`: too few views to constrain it. A refined `s` is applied to every registered camera and to the intrinsics of images not yet registered.
 - **Robust loss** `ρ` = soft-L1 with a 1 px scale: robust to wrong matches, and it converges in ~30 evaluations where SciPy's Huber crawls.
-- **Sparsity:** each residual depends on 6 camera and 3 point parameters; the `jac_sparsity` pattern makes the finite-difference Jacobian and the solver cost scale with observations, not with cameras × points.
+- **Exact sparse Jacobian:** each residual depends on 6 camera and 3 point parameters (and `s`). The derivatives are analytic — the chain rule through the projection, with `∂R/∂rvec` from `cv2.Rodrigues`, and `∂(u, v)/∂s = ((u, v) − c)/s` — checked against finite differences in the tests. Cost scales with observations, not with cameras × points; replacing finite differences cut the templeRing run from 16.3 to 12.0 s with identical results.
 - **Gauge:** a reconstruction is defined up to a similarity (7 DoF). The first camera is held fixed (6 DoF). The scale is left free during optimisation — pinning one translation coordinate instead creates a curved valley the solver zig-zags along — and restored afterwards exactly, by scaling about the fixed camera so the next camera keeps its distance. That scaling changes no projection.
 - **Schedule:** a local adjustment after every registration (the newest 5 cameras and the points they see free), a global one every 5 registrations, and at the end. The cost tolerance is 1e-6 relative (as in Ceres); 1e-8 took ~15× longer for < 0.01°.
 

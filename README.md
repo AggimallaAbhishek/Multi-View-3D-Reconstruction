@@ -62,7 +62,7 @@ On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×4
 | Completeness vs reference | **0.92** |
 | Runtime of `reconstruct` (Apple M4) | **20 s** cold, 16 s with caches |
 
-Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×.
+Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×.
 
 ### Course alignment (3D Computer Vision)
 
@@ -297,7 +297,7 @@ Prepared images, features and matches are cached under `outputs/cache/` (`output
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
-Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
+Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images); `reconstruct` prints the refined value and writes it to `reconstruction.json`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
 ### 7.4 Two-view reconstruction (milestone M1)
 
@@ -329,7 +329,7 @@ python -m src.cli reconstruct data/raw/templeRing
 ### 7.6 Experiments (Phase 10)
 
 ```bash
-# all experiments in configs/experiments/ on templeRing, then figures and tables (~9 min)
+# all experiments in configs/experiments/ on templeRing, then figures and tables (~11 min)
 python scripts/run_experiments.py
 #   outputs/experiments/<run>/<experiment>/experiment_results.csv · results.md · metrics.png · runtime.png
 #   ... one sub-directory per setting: config.yaml · environment.json · metrics.json · filtered.ply
@@ -519,14 +519,15 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 |---|---|---|---|
 | E1 Image count | 8 / 12 / 16 / 24 / 32 / all 47 images (evenly spaced) | Detector, thresholds | RQ1 |
 | E2 Matching thresholds | Ratio 0.6–0.9, mutual on/off | Images, detector | RQ2 |
-| E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF) | Images, detector | RQ3 |
+| E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF), `K` fixed in BA | Images, detector | RQ3 |
+| E3b Focal refinement | The E3 sweep with the focal length refined in BA | Images, detector | RQ3 |
 | E4 Detector | SIFT vs ORB | Resolution, pairs, RANSAC settings | RQ4 |
 | E5 Bundle adjustment × structure refinement | Each on / off | Everything else | quality gain |
 | E6 Baseline | Ours vs COLMAP sparse (and dense) — *not run: needs COLMAP* | Same image set | RQ5 |
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
 
-**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat (RQ3); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5).
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -564,7 +565,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 ## 15. Limitations
 
 1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
-2. **Calibration is required.** Bundle adjustment keeps `K` fixed; a 5 % focal-length error halves completeness and a guessed focal length gives a distorted model (E3).
+2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset), and one shared focal length assumes one camera at one zoom.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.
@@ -582,7 +583,7 @@ Failure cases are documented with evidence in [docs/experiments.md](docs/experim
 Directly suggested by the results:
 
 - **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
-- **Refine the focal length in bundle adjustment** (self-calibration), so an EXIF or guessed `K` no longer distorts the model (RQ3).
+- **Refine the principal point and radial distortion** in bundle adjustment too (the focal length is refined since E3b), and per-camera intrinsics for mixed-camera photo sets.
 - **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
 - **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
 - More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).

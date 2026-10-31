@@ -4,7 +4,7 @@ Answers to the research questions on Middlebury **templeRing** (47 views, 640×4
 
 ```bash
 python scripts/download_middlebury.py templeRing     # once
-python scripts/run_experiments.py                     # all specs in configs/experiments/, ~9 min on an Apple M4
+python scripts/run_experiments.py                     # all specs in configs/experiments/, ~11 min on an Apple M4
 python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/tables only
 ```
 
@@ -74,7 +74,27 @@ Subsets evenly spaced **in file-name order** (`dataset.max_images`). templeRing'
 
 ![E3 results](images/e3_calibration.png)
 
-**RQ3:** calibration is the single most important input. Every setting registers all 47 images and the reprojection error barely moves (0.23 → 0.29 px at −20 %) — **a wrong focal length is invisible in the internal diagnostics** — yet the geometry degrades steadily: a 5 % focal error halves completeness, 10 % leaves a quarter, and the fallback guess (`f = 1.2·max(w, h)` = 768 px vs the true 1520 px) produces a distorted model (20° rotation error, nothing within tolerance of the reference). A wrong focal length stretches depth relative to width, a distortion no similarity transform removes. Bundle adjustment also works harder (15 → 41 s) to absorb the inconsistency. Implication: calibrate the camera (`python -m src.cli calibrate`), or extend bundle adjustment to refine the focal length — today it keeps K fixed.
+**RQ3:** calibration is the single most important input. Every setting registers all 47 images and the reprojection error barely moves (0.23 → 0.29 px at −20 %) — **a wrong focal length is invisible in the internal diagnostics** — yet the geometry degrades steadily: a 5 % focal error halves completeness, 10 % leaves a quarter, and the fallback guess (`f = 1.2·max(w, h)` = 768 px vs the true 1520 px) produces a distorted model (20° rotation error, nothing within tolerance of the reference). A wrong focal length stretches depth relative to width, a distortion no similarity transform removes. Bundle adjustment also works harder (15 → 41 s) to absorb the inconsistency. Implication: calibrate the camera (`python -m src.cli calibrate`), or refine the focal length in bundle adjustment — which E3b does. (E3 now pins `bundle_adjustment.refine_focal: false` so this table stays reproducible.)
+
+### E3b — refining the focal length in bundle adjustment (RQ3)
+
+The E3 sweep again, with `bundle_adjustment.refine_focal` on (now the default): every global adjustment also refines one focal scale shared by all images (methodology §8). True `fx` = 1520.4 px.
+
+| starting focal length | refined focal length | rotation error | centre error | completeness | accuracy | metric scale error | runtime |
+|---|---|---|---|---|---|---|---|
+| −20 % … +20 % (6 runs) | 1521.0–1521.5 px (+0.04…+0.07 %) | 0.15° | 0.18–0.19 % | 0.92 | 0.45–0.46 % | −0.5…−0.8 % | 12.5–13.2 s |
+| **true** | 1521.3 px (+0.06 %) | **0.15°** | **0.18 %** | **0.92** | **0.46 %** | −0.7 % | 12.0 s |
+| guessed (−49 %, 768 px) | 1530.3 px (+0.65 %) | 0.76° | 0.18 % | 0.91 | 0.57 % | −0.8 % | 14.1 s |
+
+![E3 vs E3b](images/e3b_focal_refinement.png)
+
+*Drawn by `python scripts/plot_focal_refinement.py <run>/e3_calibration <run>/e3b_focal_refinement`.*
+
+**RQ3, revisited:** with the focal length refined, every starting error from −20 % to +20 % converges to the same 1521 px and the same result as the true calibration — completeness 0.92 instead of 0.08–0.59, rotation error 0.15° instead of up to 2.3°, and BA no longer slows down (12–13 s instead of up to 41 s). On the true calibration it changes nothing measurable (0.06 % focal drift, same pose and cloud errors). Even the fallback guess, half the true focal length, now gives a usable model: 0.91 completeness instead of 0.00, 0.76° instead of 20°.
+
+The guess's remaining 0.76° is a near-constant rotation offset (the camera centres are as accurate as with the true `K`, 0.18 %): consistent with its principal point, which stays at the image centre (320, 240) while the calibrated one is (302.3, 246.9) — a 19 px shift is 0.72° at f = 1520 px. Refining the principal point too is possible but poorly constrained on a ring of views; we leave it fixed.
+
+Why the focal length is observable here: the ring spans 360° and the scene has depth relative to its distance, so the wrong focal length's stretch of depth against width cannot be absorbed by the poses. On synthetic tests the same holds down to 3 cameras over 20° (focal within 0.2 %); with fewer views or a nearly planar scene it would be ill-conditioned, so local adjustments (5 cameras) keep `K` fixed.
 
 ### E4 — SIFT vs ORB (RQ4)
 
@@ -132,4 +152,5 @@ The −20 % cloud (middle) looks like the calibrated one (left) to the eye — t
 
 - One dataset, one object (plaster, black background, a ring of views). Conclusions about view spacing and detector choice are specific to such low-texture objects.
 - The reference shares our SIFT features and matches; it measures geometry given the tracks, not against an independent surface scan.
+- E3b refines the focal length only; distortion is assumed zero (true for templeRing) and the principal point stays fixed.
 - Each setting runs once. The pipeline is deterministic (seeded RANSAC), so repeats give identical numbers; variation across datasets is not measured.

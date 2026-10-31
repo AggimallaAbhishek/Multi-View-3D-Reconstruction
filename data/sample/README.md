@@ -51,6 +51,8 @@ python scripts/evaluate_against_ground_truth.py data/raw/dinoRing
 | Reprojection error, mean | 0.52 px | 0.44 px |
 | Runtime (Apple M4, cold) | — | 26 s |
 
+These were measured with `K` fixed in bundle adjustment. With the focal length refined (the default since E3b, [docs/experiments.md](../../docs/experiments.md#e3b--refining-the-focal-length-in-bundle-adjustment-rq3)) dinoRing is unchanged within noise: 48/48, 3636 landmarks, rotation error 0.15° / 0.30°, centre error 0.24 % / 0.47 %, reprojection mean 0.44 px.
+
 dinoSparseRing (16 views ~22° apart) is beyond the ~20° matching limit: 5/16 registered with the adaptive threshold (4/16 with the fixed one).
 
 Own captures: document the camera, resolution, focal length, lighting and capture path for each scene in `data/raw/<scene>/README.md`.
