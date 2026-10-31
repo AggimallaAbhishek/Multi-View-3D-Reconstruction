@@ -585,7 +585,6 @@ Directly suggested by the results:
 - **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
 - **Refine the principal point and radial distortion** in bundle adjustment too (the focal length is refined since E3b), and per-camera intrinsics for mixed-camera photo sets.
 - **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
-- **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
 - More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.
