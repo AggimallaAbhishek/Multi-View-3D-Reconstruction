@@ -36,6 +36,12 @@ features:
   sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
   sift_adaptive_min_features: 500  # images with fewer: detect again, threshold halved... (0 = off)
   sift_min_contrast_threshold: 0.005  # ...down to this (dark or low-texture images)
+  affine_simulation: false     # SIFT on affine-warped copies of each image (ASIFT, OpenCV's
+                               # AffineFeature): matches views ~20-70 deg apart, ~20x slower
+  affine_max_tilt: 5           # tilt levels simulated, as powers of tilt_step (OpenCV's
+                               # defaults, from the ASIFT paper)
+  affine_tilt_step: 1.4142135623730951
+  affine_rotate_step_base: 72.0  # rotation step at tilt t is this / t degrees
   warn_min_features: 100       # warn about images with fewer features...
   warn_min_coverage: 0.25      # ...or keypoints on less than this share of the coverage grid
   coverage_grid: 8             # coverage is measured on a grid x grid partition of the image

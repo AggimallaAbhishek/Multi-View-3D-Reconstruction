@@ -171,6 +171,58 @@ def test_threshold_is_never_lowered_below_the_floor(faint):
     assert len(stopped) == _opencv_sift_count(faint, 0.01) < _opencv_sift_count(faint, 0.005)
 
 
+# --- affine simulation (ASIFT): wide baselines / oblique views ------------------------
+
+
+def _correct_matches(extractor, image, H, radius=3.0):
+    """Ratio-test + mutual matches between ``image`` and its warp by ``H`` that land
+    within ``radius`` px of where ``H`` maps them (ground truth)."""
+    import cv2
+
+    from src.config import MatchConfig
+    from src.features.matcher import DescriptorMatcher
+
+    h, w = image.shape
+    warped = cv2.warpPerspective(image, H, (w, h), flags=cv2.INTER_LINEAR)
+    fa, fb = extractor.detect(image), extractor.detect(warped)
+    matches, _ = DescriptorMatcher(MatchConfig()).match(fa, fb)
+    pa, pb = matches.points(fa, fb)
+    mapped = cv2.perspectiveTransform(pa[None], H)[0]
+    return int(np.sum(np.linalg.norm(mapped - pb, axis=1) < radius))
+
+
+@pytest.fixture(scope="module")
+def tilted():
+    """A natural texture and a homography that views it 60 deg off-axis (tilt 2: the
+    image is compressed 2x along one direction) and rotated 30 deg."""
+    import cv2
+
+    image = cv2.cvtColor(make_natural_texture(2, 640, 480), cv2.COLOR_BGR2GRAY)
+    c = np.array([[1, 0, -320], [0, 1, -240], [0, 0, 1.0]])
+    R = np.vstack([cv2.getRotationMatrix2D((0, 0), 30, 1.0), [0, 0, 1]])
+    T = np.diag([1 / 2, 1.0, 1.0])
+    return image, np.linalg.inv(c) @ T @ R @ c
+
+
+def test_affine_simulation_matches_a_strongly_tilted_view(tilted):
+    image, H = tilted
+    plain = SIFTExtractor(max_features=4000)
+    affine = SIFTExtractor(max_features=4000, affine_simulation=True)
+    n_plain, n_affine = _correct_matches(plain, image, H), _correct_matches(affine, image, H)
+    assert n_affine > 100 and n_affine > 10 * n_plain  # measured: 191 vs 9
+
+
+def test_affine_simulation_from_config_and_in_the_cache_key():
+    config = FeatureConfig(affine_simulation=True, affine_max_tilt=4.0)
+    extractor = create_extractor(config)
+    assert isinstance(extractor, SIFTExtractor) and extractor.name == "sift"  # same matching
+    signatures = {
+        create_extractor(c).signature()
+        for c in [FeatureConfig(), config, FeatureConfig(affine_simulation=True)]
+    }
+    assert len(signatures) == 3
+
+
 # --- factory, persistence, cache --------------------------------------------------------
 
 

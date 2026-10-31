@@ -138,8 +138,14 @@ class SIFTExtractor(FeatureExtractor):
         contrast_threshold: float = 0.04,
         min_features: int = 0,
         min_contrast_threshold: float = 0.005,
+        affine_simulation: bool = False,
+        affine_max_tilt: int = 5,
+        affine_tilt_step: float = 2**0.5,
+        affine_rotate_step_base: float = 72.0,
     ):
         super().__init__(max_features)
+        self.affine = (affine_max_tilt, affine_tilt_step, affine_rotate_step_base)
+        self.affine_simulation = affine_simulation
         self.root_sift = root_sift
         self.contrast_threshold = contrast_threshold
         self.min_features = min_features
@@ -150,8 +156,16 @@ class SIFTExtractor(FeatureExtractor):
         if contrast_threshold is None:
             contrast_threshold = self.contrast_threshold
         # Ask OpenCV for a little more than the cap so the strict cap picks the strongest.
-        return cv2.SIFT_create(
+        sift = cv2.SIFT_create(
             nfeatures=self.max_features + 64, contrastThreshold=contrast_threshold
+        )
+        if not self.affine_simulation:
+            return sift
+        # ASIFT (OpenCV's AffineFeature, external): SIFT on copies of the image warped by
+        # simulated camera tilts and rotations, keypoints mapped back to the original.
+        max_tilt, tilt_step, rotate_step = self.affine
+        return cv2.AffineFeature_create(
+            sift, maxTilt=max_tilt, minTilt=0, tiltStep=tilt_step, rotateStepBase=rotate_step
         )
 
     def detect(self, image: np.ndarray) -> Features:
@@ -182,7 +196,9 @@ class SIFTExtractor(FeatureExtractor):
     def signature(self) -> str:
         return (
             f"{self.name}-n{self.max_features}-c{self.contrast_threshold:g}"
-            f"-a{self.min_features}-f{self.min_contrast_threshold:g}-cv{cv2.__version__}"
+            f"-a{self.min_features}-f{self.min_contrast_threshold:g}"
+            + ("-affine{:g}-{:g}-{:g}".format(*self.affine) if self.affine_simulation else "")
+            + f"-cv{cv2.__version__}"
         )
 
 
@@ -208,6 +224,10 @@ def create_extractor(config: FeatureConfig) -> FeatureExtractor:
             contrast_threshold=config.sift_contrast_threshold,
             min_features=config.sift_adaptive_min_features,
             min_contrast_threshold=config.sift_min_contrast_threshold,
+            affine_simulation=config.affine_simulation,
+            affine_max_tilt=config.affine_max_tilt,
+            affine_tilt_step=config.affine_tilt_step,
+            affine_rotate_step_base=config.affine_rotate_step_base,
         )
     if config.detector == "orb":
         return ORBExtractor(max_features=config.max_features)

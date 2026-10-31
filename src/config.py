@@ -67,6 +67,10 @@ class FeatureConfig:
     sift_contrast_threshold: float = 0.04
     sift_adaptive_min_features: int = 500
     sift_min_contrast_threshold: float = 0.005
+    affine_simulation: bool = False
+    affine_max_tilt: int = 5
+    affine_tilt_step: float = 1.4142135623730951
+    affine_rotate_step_base: float = 72.0
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
     coverage_grid: int = 8
