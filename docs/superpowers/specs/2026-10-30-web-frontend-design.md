@@ -86,6 +86,8 @@ registered images with a ground-truth camera are scored; fewer than 3 gives an e
 
 - Uploads: `data/raw/web_uploads/<job_id>/` — photos, plus `camera.yaml` /
   `gt_cameras.json` if given, so the dataset loader's existing auto-detection finds them.
+  The job manager removes the folder once the job has ended (done or failed); the run
+  folder holds the results.
 - Results: the normal run folder `outputs/<stamp>_web_reconstruct/` plus `report.json`.
 - Both are under git-ignored directories.
 
@@ -119,6 +121,7 @@ from a CDN and labelled as external in the README and methodology docs.
 |---|---|---|
 | `POST` | `/api/jobs` | Multipart: `images` (≥ `dataset.min_images` files), optional `camera` (`camera.yaml`), optional `ground_truth` (`gt_cameras.json`). Validates count, extensions, total size, and parses both optional files before queueing. Returns `201 {job_id}`; `409 {detail, job_id}` (the running job) if a job is running; `422 {detail}` on invalid input (nothing written). |
 | `GET` | `/api/jobs/{id}` | `{id, status, stage, stages_done, timings, error, run_dir, photos, registered, started}`; `404` if unknown. `GET /api/jobs` lists the same objects. |
+| `DELETE` | `/api/jobs/{id}` | Removes a finished or failed run: its run folder and its entry; `204`. `409` while queued or running, or if the run folder is not a web run folder directly under `output.root`; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/files` | Relative paths of the files in the job's run folder (sorted; empty while running). The page shows only figures and downloads that exist, and links everything a failed job wrote. |
 | `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder (a failed job's too: the outputs of the stages that finished). The resolved path must lie inside the run folder, otherwise `404`. |
@@ -152,6 +155,8 @@ One page, three states.
      `reconstruction/reprojection_histogram.png`, `reconstruction/cameras.png`,
      `figures/filtered.png` — each shown only if present.
    - Downloads: `filtered.ply`, `cameras.json`, `report.json`.
+   - **Delete this run** (results and failed views), confirmed in the page (no browser
+     dialog); then back to the upload view with a notice.
 
 Follows the system light/dark preference; usable at laptop and tablet widths.
 

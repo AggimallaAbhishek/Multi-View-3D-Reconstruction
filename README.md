@@ -345,7 +345,7 @@ uv pip install -e ".[web]"     # FastAPI, uvicorn, python-multipart (external)
 python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--port to change)
 ```
 
-Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The page follows the run stage by stage, then shows the point cloud with its cameras (three.js, external), summary metrics, the ground-truth errors when `gt_cameras.json` was given, the diagnostic figures and downloads (`filtered.ply`, `cameras.json`, `report.json`). Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, so earlier results are listed again after a restart.
+Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The page follows the run stage by stage, then shows the point cloud with its cameras (three.js, external), summary metrics, the ground-truth errors when `gt_cameras.json` was given, the diagnostic figures and downloads (`filtered.ply`, `cameras.json`, `report.json`). Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, so earlier results are listed again after a restart; **Delete this run** removes one. The uploaded photos are deleted once their run has ended (the run folder keeps the results).
 
 ![web interface on templeRing](docs/images/web_ui.png)
 
