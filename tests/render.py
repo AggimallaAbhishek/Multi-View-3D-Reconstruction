@@ -13,11 +13,13 @@ and the box spans [-1, 1] in x, y and z, standing on the ground.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
 
-from tests.images import make_natural_texture
+from src.geometry.camera import Camera
+from tests.images import make_natural_texture, write_image
 from tests.synthetic import intrinsics, look_at
 
 
@@ -118,3 +120,31 @@ def render_box_scene(
         translations.append(t)
         images.append(render(faces, K, R, t, size))
     return RenderedScene(K, np.stack(rotations), np.stack(translations), images, size)
+
+
+def view_name(k: int) -> str:
+    """File name ``write_scene`` gives view ``k`` (0-based)."""
+    return f"view_{k + 1:02d}.png"
+
+
+def scene_cameras(scene: RenderedScene) -> dict[str, Camera]:
+    """Ground-truth cameras keyed by the file names ``write_scene`` uses."""
+    return {
+        view_name(k): Camera(scene.K, R, t)
+        for k, (R, t) in enumerate(zip(scene.rotations, scene.translations, strict=True))
+    }
+
+
+def write_scene(scene: RenderedScene, root: Path) -> tuple[Path, Path]:
+    """Write the views as ``root/scene/view_01.png ...`` and the intrinsics as
+    ``root/camera.yaml`` (not next to the images, so tests choose whether it is used).
+    Returns (image folder, camera file)."""
+    for k, im in enumerate(scene.images):
+        write_image(root / "scene" / view_name(k), im)
+    K, (width, height) = scene.K, scene.image_size
+    camera = root / "camera.yaml"
+    camera.write_text(
+        f"width: {width}\nheight: {height}\n"
+        f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
+    )
+    return root / "scene", camera

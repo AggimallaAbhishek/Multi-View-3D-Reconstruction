@@ -13,8 +13,7 @@ from src.evaluation.experiments import (
 )
 from src.evaluation.metrics import camera_pose_errors, cloud_errors, metric_scale
 from src.geometry.camera import Camera
-from tests.images import write_image
-from tests.render import render_box_scene
+from tests.render import render_box_scene, scene_cameras, write_scene
 from tests.synthetic import make_scene
 
 # --- metrics --------------------------------------------------------------------------
@@ -112,20 +111,13 @@ def test_named_runs_and_invalid_specs(tmp_path):
 def rendered(tmp_path_factory):
     scene = render_box_scene(n_cameras=4, arc_deg=30.0)
     root = tmp_path_factory.mktemp("experiment")
-    for k, im in enumerate(scene.images):
-        write_image(root / "scene" / f"view_{k + 1:02d}.png", im)
-    K = scene.K
-    (root / "scene" / "camera.yaml").write_text(
-        f"width: 800\nheight: 600\nfx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-    )
-    gt = {
-        f"view_{k + 1:02d}.png": Camera(K, R, t)
-        for k, (R, t) in enumerate(zip(scene.rotations, scene.translations, strict=True))
-    }
+    images, camera = write_scene(scene, root)
+    camera.rename(images / "camera.yaml")  # next to the images: picked up automatically
+    gt = scene_cameras(scene)
     config = config_from_dict(
         {"output": {"cache_dir": str(root / "cache")}, "features": {"max_features": 3000}}
     )
-    return root / "scene", gt, config
+    return images, gt, config
 
 
 def test_reference_cloud_lies_on_the_true_geometry(rendered):
@@ -158,6 +150,10 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
         assert row["completeness"] > 0.5
         assert row["time_total_s"] >= row["time_reconstruct_s"] > 0
         assert row["raw_matches_mean"] >= row["matches_mean"] > 0  # per pair, before/after
+        true_fx = next(iter(gt.values())).K[0, 0]
+        # Started from the true calibration; refined (default) or kept, it stays there.
+        assert row["focal_px"] == pytest.approx(true_fx, rel=5e-3)
+        assert row["focal_error"] == pytest.approx(row["focal_px"] / true_fx - 1)
     assert rows[0]["bundle_adjustment.enabled"] is True
     assert rows[1]["bundle_adjustment.enabled"] is False
 
@@ -177,6 +173,19 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
 
     files = {f.name for f in make_report(tmp_path / "out" / "e5")}
     assert "reprojection.png" in files  # one error distribution per setting
+
+
+def test_focal_error_compares_at_the_working_resolution(rendered, tmp_path):
+    """Images downscaled by ``preprocessing.max_side`` have K rescaled; the focal error
+    against the (full-resolution) ground truth must account for that."""
+    images, gt, config = rendered
+    spec = tmp_path / "small.yaml"
+    spec.write_text("name: small\nquestion: q\nruns:\n  half: {preprocessing.max_side: 320}\n")
+    (row,) = run_experiment(load_experiment(spec), images, config, tmp_path / "out", gt=gt)
+    assert row["status"] == "ok"
+    true_fx = next(iter(gt.values())).K[0, 0]
+    assert row["focal_px"] < 0.5 * true_fx  # really downscaled ...
+    assert row["focal_error"] == pytest.approx(0.0, abs=1e-2)  # ... and compared like for like
 
 
 def test_failed_settings_are_recorded_not_raised(rendered, tmp_path):

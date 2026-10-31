@@ -49,9 +49,28 @@ flowchart LR
 | reconstruct | `reconstruct` | `reconstruct` | `reconstruction/`, `point_clouds/sparse.ply`, `camera_poses/cameras.json` (multi-view; replace the two-view files) |
 | filter | `filter_cloud` | `reconstruct` | `point_clouds/filtered.ply`, `figures/filtered.png` |
 
+The stage outputs are written by `src/outputs.py` (`save_stage_outputs`), shared by the CLI and the web interface.
+
 Stages fail softly: a pair that cannot be verified or posed, an image that cannot be registered, or a dataset without an initial pair produce results with a `reason`, not exceptions. Only an unusable image folder raises (`DatasetError`).
 
 Features, matches and prepared images are cached under `outputs/cache/`, keyed by content and every setting that affects them, so experiment sweeps recompute only what a setting changes.
+
+### Web interface
+
+The optional web layer (`src/web/`, Phase 12) drives the same pipeline and output writers as the CLI; it adds no geometry.
+
+```mermaid
+flowchart LR
+    B["browser<br/><i>static/index.html · app.js · viewer.js</i><br/>three.js (external)"] -->|"POST /api/jobs<br/>(photos, camera.yaml, gt_cameras.json)"| A["FastAPI app<br/><i>web/app.py</i><br/>upload checks → data/raw/web_uploads/{job}/"]
+    A --> J["JobManager<br/><i>web/jobs.py</i><br/>one job at a time"]
+    J -->|"spawn"| C["child process<br/>run_pipeline(on_stage=…)<br/>save_stage_outputs · report.json"]
+    C -.->|"stage, done, failed<br/>(queue)"| J
+    C -->|"run folder"| R[/"outputs/{stamp}_web_reconstruct/"/]
+    B -->|"poll GET /api/jobs/{id}<br/>GET report, files"| A
+    A -->|"reads"| R
+```
+
+Reconstructions run in a spawned child process because Open3D's offscreen renderer aborts outside the main thread, and a native crash must end one job rather than the server. A failed job keeps the outputs of the stages it finished. Finished runs are found again from their `report.json`: the job list lives in memory, the results in the run folders.
 
 ## Coordinate frames
 

@@ -35,6 +35,8 @@ gantt
     section M3 Evaluation & delivery
     P10 Experiments        :p10, after p9, 2
     P11 Docs & demo        :p11, after p10, 1
+    section Extension
+    P12 Web interface      :p12, after p11, 1
 ```
 
 Units are relative effort (≈ 1 unit ≈ a few focused days). Phase 8 is the largest and riskiest; budget for it.
@@ -131,6 +133,7 @@ EXIF orientation rotating images silently (use `cv2.IMREAD_IGNORE_ORIENTATION` o
 > - Observed: on a heavily blurred image SIFT still finds 265 features where ORB finds 0 — first data point for RQ4.
 > - Removed the unused `preprocessing.grayscale` key; added `features.sift_contrast_threshold` and `features.cache_dir`.
 > - The cache lives in a shared `outputs/cache/features/` (keyed by content), not per run as first planned, so it is reused across runs.
+> - Added later (found with dinoRing through the web interface): `features.sift_adaptive_min_features` / `sift_min_contrast_threshold` — an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, down to 0.005. dinoRing 19/48 → 48/48 registered; templeRing unchanged (every image already has ≥ 597).
 
 ### Tasks
 - `features/extractor.py`: `Extractor` interface with `SIFTExtractor` (default, `nfeatures` from config) and `ORBExtractor`. Return `Features(points: (N,2) float32, descriptors, sizes, angles)`.
@@ -365,7 +368,7 @@ End-to-end `reconstruct` on a real dataset produces a clean, coherent multi-view
 > **Status — done for E1–E5; E6 (COLMAP baseline, RQ5) pending a COLMAP install.** `src.evaluation.experiments`: YAML specs in `configs/experiments/` (`vary` grid or named `runs`, overrides validated on load) → `run_experiment` (one run directory per setting with config, environment, `metrics.json`, `filtered.ply`; failures recorded, not raised) → `experiment_results.csv` + `experiment.json`. `reference_cloud`: every verified track triangulated with the ground-truth cameras. `src.evaluation.metrics`: `cloud_errors` (completeness, accuracy, Chamfer — fractions of the reference extent), `metric_scale`, `PoseErrors.similarity`. `src.evaluation.reports.make_report` → `metrics.png`, `runtime.png`, `results.md` from the CSV. `run_pipeline` records per-stage timings. New config: `dataset.max_images` (evenly spaced subset), `camera.auto_calibration_file`, `camera.focal_scale` (simulated focal error), `evaluation.completeness_tolerance`. One command: `python scripts/run_experiments.py` (~9 min); `scripts/evaluate_results.py` redraws. Results in [`experiments.md`](experiments.md); `notebooks/04_reconstruction_analysis.ipynb`. Decisions and findings:
 > - Middlebury's ground-truth surface is not public, so completeness is measured against an **internal reference**: our SIFT tracks over all images triangulated with the true cameras. It is independent of our poses but shares our matches; accuracy is therefore biased towards SIFT and E4 compares by completeness and pose error.
 > - RQ1: completeness is limited by view spacing — between a median view gap of ~23° and ~16° registration jumps from 6/16 to 21/24 images. RQ2: ratio 0.7–0.8 + mutual check is best; looser matching yields fewer, worse points. RQ3: a 5 % focal error halves completeness while reprojection error stays flat; guessed K (−49 %) gives a 20° pose error. RQ4: ORB 3× the points, 4× the pose error and runtime. E5: BA cuts pose error 4×, completeness 0.38 → 0.92, ~90 % of runtime. A scale from one measured distance agrees with the full fit within 0.7 %.
-> - Next candidates the results point to: refine the focal length in bundle adjustment (RQ3), intermediate views or a wider-baseline matcher for sparse rings (RQ1).
+> - Next candidates the results point to: refine the focal length in bundle adjustment (RQ3) — **done afterwards (E3b):** one shared focal scale refined in global adjustments, default on, ±20 % errors converge to the calibrated result; intermediate views or a wider-baseline matcher for sparse rings (RQ1).
 
 ### Tasks
 - `evaluation/metrics.py`: all metrics from README §12, including pose error vs synthetic/COLMAP and Chamfer/completeness after Umeyama/ICP alignment.
@@ -404,3 +407,34 @@ README checklist fully ticked; a classmate can reproduce a reconstruction from t
 
 ### 🧰 Skills
 `code-review`, `matplotlib`.
+
+---
+
+## Phase 12 — Web Interface ✅
+
+**Goal:** Run the full reconstruction from a local web page: upload photos (and optionally `camera.yaml` / `gt_cameras.json`), watch stage-by-stage progress, and inspect the result — an interactive point cloud with cameras, summary metrics, the ground-truth evaluation when available, and the diagnostic figures the pipeline already writes. Design: [`docs/superpowers/specs/2026-10-30-web-frontend-design.md`](superpowers/specs/2026-10-30-web-frontend-design.md); plan: [`docs/superpowers/plans/2026-10-30-web-frontend.md`](superpowers/plans/2026-10-30-web-frontend.md).
+
+> **Status — done.** `python -m src.web` (optional extra `[web]`) serves a FastAPI app on `127.0.0.1:8000` and opens the page. Local only, one job at a time, no authentication.
+> - **Shared code, CLI unchanged:** the per-stage output writers moved from `cli.py` to `src/outputs.py`, `run_pipeline` gained an `on_stage` progress callback, and run-folder naming is shared (`new_run_dir`, `is_run_dir_name`). `reconstruct` prints the same summary and writes the same folder layout as before.
+> - **Jobs:** each reconstruction runs in a spawned child process (Open3D's offscreen render aborts outside the main thread, and a native crash must end one job, not the server); progress returns through a queue. A failed job keeps the outputs of every stage it finished; stopping the server (Ctrl+C or SIGTERM) stops a running reconstruction. Finished web runs are rediscovered from `outputs/<stamp>_web_reconstruct/report.json`, so results survive a restart.
+> - **Uploads** are checked before anything is written (extensions and min/max count from `dataset`, total size, duplicate or hidden names); `camera.yaml` and `gt_cameras.json` are parsed with the pipeline's own loaders, and a bad file is rejected with a message naming it.
+> - **Page:** vanilla HTML/CSS/ES modules, no build step. three.js 0.160 (external, from a CDN) draws the cloud and camera frusta; the PLY is parsed in `viewer.js` because three's `PLYLoader` assumes 0–255 colours. The view is oriented by the camera ring's normal (templeRing's cameras are rolled, so image-up would show the ring edge-on). The page shows only the figures and downloads a run actually wrote; a failed run lists its partial files.
+> - **Real-data check (templeRing, all 47 images + `camera.yaml` + `gt_cameras.json`, uploaded through the page):** identical to the CLI — 47/47 registered, 6454 landmarks; rotation error median / p90 / max 0.15° / 0.35° / 0.41°; camera-centre error 0.18 % / 0.36 % / 0.71 %; reprojection error 0.14 / 0.53 / 1.99 px (mean 0.23); 16 s.
+
+### Tasks
+- Refactor without changing the CLI: `src/outputs.py`, `on_stage` callback, shared run-folder helpers.
+- `src/web/report.py` (`report.json`, works on partial results), `src/web/jobs.py` (`JobManager`, child process), `src/web/app.py` (upload, job, report and file endpoints), `src/web/__main__.py`.
+- `src/web/static/`: upload → progress → results page, three.js viewer.
+- Real-data check on templeRing through the page; docs.
+
+### 🧪 Tests
+Report on full and partial results; job lifecycle with a fake job function and one real child-process run; upload validation (counts, extensions, size, invalid calibration / ground-truth files); end-to-end upload → report → files on the rendered box scene; path safety of the file endpoint; shutdown stops running jobs; `python -m src.web` arguments.
+
+### ✅ Exit criteria
+1. All new and existing tests pass (`pytest -q`).
+2. CLI `reconstruct` output folder is unchanged by the refactor.
+3. The templeRing check reproduces the CLI's numbers in the browser.
+4. Invalid uploads are rejected with clear messages; a failed stage is shown as failed.
+
+### 🧰 Skills
+`fastapi`, `frontend-design`, `tdd`, `systematic-debugging`, `code-review`.

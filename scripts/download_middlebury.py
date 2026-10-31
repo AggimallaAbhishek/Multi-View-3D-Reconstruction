@@ -22,7 +22,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.evaluation.ground_truth import load_middlebury_par  # noqa: E402
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_middlebury_par  # noqa: E402
 from src.pointcloud.export import write_cameras_json  # noqa: E402
 
 URL = "https://vision.middlebury.edu/mview/data/data/{name}.zip"
@@ -57,7 +57,7 @@ def main(name: str = "templeRing") -> int:
         with Image.open(target / name) as im:
             sizes.append(im.size)
     write_cameras_json(
-        target / "gt_cameras.json", [cameras[n] for n in names], names, sizes,
+        target / GT_CAMERAS_FILE, [cameras[n] for n in names], names, sizes,
         frame="Middlebury ground truth (world -> camera: x_c = R X + t), original resolution",
     )  # fmt: skip
     K = cameras[names[0]].K

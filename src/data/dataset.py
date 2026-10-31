@@ -34,6 +34,8 @@ from src.data.validation import ImageStats, ValidationReport, image_stats, valid
 from src.geometry.calibration import Intrinsics, load_camera_file, resolve_intrinsics
 from src.run import atomic_savez, write_json
 
+CAMERA_FILE = "camera.yaml"  # picked up beside the images
+
 log = logging.getLogger(__name__)
 
 
@@ -190,7 +192,7 @@ def find_calibration_file(directory: str | Path, config: Config) -> Path | None:
         return Path(config.camera.calibration_file)
     if not config.camera.auto_calibration_file:
         return None
-    beside = Path(directory) / "camera.yaml"
+    beside = Path(directory) / CAMERA_FILE
     return beside if beside.is_file() else None
 
 
@@ -248,7 +250,8 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
     for issue in report.issues:
         log.debug("%s: %s", issue.code, issue.message)
     if not report.ok:
-        raise DatasetError(f"dataset validation failed for {directory}", report=report)
+        reasons = "; ".join(issue.message for issue in report.errors)
+        raise DatasetError(f"dataset validation failed for {directory}: {reasons}", report=report)
     return Dataset(directory, prepared, report, calibration_file)
 
 

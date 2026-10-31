@@ -4,7 +4,7 @@ Answers to the research questions on Middlebury **templeRing** (47 views, 640×4
 
 ```bash
 python scripts/download_middlebury.py templeRing     # once
-python scripts/run_experiments.py                     # all specs in configs/experiments/, ~9 min on an Apple M4
+python scripts/run_experiments.py                     # all specs in configs/experiments/, ~11 min on an Apple M4
 python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/tables only
 ```
 
@@ -74,7 +74,27 @@ Subsets evenly spaced **in file-name order** (`dataset.max_images`). templeRing'
 
 ![E3 results](images/e3_calibration.png)
 
-**RQ3:** calibration is the single most important input. Every setting registers all 47 images and the reprojection error barely moves (0.23 → 0.29 px at −20 %) — **a wrong focal length is invisible in the internal diagnostics** — yet the geometry degrades steadily: a 5 % focal error halves completeness, 10 % leaves a quarter, and the fallback guess (`f = 1.2·max(w, h)` = 768 px vs the true 1520 px) produces a distorted model (20° rotation error, nothing within tolerance of the reference). A wrong focal length stretches depth relative to width, a distortion no similarity transform removes. Bundle adjustment also works harder (15 → 41 s) to absorb the inconsistency. Implication: calibrate the camera (`python -m src.cli calibrate`), or extend bundle adjustment to refine the focal length — today it keeps K fixed.
+**RQ3:** calibration is the single most important input. Every setting registers all 47 images and the reprojection error barely moves (0.23 → 0.29 px at −20 %) — **a wrong focal length is invisible in the internal diagnostics** — yet the geometry degrades steadily: a 5 % focal error halves completeness, 10 % leaves a quarter, and the fallback guess (`f = 1.2·max(w, h)` = 768 px vs the true 1520 px) produces a distorted model (20° rotation error, nothing within tolerance of the reference). A wrong focal length stretches depth relative to width, a distortion no similarity transform removes. Bundle adjustment also works harder (15 → 41 s) to absorb the inconsistency. Implication: calibrate the camera (`python -m src.cli calibrate`), or refine the focal length in bundle adjustment — which E3b does. (E3 now pins `bundle_adjustment.refine_focal: false` so this table stays reproducible.)
+
+### E3b — refining the focal length in bundle adjustment (RQ3)
+
+The E3 sweep again, with `bundle_adjustment.refine_focal` on (now the default): every global adjustment also refines one focal scale shared by all images (methodology §8). True `fx` = 1520.4 px.
+
+| starting focal length | refined focal length | rotation error | centre error | completeness | accuracy | metric scale error | runtime |
+|---|---|---|---|---|---|---|---|
+| −20 % … +20 % (6 runs) | 1521.0–1521.5 px (+0.04…+0.07 %) | 0.15° | 0.18–0.19 % | 0.92 | 0.45–0.46 % | −0.5…−0.8 % | 12.5–13.2 s |
+| **true** | 1521.3 px (+0.06 %) | **0.15°** | **0.18 %** | **0.92** | **0.46 %** | −0.7 % | 12.0 s |
+| guessed (−49 %, 768 px) | 1530.3 px (+0.65 %) | 0.76° | 0.18 % | 0.91 | 0.57 % | −0.8 % | 14.1 s |
+
+![E3 vs E3b](images/e3b_focal_refinement.png)
+
+*Drawn by `python scripts/plot_focal_refinement.py <run>/e3_calibration <run>/e3b_focal_refinement`.*
+
+**RQ3, revisited:** with the focal length refined, every starting error from −20 % to +20 % converges to the same 1521 px and the same result as the true calibration — completeness 0.92 instead of 0.08–0.59, rotation error 0.15° instead of up to 2.3°, and BA no longer slows down (12–13 s instead of up to 41 s). On the true calibration it changes nothing measurable (0.06 % focal drift, same pose and cloud errors). Even the fallback guess, half the true focal length, now gives a usable model: 0.91 completeness instead of 0.00, 0.76° instead of 20°.
+
+The guess's remaining 0.76° is a near-constant rotation offset (the camera centres are as accurate as with the true `K`, 0.18 %): consistent with its principal point, which stays at the image centre (320, 240) while the calibrated one is (302.3, 246.9) — a 19 px shift is 0.72° at f = 1520 px. Refining the principal point too is possible but poorly constrained on a ring of views; we leave it fixed.
+
+Why the focal length is observable here: the ring spans 360° and the scene has depth relative to its distance, so the wrong focal length's stretch of depth against width cannot be absorbed by the poses. On synthetic tests the same holds down to 3 cameras over 20° (focal within 0.2 %); with fewer views or a nearly planar scene it would be ill-conditioned, so local adjustments (5 cameras) keep `K` fixed.
 
 ### E4 — SIFT vs ORB (RQ4)
 
@@ -85,7 +105,7 @@ Subsets evenly spaced **in file-name order** (`dataset.max_images`). templeRing'
 
 ![E4 results](images/e4_detector.png)
 
-Neither detector reaches the 8000-feature cap: SIFT's contrast threshold keeps ~870 features per image on the smooth plaster, ORB's FAST detector ~3500. **RQ4:** ORB yields 3× more points but shorter tracks and less reliable ones — 4× the pose error, nearly twice the reprojection error and much lower completeness (0.57 vs 0.92) despite the denser cloud; its binary descriptors are less distinctive and its keypoints less precisely localised. It is also 4× slower overall, because the extra features make matching (11 s vs 0.2 s) and bundle adjustment (50 s vs 14 s) more expensive. SIFT is the right default; ORB's only advantage on this data is raw point count. (Phase 2 measured ORB failing entirely on blurred images, where SIFT still found 265 features.)
+Neither detector reaches the 8000-feature cap: SIFT's contrast threshold keeps ~870 features per image on the smooth plaster (every templeRing image is above the 500-feature target, so the adaptive threshold never lowers it here), ORB's FAST detector ~3500. **RQ4:** ORB yields 3× more points but shorter tracks and less reliable ones — 4× the pose error, nearly twice the reprojection error and much lower completeness (0.57 vs 0.92) despite the denser cloud; its binary descriptors are less distinctive and its keypoints less precisely localised. It is also 4× slower overall, because the extra features make matching (11 s vs 0.2 s) and bundle adjustment (50 s vs 14 s) more expensive. SIFT is the right default; ORB's only advantage on this data is raw point count. (Phase 2 measured ORB failing entirely on blurred images, where SIFT still found 265 features.)
 
 ### E5 — bundle adjustment and structure refinement
 
@@ -119,6 +139,7 @@ E6 (our sparse reconstruction vs COLMAP's sparse and dense reconstructions on th
 | **Views too far apart** | 8 views ~50° apart: only the initial pair registers (2/8); 16 views ~23° apart: 6/16 | SIFT on smooth plaster stops matching beyond ~20°; with no verified pairs there are no 2D–3D links for PnP | E1; Phase 4: 3 matches at 60° on rendered views |
 | **Wrong focal length** | Every image registers, reprojection error stays ~0.25 px, but completeness falls to 0.44 (−5 %) and 0.08 (−20 %) | A wrong `K` stretches depth against width — a distortion no similarity removes and bundle adjustment (fixed `K`) cannot absorb; the internal diagnostics do not notice | E3, figure below |
 | **No calibration at all** | 20° rotation error, 24 % centre error, completeness 0 | Fallback `f` = 768 px vs the true 1520 px (−49 %); the essential-matrix path is skipped, and poses from `F` with a wrong `K` are badly biased | E3 |
+| **Dark, low-texture images** (fixed SIFT threshold) | dinoRing: 19/48 cameras registered — the brightly lit side only | SIFT's absolute contrast threshold left the dark side 74–160 features; PnP ran out of 2D–3D links at both edges. **Fixed:** the threshold is lowered per image below 500 features (48/48, rotation error median 0.15°) | `data/sample/README.md`, `tests/test_features.py` |
 | **ORB on low texture** | 3× the points but 4× the pose error, short tracks | less distinctive binary descriptors and less precise keypoints | E4 |
 | **No bundle adjustment** | pose errors 4× larger, completeness 0.38 (with or without refinement) | small PnP errors accumulate around the ring; refinement cleans observations but cannot move cameras | E5 |
 | **Undetectable wrong matches** | ~1 % of deliberately shifted keypoints survive in the final model | a shift along the epipolar line of a 2–3-view track leaves no reprojection error | `tests/test_incremental.py` |
@@ -131,4 +152,5 @@ The −20 % cloud (middle) looks like the calibrated one (left) to the eye — t
 
 - One dataset, one object (plaster, black background, a ring of views). Conclusions about view spacing and detector choice are specific to such low-texture objects.
 - The reference shares our SIFT features and matches; it measures geometry given the tracks, not against an independent surface scan.
+- E3b refines the focal length only; distortion is assumed zero (true for templeRing) and the principal point stays fixed.
 - Each setting runs once. The pipeline is deterministic (seeded RANSAC), so repeats give identical numbers; variation across datasets is not measured.

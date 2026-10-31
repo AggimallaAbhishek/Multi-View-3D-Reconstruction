@@ -38,8 +38,12 @@ class ValidationReport:
     issues: list[ValidationIssue] = field(default_factory=list)
 
     @property
+    def errors(self) -> list[ValidationIssue]:
+        return [issue for issue in self.issues if issue.severity == "error"]
+
+    @property
     def ok(self) -> bool:
-        return not any(issue.severity == "error" for issue in self.issues)
+        return not self.errors
 
     @property
     def resolutions(self) -> dict[str, int]:

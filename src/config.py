@@ -65,6 +65,8 @@ class FeatureConfig:
     max_features: int = 8000
     root_sift: bool = False
     sift_contrast_threshold: float = 0.04
+    sift_adaptive_min_features: int = 500
+    sift_min_contrast_threshold: float = 0.005
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
     coverage_grid: int = 8
@@ -132,6 +134,8 @@ class BundleAdjustmentConfig:
     global_every: int = 5
     max_refinements: int = 3
     refine_structure: bool = True
+    refine_focal: bool = True
+    max_focal_change: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,16 @@ class PerformanceConfig:
 
 
 @dataclass(frozen=True)
+class WebConfig:
+    host: str = "127.0.0.1"
+    port: int = 8000
+    max_upload_mb: int = 500
+    max_upload_images: int = 200
+    poll_interval_ms: int = 1000
+    open_browser: bool = True
+
+
+@dataclass(frozen=True)
 class Config:
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
@@ -177,6 +191,7 @@ class Config:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
     def to_dict(self) -> dict[str, Any]:
         """Plain-dict view, suitable for saving next to run outputs."""
@@ -209,6 +224,13 @@ def load_config(path: str | Path | None = None) -> Config:
     with path.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     return config_from_dict(raw, source=str(path))
+
+
+def config_from_args(args: Any) -> Config:
+    """``args.config`` (None: the default config) with every command-line option whose
+    argparse ``dest`` is a dotted config key (``"web.port"``) applied."""
+    overrides = {key: value for key, value in vars(args).items() if "." in key}
+    return load_config(args.config).with_overrides(overrides)
 
 
 def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:

@@ -12,6 +12,7 @@ the feature cache.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
@@ -213,17 +214,26 @@ _STEPS = {
 }
 
 
+StageCallback = Callable[[Stage, PipelineResult], None]
+
+
 def run_pipeline(
-    images: str | Path, config: Config, until: Stage = "triangulate"
+    images: str | Path,
+    config: Config,
+    until: Stage = "triangulate",
+    on_stage: StageCallback | None = None,
 ) -> PipelineResult:
     """Prepare the dataset and run every stage up to and including ``until``.
 
-    Raises ``DatasetError`` if the image folder is unusable.
+    ``on_stage(stage, result)`` is called just before each stage runs, for progress
+    reporting. Raises ``DatasetError`` if the image folder is unusable.
     """
     start = time.perf_counter()
     result = PipelineResult(config=config, dataset=prepare_dataset(images, config))
     result.timings["dataset"] = time.perf_counter() - start
     for stage in stages_until(until):
+        if on_stage is not None:
+            on_stage(stage, result)
         start = time.perf_counter()
         _STEPS[stage](result)
         result.timings[stage] = time.perf_counter() - start

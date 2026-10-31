@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.config import load_config  # noqa: E402
 from src.evaluation.experiments import load_experiment, reference_cloud, run_experiment  # noqa: E402
-from src.evaluation.ground_truth import load_cameras_json  # noqa: E402
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json  # noqa: E402
 from src.evaluation.reports import make_report  # noqa: E402
 from src.pointcloud.export import write_ply  # noqa: E402
 from src.run import create_run_dir, write_run_metadata  # noqa: E402
@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     out = create_run_dir(args.out, "experiments")
     write_run_metadata(out, config)
 
-    gt_path = args.images / "gt_cameras.json"
+    gt_path = args.images / GT_CAMERAS_FILE
     gt = load_cameras_json(gt_path) if gt_path.is_file() else None
     reference = None
     if gt is not None:

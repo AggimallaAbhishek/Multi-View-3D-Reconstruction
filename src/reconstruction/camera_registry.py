@@ -21,7 +21,8 @@ class CameraRegistry:
         self._cameras[image] = camera
 
     def update(self, image: int, camera: Camera) -> None:
-        """Replace the pose of a registered image (e.g. after bundle adjustment)."""
+        """Replace the camera (pose, and K when the focal length was refined) of a registered
+        image, e.g. after bundle adjustment."""
         if image not in self._cameras:
             raise KeyError(f"image {image} is not registered")
         self._cameras[image] = camera

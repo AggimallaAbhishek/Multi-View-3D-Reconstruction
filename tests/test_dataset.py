@@ -59,6 +59,9 @@ def test_prepare_dataset_too_few_images_attaches_report(tmp_path):
         prepare_dataset(tmp_path, CFG)
     assert excinfo.value.report is not None
     assert "too_few_images" in [i.code for i in excinfo.value.report.issues]
+    # the message says what is wrong, not just which folder
+    errors = excinfo.value.report.errors
+    assert errors and all(issue.message in str(excinfo.value) for issue in errors)
 
 
 def test_prepare_dataset_uses_calibration_file(image_dir, tmp_path):

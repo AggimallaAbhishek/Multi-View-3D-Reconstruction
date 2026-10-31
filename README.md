@@ -3,7 +3,7 @@
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
 ![status](https://img.shields.io/badge/status-complete%20%C2%B7%20M3-brightgreen)
-![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-387%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -17,7 +17,7 @@
 3. [Objectives & Research Questions](#3-objectives--research-questions)
 4. [Scope](#4-scope)
 5. [System Architecture](#5-system-architecture)
-6. [Roadmap (Phase 0 → Phase 11)](#6-roadmap-phase-0--phase-11)
+6. [Roadmap (Phase 0 → Phase 12)](#6-roadmap-phase-0--phase-12)
 7. [Quick Start](#7-quick-start)
 8. [Repository Structure](#8-repository-structure)
 9. [Capturing a Dataset](#9-capturing-a-dataset)
@@ -62,7 +62,7 @@ On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×4
 | Completeness vs reference | **0.92** |
 | Runtime of `reconstruct` (Apple M4) | **20 s** cold, 16 s with caches |
 
-Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×.
+Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×.
 
 ### Course alignment (3D Computer Vision)
 
@@ -78,7 +78,7 @@ Experiments (RQ1–RQ4, [docs/experiments.md](docs/experiments.md)): completenes
 | Dense reconstruction | Future work (RQ5) |
 | Scaling | Metric scale from a known reference distance (Phase 10) |
 
-**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. Which parts are our own implementation and which come from these libraries is listed in [docs/methodology.md](docs/methodology.md#12-ours-vs-external). COLMAP is not used (a COLMAP baseline and dense reconstruction are future work).
+**Stack:** Python · OpenCV · NumPy · SciPy · Open3D · Matplotlib · pandas · pytest. Which parts are our own implementation and which come from these libraries is listed in [docs/methodology.md](docs/methodology.md#12-ours-vs-external). COLMAP is not used (a COLMAP baseline and dense reconstruction are future work). The optional web interface (§7.7) uses **FastAPI** and **uvicorn** (server) and **three.js** (browser viewer, loaded from a CDN) — all external.
 
 ---
 
@@ -170,7 +170,8 @@ flowchart TD
 | `visualization/` | Keypoint & match images, epipolar lines, reprojection histograms, top/side camera plots; `viewer.py`: Open3D scene (cloud + camera frusta), interactive `draw()` window and offscreen renders (overview, close-up) | PNG figures, interactive view |
 | `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct → filter); stage-by-stage data flow in [docs/architecture.md](docs/architecture.md) | In-memory results |
-| `cli.py` / `run.py` | Commands per stage; run directories with config, environment and per-stage outputs; shared CSV writer | Reproducible run directories |
+| `cli.py` / `run.py` / `outputs.py` | Commands per stage; run directories with config, environment and per-stage outputs (`outputs.py`, shared with the web interface); shared CSV writer | Reproducible run directories |
+| `web/` | Optional local web interface: FastAPI app (upload checks, job, report and file endpoints), one reconstruction at a time in a child process, `report.json`; static page with a three.js viewer | Browser UI, `report.json` |
 
 ### 5.3 Design principles
 
@@ -181,7 +182,7 @@ flowchart TD
 
 ---
 
-## 6. Roadmap (Phase 0 → Phase 11)
+## 6. Roadmap (Phase 0 → Phase 12)
 
 Detailed task lists, deliverables, exit criteria, and risks for every phase are in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
@@ -199,6 +200,7 @@ Detailed task lists, deliverables, exit criteria, and risks for every phase are 
 | 9 | Filtering, export (+ optional dense) | `filtered.ply`, `cameras.json`, optional COLMAP MVS | Reload round-trip; before/after point counts logged | **M2: multi-view** |
 | 10 | Evaluation & experiments | RQ1–RQ4 experiments (E1–E5), plots; COLMAP baseline future work | All experiments reproducible from config | — |
 | 11 | Documentation & presentation | Report, architecture/method docs, demo | Checklist complete | **M3: submission** |
+| 12 | Web interface | Local page: upload → progress → 3-D viewer + report | Browser reproduces the CLI's templeRing numbers | — |
 
 All phases are complete (see the checklist in §17); each phase's status notes in the roadmap record what was built, the decisions taken and the measurements behind them.
 
@@ -295,7 +297,7 @@ Prepared images, features and matches are cached under `outputs/cache/` (`output
 
 `notebooks/01_dataset_exploration.ipynb` shows thumbnails, blur scores, image similarity and per-image intrinsics for a folder.
 
-Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
+Intrinsics are chosen per image in this order: calibration file → EXIF 35 mm-equivalent focal length → fallback `f = 1.2 · max(w, h)`. Bundle adjustment then refines the focal length (`bundle_adjustment.refine_focal`, one scale shared by all images); `reconstruct` prints the refined value and writes it to `reconstruction.json`. Images are downscaled to `preprocessing.max_side` (default 1600 px) and `K` is rescaled to match.
 
 ### 7.4 Two-view reconstruction (milestone M1)
 
@@ -327,7 +329,7 @@ python -m src.cli reconstruct data/raw/templeRing
 ### 7.6 Experiments (Phase 10)
 
 ```bash
-# all experiments in configs/experiments/ on templeRing, then figures and tables (~9 min)
+# all experiments in configs/experiments/ on templeRing, then figures and tables (~11 min)
 python scripts/run_experiments.py
 #   outputs/experiments/<run>/<experiment>/experiment_results.csv · results.md · metrics.png · runtime.png
 #   ... one sub-directory per setting: config.yaml · environment.json · metrics.json · filtered.ply
@@ -336,7 +338,20 @@ python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/
 
 Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence and plots: `notebooks/04_reconstruction_analysis.ipynb`.
 
-### 7.7 COLMAP (future work)
+### 7.7 Web interface (Phase 12)
+
+```bash
+uv pip install -e ".[web]"     # FastAPI, uvicorn, python-multipart (external)
+python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--port to change)
+```
+
+Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The page follows the run stage by stage, then shows the point cloud with its cameras (three.js, external), summary metrics, the ground-truth errors when `gt_cameras.json` was given, the diagnostic figures and downloads (`filtered.ply`, `cameras.json`, `report.json`). Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, so earlier results are listed again after a restart; **Delete this run** removes one. The uploaded photos are deleted once their run has ended (the run folder keeps the results).
+
+![web interface on templeRing](docs/images/web_ui.png)
+
+Local only: the server listens on `127.0.0.1`, has no authentication and runs one reconstruction at a time. Upload limits and the poll interval are under `web:` in `configs/default.yaml`; the page needs internet access for three.js and the fonts. Through the page, templeRing gives exactly the CLI's numbers (Phase 12 in the roadmap).
+
+### 7.8 COLMAP (future work)
 
 The COLMAP baseline (E6, RQ5) and dense reconstruction are not implemented. COLMAP is a system dependency (`brew install colmap`; https://colmap.github.io/); installing the Python requirements does not install it.
 
@@ -365,6 +380,7 @@ Multi-View-3D-Reconstruction/
 ├── src/
 │   ├── config.py      # typed config (frozen dataclasses), YAML loader
 │   ├── run.py         # run directories, environment capture, CSV writer
+│   ├── outputs.py     # per-stage output writers (CLI and web)
 │   ├── pipeline.py    # run_pipeline → PipelineResult
 │   ├── cli.py
 │   ├── data/          loader.py · validation.py · preprocessing.py · dataset.py
@@ -376,7 +392,9 @@ Multi-View-3D-Reconstruction/
 │   ├── reconstruction/ two_view.py · tracks.py · camera_registry.py · landmarks.py
 │   │                  registration.py · bundle_adjustment.py · incremental.py
 │   ├── pointcloud/    coloring.py · filtering.py · export.py
-│   └── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
+│   ├── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
+│   └── web/           __main__.py · app.py · jobs.py · report.py
+│                      static/ index.html · app.js · viewer.js · style.css
 ├── tests/
 │   ├── synthetic.py              # 3D points + cameras with exact ground truth
 │   ├── render.py                 # rendered textured box scene from known cameras
@@ -469,6 +487,8 @@ outputs/<timestamp>_two_view_sift/
 
 `reconstruct` runs the same stages and continues to `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`) and `figures/filtered.png`; its `point_clouds/sparse.ply` (every landmark), `filtered.ply` and `camera_poses/cameras.json` hold the **multi-view** reconstruction, and the two-view cloud and renders are not written.
 
+The web interface writes the same layout as `reconstruct` to `outputs/<timestamp>_web_reconstruct/`, plus `report.json` (counts, calibration source, reprojection and ground-truth errors, timings).
+
 Not produced: dense clouds and meshes (future work). A complete textured mesh is **not** expected from sparse SfM alone. Experiment runs have their own layout (§7.6).
 
 **Demo:** input photos → keypoints → raw matches → geometric inliers → camera poses → sparse cloud → cleaned cloud → metrics.
@@ -499,14 +519,15 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 |---|---|---|---|
 | E1 Image count | 8 / 12 / 16 / 24 / 32 / all 47 images (evenly spaced) | Detector, thresholds | RQ1 |
 | E2 Matching thresholds | Ratio 0.6–0.9, mutual on/off | Images, detector | RQ2 |
-| E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF) | Images, detector | RQ3 |
+| E3 Calibration | Calibrated vs focal ±5/10/20 % vs guessed `K` (templeRing has no EXIF), `K` fixed in BA | Images, detector | RQ3 |
+| E3b Focal refinement | The E3 sweep with the focal length refined in BA | Images, detector | RQ3 |
 | E4 Detector | SIFT vs ORB | Resolution, pairs, RANSAC settings | RQ4 |
 | E5 Bundle adjustment × structure refinement | Each on / off | Everything else | quality gain |
 | E6 Baseline | Ours vs COLMAP sparse (and dense) — *not run: needs COLMAP* | Same image set | RQ5 |
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
 
-**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat (RQ3); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5).
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -521,7 +542,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-315 tests run in ~18 s (`pytest -q`). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+387 tests run in ~40 s (`pytest -q`; the web tests are skipped without the `[web]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
@@ -544,9 +565,9 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 ## 15. Limitations
 
 1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
-2. **Calibration is required.** Bundle adjustment keeps `K` fixed; a 5 % focal-length error halves completeness and a guessed focal length gives a distorted model (E3).
+2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset), and one shared focal length assumes one camera at one zoom.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
-4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image.
+4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.
 6. Sparse clouds do not represent complete surfaces; no dense stage or mesh is produced.
 7. No metric scale without an external reference; one measured distance sets it (on templeRing consistent with the full fit to < 1 %).
@@ -562,12 +583,12 @@ Failure cases are documented with evidence in [docs/experiments.md](docs/experim
 Directly suggested by the results:
 
 - **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
-- **Refine the focal length in bundle adjustment** (self-calibration), so an EXIF or guessed `K` no longer distorts the model (RQ3).
+- **Refine the principal point and radial distortion** in bundle adjustment too (the focal length is refined since E3b), and per-camera intrinsics for mixed-camera photo sets.
 - **Wide-baseline matching** (affine-covariant features, or learned matchers such as SuperPoint/LightGlue) to register sparser rings (RQ1).
 - **Re-triangulate long tracks observation by observation**, so a track that lost its landmark to one bad keypoint is recovered.
-- More datasets with ground truth (ETH3D, Tanks & Temples, dinoRing) and own captures.
+- More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
 
-Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · simple web/desktop UI.
+Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.
 
 ---
 
@@ -593,6 +614,7 @@ Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refineme
 - [x] **Phase 9** Filtering & export — *M2* ✅ (optional dense not done)
 - [x] **Phase 10** Evaluation & experiments ✅ (E1–E5; E6 COLMAP baseline future work)
 - [x] **Phase 11** Documentation & presentation — *M3* ✅
+- [x] **Phase 12** Web interface ✅
 
 **Definition of success:** reliably turn a suitable set of overlapping photos into a coherent multi-view 3D reconstruction, explain the geometry behind it, and back it with quantitative, reproducible evidence.
 

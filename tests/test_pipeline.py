@@ -5,28 +5,22 @@ from src.config import config_from_dict
 from src.data.loader import DatasetError
 from src.evaluation.metrics import rotation_error_deg, translation_direction_error_deg
 from src.pipeline import run_pipeline, stages_until
-from tests.images import write_image
-from tests.render import render_box_scene
+from tests.render import render_box_scene, write_scene
 
 
 @pytest.fixture(scope="module")
 def scene_dir(tmp_path_factory):
     scene = render_box_scene(n_cameras=4, arc_deg=30.0)
     root = tmp_path_factory.mktemp("pipeline")
-    for k, im in enumerate(scene.images):
-        write_image(root / "scene" / f"view_{k + 1:02d}.png", im)
-    K = scene.K
-    (root / "camera.yaml").write_text(
-        f"width: 800\nheight: 600\nfx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-    )
+    images, camera = write_scene(scene, root)
     config = config_from_dict(
         {
-            "camera": {"calibration_file": str(root / "camera.yaml")},
+            "camera": {"calibration_file": str(camera)},
             "output": {"cache_dir": str(root / "cache")},
             "features": {"max_features": 3000},
         }
     )
-    return scene, root / "scene", config
+    return scene, images, config
 
 
 @pytest.mark.parametrize(
@@ -44,6 +38,20 @@ def test_pipeline_stops_after_requested_stage(scene_dir, until, filled, empty):
     assert all(t >= 0 for t in result.timings.values())
     assert all(getattr(result, name) is not None for name in filled)
     assert all(getattr(result, name) is None for name in empty)
+
+
+def test_on_stage_is_called_before_each_stage_in_order(scene_dir):
+    _, images, config = scene_dir
+    calls = []
+
+    def record(stage, result):
+        calls.append((stage, list(result.timings), result.matches is None))
+
+    run_pipeline(images, config, until="verify", on_stage=record)
+    assert [stage for stage, _, _ in calls] == list(stages_until("verify"))
+    # called before the stage runs: earlier stages are timed, this one's output is unset
+    assert calls[0] == ("features", ["dataset"], True)
+    assert calls[1] == ("matches", ["dataset", "features"], True)
 
 
 def test_pipeline_end_to_end_recovers_true_initial_pose(scene_dir):
@@ -281,6 +289,10 @@ def test_cli_reconstruct_exports_multi_view_cloud_under_the_standard_names(scene
     cameras, names, _ = read_cameras_json(run_dir / "camera_poses" / "cameras.json")
     assert sorted(names) == sorted(p.name for p in images.glob("*.png"))
     assert all((c.project(points)[1] > 0).mean() > 0.9 for c in cameras)
+    # Intrinsics before and after bundle adjustment (which refines the focal length).
+    np.testing.assert_allclose(summary["intrinsics"]["K"], cameras[0].K)
+    start = np.array(summary["intrinsics"]["initial_K"])
+    np.testing.assert_allclose(start[:, 2], np.array(summary["intrinsics"]["K"])[:, 2])
     assert sorted(p.name for p in (run_dir / "point_clouds").iterdir()) == [
         "filtered.ply", "sparse.ply"
     ]  # fmt: skip

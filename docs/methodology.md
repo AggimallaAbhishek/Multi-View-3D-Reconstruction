@@ -19,10 +19,13 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 | Step | Method | Ours / external |
 |---|---|---|
 | Detection + description | SIFT (default; optional RootSIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` (**external**); cap and RootSIFT ours |
+| Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, from 0.04 down to 0.005 | ours |
 | Nearest neighbours | exact brute force, 2-NN | OpenCV `batchDistance` (**external**) |
 | Ratio test | keep `d₁ < r·d₂` (Lowe 2004), default `r` = 0.75 | ours |
 | Mutual check | keep only matches that are each other's nearest neighbour | ours |
 | Pair selection | exhaustive up to 50 images, sequential window above | ours |
+
+SIFT's contrast threshold is absolute, so one value cannot suit every image: on Middlebury dinoRing (smooth plaster, lit from one side) the dark half of the ring kept 74–160 features per image at 0.04 (correlation with brightness 0.9), and registration stopped at 19/48 cameras. Lowering the threshold globally to 0.005 registers all 48, but also makes templeRing 2.5× slower for no gain in coverage. Lowering it only for images below 500 features registers all 48 dinoRing cameras (rotation error median 0.15°, max 0.28°) and leaves templeRing untouched — its sparsest image already has 597.
 
 Brute force is the default because, at 8000 SIFT features, it was as fast as FLANN and FLANN returned different matches on identical runs. E2 places the best ratio at 0.7–0.8; looser ratios verify more pairs but give fewer, worse points.
 
@@ -83,9 +86,9 @@ Camera poses and points are refined jointly by minimising the robustified reproj
 
 $$\min_{\{R_c, t_c\}, \{X_p\}} \sum_{(c,p)} \rho\!\left(\left\lVert \pi\!\left(K_c (R_c X_p + t_c)\right) - \mathbf{x}_{cp} \right\rVert^2\right)$$
 
-- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; `K` is fixed.
+- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; in global adjustments also one **focal scale** `s` shared by every camera (`bundle_adjustment.refine_focal`, default on): `K_c → K_c · diag(s, s, 1)`, so the focal lengths (and skew) scale and the principal point stays. One `s` for all images assumes one physical camera at one zoom. Local adjustments (5 cameras) keep `K`: too few views to constrain it. A refined `s` is applied to every registered camera and to the intrinsics of images not yet registered.
 - **Robust loss** `ρ` = soft-L1 with a 1 px scale: robust to wrong matches, and it converges in ~30 evaluations where SciPy's Huber crawls.
-- **Sparsity:** each residual depends on 6 camera and 3 point parameters; the `jac_sparsity` pattern makes the finite-difference Jacobian and the solver cost scale with observations, not with cameras × points.
+- **Exact sparse Jacobian:** each residual depends on 6 camera and 3 point parameters (and `s`). The derivatives are analytic — the chain rule through the projection, with `∂R/∂rvec` from `cv2.Rodrigues`, and `∂(u, v)/∂s = ((u, v) − c)/s` — checked against finite differences in the tests. Cost scales with observations, not with cameras × points; replacing finite differences cut the templeRing run from 16.3 to 12.0 s with identical results.
 - **Gauge:** a reconstruction is defined up to a similarity (7 DoF). The first camera is held fixed (6 DoF). The scale is left free during optimisation — pinning one translation coordinate instead creates a curved valley the solver zig-zags along — and restored afterwards exactly, by scaling about the fixed camera so the next camera keeps its distance. That scaling changes no projection.
 - **Schedule:** a local adjustment after every registration (the newest 5 cameras and the points they see free), a global one every 5 registrations, and at the end. The cost tolerance is 1e-6 relative (as in Ceres); 1e-8 took ~15× longer for < 0.01°.
 
@@ -134,6 +137,7 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |
 | Export, viewer, renders | `cameras.json`, scene assembly | PLY IO, visualiser, offscreen renderer: Open3D |
 | Evaluation, experiments, reports | ✔ | k-d tree: SciPy; plots: Matplotlib; tables: pandas |
+| Web interface | endpoints, upload checks, jobs, `report.json`, page, PLY parsing, scene orientation | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
 | Dense reconstruction, COLMAP baseline | — | not used (future work) |
 
 No component of the pipeline is provided by COLMAP.

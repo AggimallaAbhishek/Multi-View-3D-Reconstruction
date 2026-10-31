@@ -22,6 +22,11 @@ def test_default_file_matches_dataclass_defaults():
     assert load_config() == Config()
 
 
+def test_web_server_is_local_only_by_default():
+    # The web interface has no authentication, so it must not listen beyond localhost.
+    assert load_config().web.host == "127.0.0.1"
+
+
 def test_missing_sections_use_defaults():
     cfg = config_from_dict({"features": {"detector": "orb"}})
     assert cfg.features == FeatureConfig(detector="orb")
@@ -33,8 +38,9 @@ def test_missing_sections_use_defaults():
     [
         {"featurez": {}},
         {"features": {"detectr": "sift"}},
+        {"web": {"nope": 1}},
     ],
-    ids=["unknown-section", "unknown-key"],
+    ids=["unknown-section", "unknown-key", "unknown-web-key"],
 )
 def test_unknown_keys_raise(raw):
     with pytest.raises(ConfigError, match="unknown key"):
@@ -49,8 +55,18 @@ def test_unknown_keys_raise(raw):
         {"features": {"max_features": True}},
         {"matching": {"ratio": "0.8"}},
         {"features": 3},
+        {"web": {"port": "x"}},
+        {"web": {"max_upload_images": 2.5}},
     ],
-    ids=["bad-literal", "str-for-int", "bool-for-int", "str-for-float", "scalar-section"],
+    ids=[
+        "bad-literal",
+        "str-for-int",
+        "bool-for-int",
+        "str-for-float",
+        "scalar-section",
+        "str-for-web-port",
+        "float-for-web-upload-limit",
+    ],
 )
 def test_invalid_values_raise(raw):
     with pytest.raises(ConfigError):

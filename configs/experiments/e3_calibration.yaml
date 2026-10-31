@@ -1,17 +1,19 @@
 # RQ3: the true calibration, focal lengths off by +-5/10/20 %, and no calibration at all
 # (camera.yaml ignored: f = 1.2 * max(w, h) = 768 px vs the true 1520 px, so -49 %).
-# templeRing has no EXIF, so the EXIF tier cannot be tested on it.
+# templeRing has no EXIF, so the EXIF tier cannot be tested on it. K is held fixed in
+# bundle adjustment here; e3b_focal_refinement repeats the sweep with it refined.
 name: e3_calibration
 question: RQ3 - how much does calibration accuracy affect reconstruction accuracy?
 runs:
-  focal -20%: {camera.focal_scale: 0.8}
-  focal -10%: {camera.focal_scale: 0.9}
-  focal -5%: {camera.focal_scale: 0.95}
-  calibrated: {}
-  focal +5%: {camera.focal_scale: 1.05}
-  focal +10%: {camera.focal_scale: 1.1}
-  focal +20%: {camera.focal_scale: 1.2}
-  guessed (no camera.yaml): {camera.auto_calibration_file: false}
+  focal -20%: {camera.focal_scale: 0.8, bundle_adjustment.refine_focal: false}
+  focal -10%: {camera.focal_scale: 0.9, bundle_adjustment.refine_focal: false}
+  focal -5%: {camera.focal_scale: 0.95, bundle_adjustment.refine_focal: false}
+  calibrated: {bundle_adjustment.refine_focal: false}
+  focal +5%: {camera.focal_scale: 1.05, bundle_adjustment.refine_focal: false}
+  focal +10%: {camera.focal_scale: 1.1, bundle_adjustment.refine_focal: false}
+  focal +20%: {camera.focal_scale: 1.2, bundle_adjustment.refine_focal: false}
+  guessed (no camera.yaml):
+    {camera.auto_calibration_file: false, bundle_adjustment.refine_focal: false}
 plot:
   y: [registered_fraction, rotation_error_median_deg, centre_error_median,
       reprojection_mean_px, completeness, accuracy_median]

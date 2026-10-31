@@ -239,3 +239,25 @@ def test_structure_refinement_is_independent_of_bundle_adjustment(adjust):
 
     assert max_error(refine=True) <= limit  # with or without bundle adjustment
     assert max_error(refine=False) > limit  # PnP's 4 px links stay in
+
+
+def test_reconstruct_refines_a_wrong_focal_length():
+    """Every image starts with a focal length 10 % short. With ``refine_focal`` the global
+    adjustments recover it, for every registered camera and for the images registered
+    after them, and the poses come out as accurate as with the true K."""
+    s = make_sfm_scene(n_cameras=10, n_points=800, focal=1000.0, arc_deg=200.0, noise_px=0.5)
+    scene = s.scene
+    wrong_K = scene.K @ np.diag([0.9, 0.9, 1.0])
+    args = (initial_pair(scene, 4, 5), [wrong_K] * 10, s.tracks, s.features)
+    keep = Config(bundle_adjustment=BundleAdjustmentConfig(refine_focal=False))
+    fixed = reconstruct(*args, keep)
+    refined = reconstruct(*args, Config())  # refine_focal is on by default
+    assert len(refined.registry) == len(fixed.registry) == 10
+
+    for m in refined.registry.images:
+        np.testing.assert_allclose(refined.registry.camera(m).K, scene.K, rtol=2e-3)
+        np.testing.assert_array_equal(fixed.registry.camera(m).K, wrong_K)
+    rot_fixed, _ = _pose_errors(fixed, scene, 4, 5)
+    rot_refined, centre_refined = _pose_errors(refined, scene, 4, 5)
+    assert rot_refined.max() < 0.1 < 0.2 < rot_fixed.max()
+    assert centre_refined.max() < 0.05

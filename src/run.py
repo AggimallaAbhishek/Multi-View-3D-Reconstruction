@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import platform
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
@@ -29,16 +30,36 @@ _PACKAGES = {
 }
 
 
-def create_run_dir(root: str | Path, label: str) -> Path:
-    """Create ``<root>/<YYYYmmdd-HHMMSS>_<label>`` (suffixed if it already exists)."""
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    base = Path(root) / f"{stamp}_{label}"
+_STAMP = r"\d{8}-\d{6}"  # run_stamp's format
+
+
+def run_stamp() -> str:
+    """The current time as run folders name it: ``YYYYmmdd-HHMMSS``."""
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def create_run_dir(root: str | Path, label: str, stamp: str | None = None) -> Path:
+    """Create ``<root>/<YYYYmmdd-HHMMSS>_<label>`` (suffixed if it already exists), stamped
+    now or with ``stamp`` (a ``run_stamp`` taken earlier, e.g. when a web job started)."""
+    base = Path(root) / f"{stamp or run_stamp()}_{label}"
     path, n = base, 1
     while path.exists():
         n += 1
         path = base.with_name(f"{base.name}_{n}")
     path.mkdir(parents=True)
     return path
+
+
+def is_run_dir_name(name: str, label: str) -> bool:
+    """Whether ``name`` is a folder name ``create_run_dir`` gives to a run labelled
+    ``label``."""
+    return re.fullmatch(rf"{_STAMP}_{re.escape(label)}(_\d+)?", name) is not None
+
+
+def run_stamp_of(name: str) -> str | None:
+    """The ``YYYYmmdd-HHMMSS`` a run folder name starts with, or ``None``."""
+    match = re.match(rf"({_STAMP})_", name)
+    return match and match.group(1)
 
 
 def worker_count(workers: int) -> int:
