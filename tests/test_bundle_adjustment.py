@@ -189,3 +189,19 @@ def test_refine_focal_off_leaves_k_unchanged():
     result = bundle_adjust(cams, obs, X, CFG, fixed=(0,))
     assert result.focal_scale == 1.0
     assert all(c.K is cams[0].K or np.array_equal(c.K, cams[0].K) for c in result.cameras)
+
+
+def test_a_focal_scale_beyond_the_limit_is_discarded():
+    """A refined focal length that moved more than ``max_focal_change`` (here deliberately
+    tight) is not trusted: the adjustment is repeated with K held fixed."""
+    scene = make_scene(n_points=400, n_cameras=8, noise_px=0.5, seed=4, arc_deg=120.0)
+    true_cams, obs, X_true = _problem(scene)
+    wrong = [Camera(_scaled(c.K, 0.9), c.R, c.t) for c in true_cams]
+    cams0, X0 = _perturbed(wrong, X_true, np.random.default_rng(0), skip={0})
+
+    tight = BundleAdjustmentConfig(max_focal_change=1.05)  # the true change is 1 / 0.9
+    result = bundle_adjust(cams0, obs, X0, tight, fixed=(0,), refine_focal=True)
+    fixed_k = bundle_adjust(cams0, obs, X0, tight, fixed=(0,))
+    assert result.focal_scale == 1.0
+    assert all(np.array_equal(c.K, cams0[0].K) for c in result.cameras)
+    assert result.final_rms_px == pytest.approx(fixed_k.final_rms_px)

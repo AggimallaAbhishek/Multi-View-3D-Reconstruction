@@ -82,7 +82,7 @@ def reconstruct(
         if ba.enabled:
             n_added = len(registry) - 2
             if ba.global_every > 0 and n_added % ba.global_every == 0:
-                _rescale(intrinsics, adjust(registry, landmarks, features, ba))
+                _apply_focal_scale(intrinsics, adjust(registry, landmarks, features, ba))
             elif ba.local_window > 0:
                 newest = range(len(registry) - ba.local_window, len(registry))
                 adjust(registry, landmarks, features, ba, free_views=newest)
@@ -90,7 +90,7 @@ def reconstruct(
             refine_structure(registry, landmarks, tracks, features, config.triangulation)
     for _ in range(ba.max_refinements if ba.enabled or ba.refine_structure else 0):
         if ba.enabled:
-            _rescale(intrinsics, adjust(registry, landmarks, features, ba))
+            _apply_focal_scale(intrinsics, adjust(registry, landmarks, features, ba))
         if not ba.refine_structure or not refine_structure(
             registry, landmarks, tracks, features, config.triangulation
         ):
@@ -98,7 +98,7 @@ def reconstruct(
     return Reconstruction(registry, landmarks, attempts)
 
 
-def _rescale(intrinsics: list[np.ndarray], result: BundleAdjustmentResult | None) -> None:
+def _apply_focal_scale(intrinsics: list[np.ndarray], result: BundleAdjustmentResult | None) -> None:
     """Apply a refined focal scale to the intrinsics of images still to register."""
     if result is not None and result.focal_scale != 1.0:
         intrinsics[:] = [scale_focal(K, result.focal_scale) for K in intrinsics]

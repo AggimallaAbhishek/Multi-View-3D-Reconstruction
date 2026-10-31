@@ -385,7 +385,7 @@ function focalCell(calibration, fallback) {
   const source = calibration.sources.map((s) => CALIBRATION_SOURCES[s] ?? s).join(", ");
   const start = calibration.K[0][0];
   const final = calibration.refined_K ? calibration.refined_K[0][0] : start;
-  const note = Math.abs(final / start - 1) < 5e-4
+  const note = Math.round(final) === Math.round(start)
     ? `from ${source}`
     : `refined from ${Math.round(start)} px (${source})`;
   return cell("Focal length", `${Math.round(final)} px`, note, fallback);

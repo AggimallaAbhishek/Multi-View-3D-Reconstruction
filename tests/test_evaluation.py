@@ -175,6 +175,19 @@ def test_run_experiment_writes_one_row_per_setting(rendered, tmp_path):
     assert "reprojection.png" in files  # one error distribution per setting
 
 
+def test_focal_error_compares_at_the_working_resolution(rendered, tmp_path):
+    """Images downscaled by ``preprocessing.max_side`` have K rescaled; the focal error
+    against the (full-resolution) ground truth must account for that."""
+    images, gt, config = rendered
+    spec = tmp_path / "small.yaml"
+    spec.write_text("name: small\nquestion: q\nruns:\n  half: {preprocessing.max_side: 320}\n")
+    (row,) = run_experiment(load_experiment(spec), images, config, tmp_path / "out", gt=gt)
+    assert row["status"] == "ok"
+    true_fx = next(iter(gt.values())).K[0, 0]
+    assert row["focal_px"] < 0.5 * true_fx  # really downscaled ...
+    assert row["focal_error"] == pytest.approx(0.0, abs=1e-2)  # ... and compared like for like
+
+
 def test_failed_settings_are_recorded_not_raised(rendered, tmp_path):
     images, gt, config = rendered
     spec = tmp_path / "bad.yaml"

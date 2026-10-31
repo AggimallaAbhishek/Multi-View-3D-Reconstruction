@@ -175,13 +175,15 @@ def collect_metrics(
     errors = camera_pose_errors(cameras, truth)
     one = metric_scale(cameras[0].centre, cameras[1].centre,
                        np.linalg.norm(truth[1].centre - truth[0].centre))  # fmt: skip
+    # Ground-truth K is at the original resolution, ours at the working one.
+    true_fx = [t.K[0, 0] * result.images[m].scale[0] for t, m in zip(truth, images, strict=True)]
     row.update(
         rotation_error_median_deg=float(np.median(errors.rotation_deg)),
         rotation_error_max_deg=float(errors.rotation_deg.max()),
         centre_error_median=float(np.median(errors.centre)),
         centre_error_max=float(errors.centre.max()),
         metric_scale_error=one / errors.scale - 1.0,
-        focal_error=row["focal_px"] / float(np.median([c.K[0, 0] for c in truth])) - 1.0,
+        focal_error=row["focal_px"] / float(np.median(true_fx)) - 1.0,
     )
     if reference is not None:
         tolerance = result.config.evaluation.completeness_tolerance

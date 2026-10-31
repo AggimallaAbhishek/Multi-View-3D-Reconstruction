@@ -44,9 +44,9 @@ def test_report_summarises_a_full_reconstruction(result):
         "filtered": int(result.filtering.keep.sum()),
     }
     assert report["calibration"]["sources"] == ["file"]
-    np.testing.assert_allclose(report["calibration"]["K"], result.images[0].K)
-    first = rec.registry.camera(rec.registry.images[0])
-    np.testing.assert_allclose(report["calibration"]["refined_K"], first.K)  # after BA
+    first = rec.registry.images[0]  # K before and after bundle adjustment, of one image
+    np.testing.assert_allclose(report["calibration"]["K"], result.images[first].K)
+    np.testing.assert_allclose(report["calibration"]["refined_K"], rec.registry.camera(first).K)
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
     assert list(report["timings"]) == ["dataset", *STAGES]

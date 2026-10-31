@@ -135,6 +135,7 @@ class BundleAdjustmentConfig:
     max_refinements: int = 3
     refine_structure: bool = True
     refine_focal: bool = True
+    max_focal_change: float = 3.0
 
 
 @dataclass(frozen=True)

@@ -17,25 +17,26 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-GUESS_SCALE = 768 / 1520.4  # templeRing fallback f = 1.2 * max(w, h) vs the calibrated fx
 
-
-def _rows(directory: Path) -> list[dict[str, float]]:
-    """(starting focal error %, metrics) per setting, sorted by focal error."""
-    rows = []
+def _rows(directory: Path) -> dict[str, dict[str, float]]:
+    """Metrics (percent / degrees) of every successful setting, by setting label."""
+    rows = {}
     with (directory / "experiment_results.csv").open() as f:
         for r in csv.DictReader(f):
-            if r["status"] != "ok":
-                continue
-            guessed = r.get("camera.auto_calibration_file") == "False"
-            scale = GUESS_SCALE if guessed else float(r["camera.focal_scale"] or 1.0)
-            rows.append({
-                "start": 100 * (scale - 1),
-                "rotation": float(r["rotation_error_median_deg"]),
-                "completeness": float(r["completeness"]),
-                "final": 100 * float(r["focal_error"]),
-            })  # fmt: skip
-    return sorted(rows, key=lambda r: r["start"])
+            if r["status"] == "ok":
+                rows[r["setting"]] = {
+                    "rotation": float(r["rotation_error_median_deg"]),
+                    "completeness": float(r["completeness"]),
+                    "final": 100 * float(r["focal_error"]),
+                }
+    return rows
+
+
+def _with_start(rows: dict[str, dict[str, float]], start: dict[str, float]) -> list[dict]:
+    """Rows of the settings both experiments ran, with their starting focal error,
+    sorted by it."""
+    out = [{**row, "start": start[label]} for label, row in rows.items() if label in start]
+    return sorted(out, key=lambda r: r["start"])
 
 
 def main() -> None:
@@ -45,7 +46,12 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("e3b_focal_refinement.png"))
     args = parser.parse_args()
 
-    runs = {"K fixed (E3)": _rows(args.fixed), "focal refined (E3b)": _rows(args.refined)}
+    fixed, refined = _rows(args.fixed), _rows(args.refined)
+    start = {label: row["final"] for label, row in fixed.items()}  # K fixed: final = start
+    runs = {
+        "K fixed (E3)": _with_start(fixed, start),
+        "focal refined (E3b)": _with_start(refined, start),
+    }
     style = {"K fixed (E3)": ("#b5523b", "o", "--"), "focal refined (E3b)": ("#2f6b9a", "s", "-")}
     panels = [
         ("rotation", "median rotation error (deg)", True),
