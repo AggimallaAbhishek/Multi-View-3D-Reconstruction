@@ -75,6 +75,7 @@ Starting from the initial pair's triangulated tracks, images are added one at a 
 
 1. **Next best view:** the unregistered image with the most 2D–3D links (keypoints whose track already has a landmark).
 2. **Pose by PnP:** `solvePnPRansac` with the SQPnP solver, seeded, then Levenberg–Marquardt refinement on the inliers (`solvePnPRefineLM`) — OpenCV, **external**. The pose is accepted if ≥ 30 links, and ≥ 25 % of them, reproject within 4 px.
+   **Fallback — pose from a relative pose (ours):** PnP needs links to landmarks, i.e. tracks the image shares with *two* registered images; on a sparse ring (views ~40° apart) most shared tracks are seen by one registered image only. When PnP fails, the image is registered from the registered image it shares most tracks with: the essential matrix of their shared keypoints (`findEssentialMat` with USAC, `recoverPose` — OpenCV, **external**; plain RANSAC was 1–3° off) gives `R = R_rel R_n` and the baseline direction, `t = R_rel t_n + s t_rel`, and each landmark the image sees fixes `s` linearly (`x̂ × (R X + R_rel t_n + s t_rel) = 0`): median, then a least-squares refit on the links within 4 px. It needs 30 essential-matrix inliers but only 6 agreeing landmarks (`registration.fallback_min_links`). On rendered views 40° apart, PnP alone registers 2 of 6, the fallback all 6 (pose errors ≤ 0.22°). The landmark check also guards against a degenerate pair: on dinoSparseRing it refused a relative pose that fit 103 of 104 matches but was 18° off.
 3. **Grow the structure:** triangulate every track without a landmark that is now seen by ≥ 2 registered images (§5).
 4. **Bundle adjustment** (§8) and **structure refinement** (§9).
 
@@ -131,7 +132,7 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 | E decomposition, cheirality, parallax, initial pair | ✔ | `recoverPose` only as test oracle |
 | N-view DLT, point refinement, triangulation filters | ✔ | — |
 | Tracks (union-find), camera registry, landmarks | ✔ | — |
-| PnP registration | next-best-view, acceptance, retry | `solvePnPRansac` (SQPnP), `solvePnPRefineLM`: OpenCV |
+| PnP registration | next-best-view, acceptance, retry, relative-pose fallback with scale from landmarks | `solvePnPRansac` (SQPnP), `solvePnPRefineLM`, `findEssentialMat`, `recoverPose`: OpenCV |
 | Bundle adjustment | residuals, exact Jacobian, rotation parametrisation, shared focal scale, gauge and scale, schedule | `least_squares` (TRF): SciPy; `Rodrigues` derivatives: OpenCV |
 | Structure refinement after BA | ✔ | — |
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |

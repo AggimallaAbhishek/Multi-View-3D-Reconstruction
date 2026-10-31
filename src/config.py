@@ -125,6 +125,9 @@ class RegistrationConfig:
     min_inliers: int = 30
     min_inlier_ratio: float = 0.25
     refine: bool = True
+    relative_pose_fallback: bool = True
+    fallback_epipolar_threshold_px: float = 1.5
+    fallback_min_links: int = 6
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,12 @@ from src.geometry.triangulation import (
 from src.reconstruction.bundle_adjustment import BundleAdjustmentResult, bundle_adjust, scale_focal
 from src.reconstruction.camera_registry import CameraRegistry
 from src.reconstruction.landmarks import Landmarks, keypoint_pixels
-from src.reconstruction.registration import Registration, next_best_view, register_image
+from src.reconstruction.registration import (
+    Registration,
+    next_best_view,
+    register_from_neighbour,
+    register_image,
+)
 from src.reconstruction.tracks import Tracks
 
 FRAME = "camera of the initial pair's image i at the origin, initial baseline length 1"
@@ -56,8 +61,10 @@ def reconstruct(
 ) -> Reconstruction:
     """Start from the initial pair, then register images one by one, best-linked first.
 
-    An image that fails to register is skipped until another image succeeds (its new
-    landmarks may give it enough links). Stops when no remaining image can be added.
+    An image is registered by PnP or, when that fails and ``relative_pose_fallback`` is
+    on, from its relative pose to a registered image (``register_from_neighbour``). An
+    image that fails both is skipped until another image succeeds (its new landmarks may
+    give it enough links). Stops when no remaining image can be added.
     With bundle adjustment enabled, the newest ``local_window`` cameras and the points
     they see are adjusted after each registration, and everything every
     ``global_every`` registrations. With ``refine_structure`` on, each registration (and
@@ -85,6 +92,11 @@ def reconstruct(
     while (m := next_best_view(registry, landmarks, tracks, len(features), failed)) is not None:
         K = scale_focal(intrinsics[m], focal_scale)
         reg = register_image(m, landmarks, tracks, features, K, config.registration)
+        if not reg.success and config.registration.relative_pose_fallback:
+            attempts.append(reg)  # both attempts are logged
+            reg = register_from_neighbour(
+                m, registry, landmarks, tracks, features, K, config.registration
+            )
         attempts.append(reg)
         if not reg.success:
             failed.add(m)

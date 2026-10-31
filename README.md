@@ -564,7 +564,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 
 ## 15. Limitations
 
-1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1).
+1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered.
 2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset), and one shared focal length assumes one camera at one zoom — photos whose starting `K` differ keep `K` fixed.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
@@ -584,7 +584,7 @@ Directly suggested by the results:
 
 - **RQ5 / E6 — sparse vs dense:** COLMAP patch-match stereo on our camera poses → `dense.ply`, Poisson meshing with Open3D, and a COLMAP sparse baseline on the same images.
 - **Refine the principal point and radial distortion** in bundle adjustment too (the focal length is refined since E3b), and per-camera intrinsics for mixed-camera photo sets.
-- **Register images from a relative pose** when PnP lacks 2D–3D links (sparse rings: dinoSparseRing's limit is triple overlap, not matching — affine simulation, now an option, lifts the matches but registers 6/16; see [`data/sample/README.md`](data/sample/README.md)). Learned matchers (SuperPoint/LightGlue) remain an alternative.
+- **Sparser rings:** a relative-pose registration fallback (now default) and optional affine simulation are in; dinoSparseRing still registers 6/16 because its weak neighbour pairs do not determine a relative pose ([`data/sample/README.md`](data/sample/README.md)). Learned matchers (SuperPoint/LightGlue) or more views are the remaining options.
 - More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.

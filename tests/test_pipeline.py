@@ -312,3 +312,27 @@ def test_cli_reconstruct_exports_multi_view_cloud_under_the_standard_names(scene
     assert 0.8 * len(points) < len(filtered) <= len(points)
     np.testing.assert_array_equal(filtered, points[np.isin(points, filtered).all(axis=1)])
     assert filtered_colors is not None
+
+
+def test_relative_pose_fallback_closes_a_sparse_arc(tmp_path):
+    """Six views 40 deg apart around the box: too little triple overlap for PnP (only the
+    initial pair registers without the fallback); with it every view registers, as
+    accurately as PnP would."""
+    from src.evaluation.metrics import camera_pose_errors
+    from tests.render import scene_cameras
+
+    scene = render_box_scene(n_cameras=6, arc_deg=200.0)
+    images, camera = write_scene(scene, tmp_path)
+    camera.rename(images / "camera.yaml")
+    raw = {"output": {"cache_dir": str(tmp_path / "cache")}, "features": {"max_features": 3000}}
+    off = {**raw, "registration": {"relative_pose_fallback": False}}
+
+    without = run_pipeline(images, config_from_dict(off), until="reconstruct").reconstruction
+    result = run_pipeline(images, config_from_dict(raw), until="reconstruct")
+    rec = result.reconstruction
+    assert len(without.registry) == 2 and len(rec.registry) == 6
+    assert sum(a.success and a.method == "relative_pose" for a in rec.attempts) >= 2
+    gt = scene_cameras(scene)
+    cameras = [rec.registry.camera(m) for m in rec.registry.images]
+    errors = camera_pose_errors(cameras, [gt[result.names[m]] for m in rec.registry.images])
+    assert errors.rotation_deg.max() < 0.5 and errors.centre.max() < 0.01  # measured 0.22 / 0.3 %

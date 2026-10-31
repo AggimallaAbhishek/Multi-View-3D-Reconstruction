@@ -88,6 +88,10 @@ registration:                  # adding an image to the reconstruction from 2D-3
   min_inliers: 30              # links that must agree with the pose to register the image
   min_inlier_ratio: 0.25       # ...and at least this share of its links
   refine: true                 # Levenberg-Marquardt refinement of the pose on the inliers
+  relative_pose_fallback: true # when PnP lacks links: pose from the essential matrix with the
+                               # registered image sharing most tracks, scale from shared landmarks
+  fallback_epipolar_threshold_px: 1.5  # RANSAC threshold of that essential matrix
+  fallback_min_links: 6        # landmarks that must agree with the scale (vs min_inliers for PnP)
 
 bundle_adjustment:             # joint refinement of camera poses, points and the focal length
   enabled: true

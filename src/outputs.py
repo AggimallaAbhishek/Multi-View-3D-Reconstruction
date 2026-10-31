@@ -357,9 +357,17 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
     json_path = write_json(out / "reconstruction.json", summary)
     write_csv(
         out / "registration.csv",
-        ["attempt", "image", "success", "reason", "correspondences", "inliers"],
+        ["attempt", "image", "method", "success", "reason", "correspondences", "inliers"],
         (
-            [k, names[a.image], a.success, a.reason or "", a.n_correspondences, a.n_inliers]
+            [
+                k,
+                names[a.image],
+                a.method,
+                a.success,
+                a.reason or "",
+                a.n_correspondences,
+                a.n_inliers,
+            ]  # fmt: skip
             for k, a in enumerate(rec.attempts)
         ),
     )

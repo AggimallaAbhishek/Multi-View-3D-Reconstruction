@@ -4,8 +4,15 @@ import numpy as np
 
 from src.config import RegistrationConfig, TriangulationConfig
 from src.evaluation.metrics import rotation_error_deg
+from src.geometry.camera import Camera
+from src.reconstruction.camera_registry import CameraRegistry
 from src.reconstruction.incremental import initialize
-from src.reconstruction.registration import next_best_view, register_image
+from src.reconstruction.landmarks import Landmarks
+from src.reconstruction.registration import (
+    next_best_view,
+    register_from_neighbour,
+    register_image,
+)
 from tests.sfm_scenes import in_pair_frame, initial_pair, make_sfm_scene
 
 CFG = RegistrationConfig()
@@ -66,3 +73,44 @@ def test_next_best_view_picks_the_image_with_most_links():
     assert next_best_view(registry, landmarks, s.tracks, 5) == best
     assert next_best_view(registry, landmarks, s.tracks, 5, exclude={best}) == second
     assert next_best_view(registry, landmarks, s.tracks, 5, exclude={2, 3, 4}) is None
+
+
+def _few_shared_landmarks(s, target, registered, n_links):
+    """True cameras of ``registered`` and landmarks at the true points of the tracks two
+    of them see, except that ``target`` sees only ``n_links`` of those landmarks."""
+    scene = s.scene
+    registry = CameraRegistry()
+    for m in registered:
+        registry.register(m, Camera(scene.K, scene.rotations[m], scene.translations[m]))
+    seen = s.tracks_seen_by(set(registered))
+    in_target = set(s.tracks.track[s.tracks.image == target].tolist())
+    shared = [k for k in seen if k in in_target]
+    keep = [k for k in seen if k not in in_target] + shared[:n_links]
+    landmarks = Landmarks()
+    landmarks.add(keep, scene.points3d[s.truth[keep]], s.tracks, set(registered))
+    return registry, landmarks
+
+
+def test_relative_pose_registers_an_image_pnp_cannot():
+    """Image 3 shares 8 landmarks with the reconstruction (PnP needs 30) but many tracks
+    with image 2: its pose comes from the essential matrix with image 2, its scale
+    (the baseline length) from the 8 landmarks."""
+    s = make_sfm_scene(n_cameras=4, n_points=400, focal=1000.0, arc_deg=60.0, noise_px=0.5)
+    scene = s.scene
+    registry, landmarks = _few_shared_landmarks(s, 3, [0, 1, 2], n_links=8)
+    pnp = register_image(3, landmarks, s.tracks, s.features, scene.K, CFG)
+    assert not pnp.success and pnp.reason == "too_few_correspondences"
+
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, scene.K, CFG)
+    assert reg.success and reg.method == "relative_pose" and pnp.method == "pnp"
+    assert 6 <= reg.n_inliers <= 8
+    truth = Camera(scene.K, scene.rotations[3], scene.translations[3])
+    assert rotation_error_deg(reg.camera.R, truth.R) < 0.2
+    assert np.linalg.norm(reg.camera.centre - truth.centre) < 0.02 * np.linalg.norm(truth.centre)
+
+
+def test_relative_pose_needs_enough_landmarks_for_the_scale():
+    s = make_sfm_scene(n_cameras=4, n_points=400, focal=1000.0, arc_deg=60.0, noise_px=0.5)
+    registry, landmarks = _few_shared_landmarks(s, 3, [0, 1, 2], n_links=3)
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, s.scene.K, CFG)
+    assert not reg.success and reg.reason == "too_few_links"  # fallback_min_links is 6
