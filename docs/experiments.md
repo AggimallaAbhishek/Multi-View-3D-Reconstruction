@@ -128,9 +128,36 @@ Both switched independently (`bundle_adjustment.enabled`, `bundle_adjustment.ref
 
 A monocular reconstruction has no scale; one known distance sets it (`evaluation.metrics.metric_scale`). Using the true distance between two neighbouring cameras, the resulting scale agrees within **0.7 %** with the scale fitted over all 47 cameras for the default pipeline (within 1.5 % for every E1/E2 setting that registers ≥ 3 cameras), 5.6 % without bundle adjustment, and 84 % off with guessed intrinsics. This is a consistency check — both scales come from the same reconstruction and ground truth — not an independent measurement; with a real tape-measured distance its accuracy is also bounded by the measurement. A longer reference distance (e.g. across the object) averages out more local error.
 
-### RQ5 — sparse vs dense: future work
+### E6 — COLMAP baseline and dense reconstruction (RQ5)
 
-E6 (our sparse reconstruction vs COLMAP's sparse and dense reconstructions on the same images) was not run: it needs COLMAP (`brew install colmap`), and the optional dense stage of Phase 9 was left out of scope. What the sparse results already show about the limits of sparse reconstruction: 6365 points on the temple are enough to recover the cameras to 0.15° and the object's layout, but not a surface — points exist only where SIFT finds distinctive features, so the renders show gaps and uneven density across the plaster, and 35 % of landmarks are seen in only two images. A dense stage (COLMAP patch-match stereo on our poses, then Poisson meshing) is the natural next step; see README §16.
+**Sparse: ours vs COLMAP (external).** `python scripts/run_colmap_baseline.py data/raw/<set> [--fix-intrinsics]` runs COLMAP 4.2.1 (CPU SIFT, exhaustive matching, incremental mapper) on the images our pipeline prepared, with the same starting `K`; both are aligned to the ground-truth cameras by a similarity. "COLMAP" refines its focal length (its default, like ours); "COLMAP, K fixed" holds it at the calibrated value.
+
+| | templeRing ours | COLMAP | COLMAP, K fixed | dinoRing ours | COLMAP | COLMAP, K fixed | dinoSparseRing ours | COLMAP, K fixed |
+|---|---|---|---|---|---|---|---|---|
+| registered | **47/47** | 47/47 | 47/47 | **48/48** | 24/48 | 24/48 | 6/16 | 6/16 |
+| rotation error median / max (°) | **0.15** / 0.41 | 0.26 / 0.49 | 0.19 / 0.46 | **0.15** / 0.30 | 23.4 / 24.8 | 0.79 / 2.13 | **0.19** / 0.37 | 0.46 / 0.68 |
+| centre error (median, fraction of extent) | **0.18 %** | 0.20 % | 0.19 % | **0.24 %** | 3.1 % | 0.77 % | 0.52 % | **0.45 %** |
+| final focal length (px; true 1520 / 3310) | 1521 | 1530 | (1520) | 3248 | 1251 | (3310) | 3240 | (3310) |
+| points | 6364 | 7605 | 7608 | 3462 | 500 | 493 | 433 | 172 |
+| mean reprojection error (px) | 0.20 | 0.29 | 0.29 | 0.39 | 0.79 | 0.79 | 0.33 | 0.61 |
+| time (s) | 12 | 12 | 7 | 22 | 6 | 4 | 0.8 | 1.4 |
+
+On templeRing both systems recover every camera and our poses are slightly more accurate. On dinoRing COLMAP's default SIFT finds a median 237 features per image against our 737 (our contrast threshold adapts to dark images, Phase 2), so it registers only the bright half; with its focal length free, that half also drifts to f = 1251 px (−62 %) and 23° errors — the failure our `max_focal_change` guard prevents. On dinoSparseRing both stop at the same 6 images, which supports the conclusion that the remaining views lack the overlap to be registered, not our registration logic. COLMAP's parameters could be tuned (e.g. its SIFT peak threshold); the table uses its defaults. Our focal refinement lands 1.9 % low on dinoRing (3248 vs 3310 px) with the poses still at 0.15°: on a ring of views the focal length and the ring's distance trade off.
+
+**Dense: our sparse vs our dense.** `python -m src.cli dense` adds a depth map per registered image (rectified stereo with the view nearest 8° away, `cv2.StereoSGBM`), fused by multi-view depth consistency. Neither dataset has a public ground-truth surface, so `python scripts/evaluate_dense.py` uses the black background instead: a true surface point projects inside the object's silhouette in every view, and the fraction that lands on background somewhere counts outliers (silhouettes: grey > 15, dilated 2 px; shaded plaster also falls below the threshold, so even the sparse cloud scores a few per cent).
+
+| | points | outside a silhouette | time (s) | pixels with a depth (median) |
+|---|---|---|---|---|
+| templeRing sparse | 6 364 | 4.6 % | 12.6 | — |
+| templeRing dense | 2 570 707 | **2.0 %** | +4.6 | 26 % |
+| dinoRing sparse | 3 462 | 10.2 % | 22.2 | — |
+| dinoRing dense | 1 218 180 | **6.2 %** | +2.9 | 17 % |
+
+![templeRing dense](images/templeRing_dense.png)
+
+The settings were chosen on templeRing by this measure: an SGBM block of 3 px (5 and 7 fatten object edges: 6.4 % and 7.6 % outside), no depth where the grey levels' standard deviation in the block is below 2 (uniform background matches anywhere: without it, the black background became a wall of points, 6.4 % outside), rectification that keeps every pixel (`alpha` 0 crops the image borders: 61 % instead of 87 % of the true depths on rendered views). Requiring 3 confirming views instead of 2 removed fewer outliers (4.5 %) than the block size did.
+
+**RQ5:** sparse reconstruction is enough to recover the cameras — 0.15°, better than COLMAP here — but 6 k points are not a surface: they exist only where SIFT finds distinctive features. Dense stereo on the same cameras gives 400× the points in a few seconds and covers the textured surface, with fewer outliers by the silhouette measure. Its limits are different ones: uniform regions get no depth at all, edges keep a thin halo of background points (stereo edge fattening), and isolated scatter remains that the sparse outlier filters are too slow to remove at millions of points; the Poisson mesh then closes holes by extrapolation. Dense quality also rests entirely on the sparse cameras: rendered views with exact cameras give a median depth error of 0.1–0.3 %.
 
 ## Failure cases
 
@@ -153,4 +180,5 @@ The −20 % cloud (middle) looks like the calibrated one (left) to the eye — t
 - One dataset, one object (plaster, black background, a ring of views). Conclusions about view spacing and detector choice are specific to such low-texture objects.
 - The reference shares our SIFT features and matches; it measures geometry given the tracks, not against an independent surface scan.
 - E3b refines the focal length only; distortion is assumed zero (true for templeRing) and the principal point stays fixed.
+- E6 runs COLMAP with its default parameters; tuned, it may register more of dinoRing. The dense cloud is scored by silhouette consistency only (no public ground-truth surface for the Middlebury sets), which catches points off the object but not errors along the viewing ray inside it; the rendered-scene tests cover depth accuracy.
 - Each setting runs once. The pipeline is deterministic (seeded RANSAC), so repeats give identical numbers; variation across datasets is not measured.

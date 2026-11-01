@@ -20,6 +20,8 @@ flowchart TD
     PO -.->|"InitialPair"| RE
     RE -->|"Reconstruction: CameraRegistry + Landmarks"| FI["filter<br/><i>pointcloud/filtering.py</i>"]
     FI -->|"keep mask → sparse.ply, filtered.ply, cameras.json (M2)"| OUT[/"run directory / experiment row"/]
+    FI -.->|"cameras + filtered points (optional)"| DE["dense<br/><i>dense/stereo.py · fusion.py · meshing.py</i>"]
+    DE -->|"DenseResult → dense.ply, reconstructed_mesh.ply"| OUT
 ```
 
 Inside `reconstruct`:
@@ -48,6 +50,7 @@ flowchart LR
 | cloud | `color_points` | `two-view` | `point_clouds/sparse.ply`, `camera_poses/cameras.json`, renders |
 | reconstruct | `reconstruct` | `reconstruct` | `reconstruction/`, `point_clouds/sparse.ply`, `camera_poses/cameras.json` (multi-view; replace the two-view files) |
 | filter | `filter_cloud` | `reconstruct` | `point_clouds/filtered.ply`, `figures/filtered.png` |
+| dense (optional) | `plan_views`, `pair_depth`, `fuse_depth_maps`, `poisson_mesh` | `dense` | `point_clouds/dense.ply`, `meshes/reconstructed_mesh.ply`, `figures/dense.png` |
 
 The stage outputs are written by `src/outputs.py` (`save_stage_outputs`), shared by the CLI and the web interface.
 
