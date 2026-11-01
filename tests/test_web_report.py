@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from src.config import config_from_dict
-from src.pipeline import STAGES, run_pipeline
+from src.pipeline import run_pipeline, stages_until
 from src.reconstruction.bundle_adjustment import scale_focal
 from src.web.report import build_report, write_report
 from tests.images import make_natural_texture, write_image
@@ -54,7 +54,7 @@ def test_report_summarises_a_full_reconstruction(result):
     )
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
-    assert list(report["timings"]) == ["dataset", *STAGES]
+    assert list(report["timings"]) == ["dataset", *stages_until("filter")]
     assert report["total_s"] == pytest.approx(sum(result.timings.values()))
     assert report["warnings"] == []
     assert "ground_truth" not in report

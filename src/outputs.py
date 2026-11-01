@@ -449,6 +449,48 @@ def _save_filtered(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | 
     return ply, 0
 
 
+def _save_dense(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    """dense.ply, the Poisson mesh (Open3D, external), a summary (added to
+    reconstruction.json) and a render."""
+    from src.dense.meshing import poisson_mesh, write_mesh
+    from src.visualization.viewer import RenderUnavailable, render_scene
+
+    d = r.dense
+    if d is None:
+        return None, 0
+    cfg, cloud = r.config.dense, d.cloud
+    ply = write_ply(run_dir / "point_clouds" / "dense.ply", cloud.points, cloud.colors / 255.0)
+    names = [r.names[m] for m in d.images]
+    summary = {
+        "points": len(cloud.points),
+        "voxel_size": d.voxel_size,
+        "partners": {names[i]: None if j is None else names[j]
+                     for i, j in enumerate(d.plan.partner)},
+        "coverage": dict(zip(names, d.coverage, strict=True)),
+        "settings": r.config.to_dict()["dense"],
+    }  # fmt: skip
+    print(f"Dense cloud: {len(cloud.points)} points from "
+          f"{sum(j is not None for j in d.plan.partner)} depth maps -> {ply}")  # fmt: skip
+    if len(cloud.points):
+        mesh = poisson_mesh(cloud, cfg.poisson_depth, cfg.mesh_density_quantile)
+        mesh_path = write_mesh(run_dir / "meshes" / "reconstructed_mesh.ply", mesh)
+        summary["mesh"] = {"vertices": len(mesh.vertices), "triangles": len(mesh.triangles)}
+        print(f"Mesh (Open3D Poisson, external): {len(mesh.triangles)} triangles -> {mesh_path}")
+    json_path = run_dir / "reconstruction" / "reconstruction.json"
+    write_json(json_path, {**read_json(json_path), "dense": summary})
+
+    rec = r.reconstruction
+    cameras = [rec.registry.camera(m) for m in d.images]
+    sizes = [(r.images[m].width, r.images[m].height) for m in d.images]
+    try:
+        render = render_scene(cloud.points, cloud.colors / 255.0, cameras, sizes,
+                              run_dir / "figures" / "dense.png", focus="points")  # fmt: skip
+        print(f"Render: {render}")
+    except RenderUnavailable as exc:
+        print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
+    return ply, 0
+
+
 _SAVERS = {
     "features": _save_features,
     "matches": _save_matches,
@@ -458,4 +500,5 @@ _SAVERS = {
     "cloud": _save_cloud,
     "reconstruct": _save_reconstruction,
     "filter": _save_filtered,
+    "dense": _save_dense,
 }

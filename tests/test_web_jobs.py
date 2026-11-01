@@ -6,7 +6,7 @@ import pytest
 
 from src.config import config_from_dict
 from src.data.loader import DatasetError
-from src.pipeline import STAGES
+from src.pipeline import stages_until
 from src.web.jobs import (
     JobBusy,
     JobFailed,
@@ -231,7 +231,7 @@ def test_default_job_writes_a_run_folder_with_a_report(tmp_path):
 
     job = manager.get(job.id)
     assert job.status == "done", job.error
-    assert job.stages_done == ["dataset", *STAGES, "outputs"]
+    assert job.stages_done == ["dataset", *stages_until("filter"), "outputs"]
     assert job.run_dir.name.endswith("_web_reconstruct")
     assert (job.run_dir / "point_clouds" / "filtered.ply").is_file()
     report = json.loads((job.run_dir / "report.json").read_text())

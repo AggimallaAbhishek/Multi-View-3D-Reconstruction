@@ -2,7 +2,8 @@
 
 dataset -> features -> matches -> verify -> pose -> triangulate (initial structure) -> cloud
 -> reconstruct (every image: tracks, incremental registration, bundle adjustment)
--> filter (outlier removal on the multi-view cloud).
+-> filter (outlier removal on the multi-view cloud)
+-> dense (optional: stereo depth maps on the cameras, fused into a dense cloud).
 
 Each stage reads and extends one ``PipelineResult``. The CLI and notebooks call these
 functions and decide what to write or plot; nothing here touches the filesystem except
@@ -21,6 +22,7 @@ import numpy as np
 
 from src.config import Config
 from src.data.dataset import Dataset, PreparedImage, prepare_dataset
+from src.dense import DenseCloud, ViewPlan, fuse_depth_maps, pair_depth, plan_views
 from src.features.extractor import (
     FeatureCache,
     FeatureExtractor,
@@ -53,7 +55,15 @@ from src.reconstruction.tracks import Tracks, ViewGraph, build_tracks
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
 
 Stage = Literal[
-    "features", "matches", "verify", "pose", "triangulate", "cloud", "reconstruct", "filter"
+    "features",
+    "matches",
+    "verify",
+    "pose",
+    "triangulate",
+    "cloud",
+    "reconstruct",
+    "filter",
+    "dense",
 ]
 STAGES: tuple[Stage, ...] = get_args(Stage)
 
@@ -85,6 +95,7 @@ class PipelineResult:
     tracks: Tracks | None = None  # "reconstruct", from the verified matches
     reconstruction: Reconstruction | None = None  # "reconstruct", if an initial pair exists
     filtering: CloudFilterResult | None = None  # "filter": which landmarks to export
+    dense: DenseResult | None = None  # "dense", if a reconstruction exists
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -202,6 +213,38 @@ def filter_scene(result: PipelineResult) -> PipelineResult:
     return result
 
 
+@dataclass(frozen=True, eq=False)
+class DenseResult:
+    cloud: DenseCloud
+    plan: ViewPlan  # indices into ``images``
+    images: list[int]  # the registered images the depth maps belong to
+    coverage: list[float | None]  # per image: fraction of pixels with a depth (None: no partner)
+    voxel_size: float
+
+
+def dense_scene(result: PipelineResult) -> PipelineResult:
+    """A depth map per registered image from stereo with its partner view, fused by
+    multi-view consistency. The filtered sparse points set the disparity ranges, the
+    scene centre and the voxel size (``dense.voxel_fraction`` of their extent)."""
+    rec, cfg = result.reconstruction, result.config.dense
+    if rec is None:
+        return result
+    images = rec.registry.images
+    keep = result.filtering.keep if result.filtering is not None else slice(None)
+    points = rec.landmarks.position[keep]
+    cameras = [rec.registry.camera(m) for m in images]
+    pixels = [result.images[m].image for m in images]
+    plan = plan_views(cameras, points, cfg)
+    depths = [None if j is None else
+              pair_depth(pixels[i], cameras[i], pixels[j], cameras[j], points, cfg)
+              for i, j in enumerate(plan.partner)]  # fmt: skip
+    voxel = cfg.voxel_fraction * float(np.linalg.norm(np.ptp(points, axis=0)))
+    cloud = fuse_depth_maps(depths, cameras, pixels, plan.checks, voxel, cfg)
+    coverage = [None if d is None else float(np.isfinite(d).mean()) for d in depths]
+    result.dense = DenseResult(cloud, plan, list(images), coverage, voxel)
+    return result
+
+
 _STEPS = {
     "features": extract,
     "matches": match,
@@ -211,6 +254,7 @@ _STEPS = {
     "cloud": color_cloud,
     "reconstruct": reconstruct_scene,
     "filter": filter_scene,
+    "dense": dense_scene,
 }
 
 

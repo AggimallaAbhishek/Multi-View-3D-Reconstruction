@@ -126,6 +126,30 @@ filtering:                     # cleaning the multi-view cloud before export (fi
   radius_scale: 5.0            # this within radius_scale * median distance to the
                                # radius_nb_points-th neighbour (relative: SfM has no scale)
 
+dense:                         # dense stereo on the recovered cameras (python -m src.cli dense)
+  min_angle_deg: 3.0           # stereo partner: the view whose angle to this one (seen from
+  target_angle_deg: 8.0        # the scene centre) is nearest the target, within
+  max_angle_deg: 20.0          # [min, max]; views without one get no depth map
+  rectify_alpha: 1.0           # cv2.stereoRectify: 1 keeps every pixel, 0 crops to valid ones
+  depth_quantile: 0.01         # disparity search range: these quantiles of the sparse points'
+  disparity_margin_px: 16      # disparities, widened by this margin
+  max_disparities: 384         # cap on the search range (multiple of 16)
+  block_size: 3                # StereoSGBM (OpenCV) matching window and filters (5 and 7
+                               # fatten object edges: more points off the silhouettes)
+  uniqueness_ratio: 10
+  speckle_window: 100
+  speckle_range: 2
+  disp12_max_diff: 1
+  min_texture: 2.0             # no depth where the grey levels' std in the block window is
+                               # lower (uniform background: templeRing's is ~0.5)
+  fusion_views: 4              # a depth is kept if, of its this many angularly nearest views,
+  min_consistent_views: 2      # at least this many have a depth within depth_tolerance
+  depth_tolerance: 0.01        # (relative) at its projection
+  voxel_fraction: 0.001        # fused cloud averaged on voxels of this fraction of the sparse
+                               # cloud's extent (bbox diagonal)
+  poisson_depth: 9             # Poisson mesh (Open3D, external): octree depth, and the fraction
+  mesh_density_quantile: 0.02  # of lowest-density (extrapolated) vertices removed
+
 evaluation:                    # experiments against a reference cloud (src/evaluation)
   completeness_tolerance: 0.01 # a reference point is recovered if a reconstructed point lies
                                # within this fraction of the reference's extent (bbox diagonal)

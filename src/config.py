@@ -157,6 +157,29 @@ class FilteringConfig:
 
 
 @dataclass(frozen=True)
+class DenseConfig:
+    min_angle_deg: float = 3.0
+    target_angle_deg: float = 8.0
+    max_angle_deg: float = 20.0
+    rectify_alpha: float = 1.0
+    depth_quantile: float = 0.01
+    disparity_margin_px: int = 16
+    max_disparities: int = 384
+    block_size: int = 3
+    uniqueness_ratio: int = 10
+    speckle_window: int = 100
+    speckle_range: int = 2
+    disp12_max_diff: int = 1
+    min_texture: float = 2.0
+    fusion_views: int = 4
+    min_consistent_views: int = 2
+    depth_tolerance: float = 0.01
+    voxel_fraction: float = 0.001
+    poisson_depth: int = 9
+    mesh_density_quantile: float = 0.02
+
+
+@dataclass(frozen=True)
 class EvaluationConfig:
     completeness_tolerance: float = 0.01
 
@@ -196,6 +219,7 @@ class Config:
     registration: RegistrationConfig = field(default_factory=RegistrationConfig)
     bundle_adjustment: BundleAdjustmentConfig = field(default_factory=BundleAdjustmentConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
+    dense: DenseConfig = field(default_factory=DenseConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)

@@ -40,14 +40,14 @@ from src.evaluation.metrics import camera_pose_errors, cloud_errors, metric_scal
 from src.geometry.camera import Camera
 from src.geometry.reprojection import ReprojectionStats
 from src.geometry.triangulation import Observations, triangulate_and_filter
-from src.pipeline import STAGES, PipelineResult, run_pipeline
+from src.pipeline import PipelineResult, run_pipeline, stages_until
 from src.pointcloud.export import write_ply
 from src.pointcloud.filtering import filter_cloud
 from src.reconstruction.landmarks import keypoint_pixels
 from src.reconstruction.tracks import ViewGraph, build_tracks
 from src.run import write_csv, write_json, write_run_metadata
 
-TIMED = ("dataset", *STAGES)
+TIMED = ("dataset", *stages_until("filter"))
 METRICS = (
     "images", "features_mean", "pairs", "raw_matches_mean", "matches_mean", "verified_pairs",
     "inlier_ratio_mean",
