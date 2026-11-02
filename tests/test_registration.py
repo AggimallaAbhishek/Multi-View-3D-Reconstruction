@@ -149,7 +149,14 @@ def test_relative_pose_rejects_a_scale_behind_the_neighbour():
 
 
 def test_relative_pose_needs_enough_shared_tracks():
-    s, registry, landmarks = _fallback_case()
-    strict = dataclasses.replace(CFG, min_inliers=10_000)
-    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, s.scene.K, strict)
+    """The neighbour pair needs ``fallback_min_pair_inliers`` shared tracks (and essential-
+    matrix inliers): fewer give a poorly conditioned pose (ETH3D pipes: a 40-inlier pair
+    over 42 deg gave 5 deg). PnP's ``min_inliers`` does not govern it."""
+    s, registry, landmarks = _fallback_case()  # 400 tracks shared with every neighbour
+    K = s.scene.K
+    strict = dataclasses.replace(CFG, fallback_min_pair_inliers=401)
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, K, strict)
     assert not reg.success and reg.reason == "too_few_matches"
+    loose_pnp = dataclasses.replace(CFG, min_inliers=10_000, fallback_min_pair_inliers=50)
+    reg = register_from_neighbour(3, registry, landmarks, s.tracks, s.features, K, loose_pnp)
+    assert reg.success

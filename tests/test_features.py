@@ -161,12 +161,14 @@ def test_image_with_enough_features_is_detected_once_at_the_configured_threshold
     dim = _dimmed(2)
     at_default = _opencv_sift_count(dim, 0.04)
     assert at_default < _opencv_sift_count(dim, 0.02)  # a lower threshold would show
-    adaptive = create_extractor(FeatureConfig(sift_adaptive_min_features=at_default)).detect(dim)
+    config = FeatureConfig(sift_contrast_threshold=0.04, sift_adaptive_min_features=at_default)
+    adaptive = create_extractor(config).detect(dim)
     assert len(adaptive) == at_default
 
 
 def test_threshold_is_never_lowered_below_the_floor(faint):
-    adaptive = FeatureConfig(sift_adaptive_min_features=10**6, sift_min_contrast_threshold=0.01)
+    adaptive = FeatureConfig(sift_contrast_threshold=0.04, sift_adaptive_min_features=10**6,
+                             sift_min_contrast_threshold=0.01)  # fmt: skip
     stopped = create_extractor(adaptive).detect(faint)  # target out of reach: 0.04 → 0.02 → 0.01
     assert len(stopped) == _opencv_sift_count(faint, 0.01) < _opencv_sift_count(faint, 0.005)
 

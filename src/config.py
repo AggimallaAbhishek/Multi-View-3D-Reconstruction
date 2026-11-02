@@ -64,7 +64,7 @@ class FeatureConfig:
     detector: Literal["sift", "orb"] = "sift"
     max_features: int = 8000
     root_sift: bool = False
-    sift_contrast_threshold: float = 0.04
+    sift_contrast_threshold: float = 0.02
     sift_adaptive_min_features: int = 500
     sift_min_contrast_threshold: float = 0.005
     affine_simulation: bool = False
@@ -129,6 +129,7 @@ class RegistrationConfig:
     fallback_estimator: Literal["usac_accurate", "usac_magsac", "ransac"] = "usac_accurate"
     fallback_epipolar_threshold_px: float = 1.5
     fallback_min_links: int = 6
+    fallback_min_pair_inliers: int = 50
 
 
 @dataclass(frozen=True)

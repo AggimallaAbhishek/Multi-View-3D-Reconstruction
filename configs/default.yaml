@@ -33,7 +33,8 @@ features:
   detector: sift               # sift | orb (detection always runs on the grayscale image)
   max_features: 8000           # strict cap; the strongest responses are kept
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
-  sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
+  sift_contrast_threshold: 0.02  # OpenCV's default 0.04 left ETH3D pipes 7/14, terrains 30/42
+                               # registered (too few shared points); 0.02: all, on every set
   sift_adaptive_min_features: 500  # images with fewer: detect again, threshold halved... (0 = off)
   sift_min_contrast_threshold: 0.005  # ...down to this (dark or low-texture images)
   affine_simulation: false     # SIFT on affine-warped copies of each image (ASIFT, OpenCV's
@@ -94,6 +95,8 @@ registration:                  # adding an image to the reconstruction from 2D-3
   fallback_epipolar_threshold_px: 1.5  # and its inlier threshold; the pose is refined by the
                                # bundle adjustment that follows (refine: applies to PnP)
   fallback_min_links: 6        # landmarks that must agree with the scale (vs min_inliers for PnP)
+  fallback_min_pair_inliers: 50  # tracks shared with the neighbour and essential-matrix inliers
+                               # (ETH3D pipes: a 40-inlier pair over 42 deg gave a 5 deg error)
 
 bundle_adjustment:             # joint refinement of camera poses, points and the focal length
   enabled: true

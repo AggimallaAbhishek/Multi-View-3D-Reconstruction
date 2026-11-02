@@ -7,10 +7,13 @@ Full datasets live in `data/raw/<name>/` (git-ignored) and are fetched by script
 | **templeRing** (primary) | Middlebury Multi-View Stereo — Seitz, Curless, Diebel, Scharstein, Szeliski, *A Comparison and Evaluation of Multi-View Stereo Reconstruction Algorithms*, CVPR 2006. https://vision.middlebury.edu/mview/data/ | 47 × 640×480 PNG around a plaster temple replica; consecutive views mostly 7–8° apart, but the file sequence sweeps ~1.5 turns with a few jumps (not angular order) | `K`, `R`, `t` per image (`P = K[R\|t]`, same world→camera convention as this project) | Free for research use; cite the paper above | `python scripts/download_middlebury.py templeRing` |
 | templeSparseRing | same | 16 views, 22.5° apart | same | same | `python scripts/download_middlebury.py templeSparseRing` |
 | dinoRing / dinoSparseRing | same | 48 / 16 views of a plaster dinosaur | same | same | `python scripts/download_middlebury.py dinoRing` |
+| ETH3D pipes / office / terrains (and the other training scenes) | ETH3D high-resolution multi-view benchmark — Schöps et al., *A Multi-View Stereo Benchmark with High-Resolution Images and Multi-Camera Videos*, CVPR 2017. https://www.eth3d.net/datasets | 14 / 26 / 42 undistorted DSLR photos, 6220×4141 (worked on at 1600 px) | laser-scan-registered `K`, `R`, `t` (COLMAP text format, converted) | CC BY-NC-SA 4.0 | `uv pip install -e ".[data]"` then `python scripts/download_eth3d.py pipes` |
 
 The download script writes `camera.yaml` (shared intrinsics, for `camera.calibration_file`) and `gt_cameras.json` (per-image ground truth) next to the images.
 
 ## Results on templeRing (Phases 1–9)
+
+*Measured during each phase with the settings of the time (SIFT contrast threshold 0.04). With the current defaults the full pipeline gives 47/47 cameras at 0.15° median / 0.32° max rotation error and 9907 filtered points; see [`docs/experiments.md`](../../docs/experiments.md).*
 
 ```bash
 python scripts/download_middlebury.py templeRing
@@ -60,3 +63,19 @@ Affine simulation (`features.affine_simulation`, ASIFT via OpenCV's `AffineFeatu
 With the relative-pose registration fallback (default on; methodology §7) dinoSparseRing registers 6/16 (rotation error median 0.19°, max 0.37°; was 5/16, 0.75°). The rest cannot be reached from the information in the images: the pose stage's own estimates for the weak neighbour pairs are 15–98° off with 0.1–7° parallax where ~22° is expected (the matches there do not determine a relative pose), and the fallback's landmark check refuses them.
 
 Own captures: document the camera, resolution, focal length, lighting and capture path for each scene in `data/raw/<scene>/README.md`.
+
+## Results on ETH3D (E7)
+
+```bash
+uv pip install -e ".[data]"
+for s in pipes office terrains; do python scripts/download_eth3d.py $s; done
+python scripts/evaluate_against_ground_truth.py data/raw/eth3d_pipes
+```
+
+| Scene | Registered | Rotation error (median / max) | Centre error (median) | Landmarks |
+|---|---|---|---|---|
+| pipes (14) | 14/14 | 0.06° / 0.12° | 0.21 % | 2661 |
+| office (26) | 26/26 | 0.14° / 0.35° | 0.66 % | 3170 |
+| terrains (42) | 42/42 | 0.18° / 0.22° | 0.21 % | 17832 |
+
+With OpenCV's default SIFT contrast threshold (0.04) these were 7/14, 25/26 and 30/42; the comparison with COLMAP and the reasons are in [`docs/experiments.md`](../../docs/experiments.md#e7--other-datasets-eth3d-generalisation).

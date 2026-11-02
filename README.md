@@ -51,24 +51,26 @@ On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×4
 | | |
 |---|---|
 | ![sparse cloud](docs/images/templeRing_filtered.png) | ![cameras](docs/images/templeRing_cameras.png) |
-| Filtered sparse cloud (6365 coloured points) | All 47 cameras recovered: top and side views |
+| Filtered sparse cloud (9907 coloured points) | All 47 cameras recovered: top and side views |
 
 | Result | Value |
 |---|---|
 | Images registered | **47 / 47** |
-| Camera rotation error vs ground truth (median / max) | **0.15° / 0.41°** |
-| Camera position error (median, fraction of the ring's radius) | **0.18 %** |
-| Reprojection error (mean) | **0.23 px** |
-| Completeness vs reference | **0.92** |
-| Runtime of `reconstruct` (Apple M4) | **20 s** cold, 16 s with caches |
+| Camera rotation error vs ground truth (median / max) | **0.15° / 0.32°** |
+| Camera position error (median, fraction of the ring's radius) | **0.15 %** |
+| Reprojection error (mean) | **0.21 px** |
+| Completeness vs reference | **0.94** |
+| Runtime of `reconstruct` (Apple M4) | **20 s** with feature and match caches |
 
 | ![dense cloud](docs/images/templeRing_dense.png) |
 |---|
-| Dense cloud from our cameras (`python -m src.cli dense`): 2.05 M points in 1.4 s, plus a Poisson mesh |
+| Dense cloud from our cameras (`python -m src.cli dense`): 1.84 M points in 1.3 s, plus a Poisson mesh |
 
-**Against COLMAP (external) on the same images and starting `K`:** on templeRing both register 47/47, our median rotation error is 0.15° vs COLMAP's 0.26° (0.19° with its focal length held fixed); on dinoRing we register 48/48, COLMAP 24/48 (its SIFT, with default thresholds, finds a third of our features on the dark object).
+**Against COLMAP (external) on the same images and starting `K`:** on templeRing both register 47/47, our median rotation error is 0.15° vs COLMAP's 0.26° (0.18° with its focal length held fixed); on dinoRing we register 48/48, COLMAP 24/48 (its SIFT, with default thresholds, finds a third of our features on the dark object).
 
-Experiments (RQ1–RQ5, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×; dense stereo gives 300× the points of the sparse cloud on the same cameras (RQ5).
+**Beyond Middlebury (ETH3D, real DSLR scenes with ground truth):** pipes 14/14 cameras at 0.06°, office 26/26 at 0.14°, terrains 42/42 at 0.18° (COLMAP: 11/14 and 26/26 on the first two) — after lowering the SIFT contrast threshold to 0.02, which these scenes showed was needed (E7).
+
+Experiments (RQ1–RQ5, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error costs a quarter to a third of the completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 5×; dense stereo gives 190× the points of the sparse cloud on the same cameras (RQ5); every camera of three ETH3D scenes is recovered (E7).
 
 ### Course alignment (3D Computer Vision)
 
@@ -255,6 +257,10 @@ Use **one** OpenCV wheel only (`opencv-contrib-python`). Do not mix it with `ope
 ```bash
 python scripts/download_middlebury.py templeRing        # 47 real photos + true K, R, t → data/raw/templeRing/
 python scripts/evaluate_against_ground_truth.py data/raw/templeRing   # pipeline vs ground truth
+
+uv pip install -e ".[data]"                             # py7zr, for ETH3D's .7z archives
+python scripts/download_eth3d.py pipes                  # 14 DSLR photos (145 MB) → data/raw/eth3d_pipes/
+python scripts/evaluate_against_ground_truth.py data/raw/eth3d_pipes
 ```
 
 See [`data/sample/README.md`](data/sample/README.md) for sources, licences and current results.
@@ -434,11 +440,16 @@ Multi-View-3D-Reconstruction/
 └── scripts/
     ├── verify_setup.py
     ├── download_middlebury.py    # real dataset + ground-truth cameras
+    ├── download_eth3d.py         # ETH3D scenes (DSLR) + ground-truth cameras
     ├── evaluate_against_ground_truth.py
     ├── run_experiments.py        # all experiments + reports, one command
     ├── evaluate_results.py       # redraw experiment reports
     ├── run_colmap_baseline.py    # E6: ours vs COLMAP (external) against ground truth
-    └── evaluate_dense.py         # E6: sparse vs dense (points, silhouette check)
+    ├── evaluate_dense.py         # E6: sparse vs dense (points, silhouette check)
+    ├── plot_focal_refinement.py  # E3 vs E3b figure
+    ├── plot_calibration_failure.py  # E3 failure-case figure
+    ├── principal_point_study.py  # E3b: would refining the principal point help?
+    └── track_coverage.py         # long tracks left without a landmark, and why
 ```
 
 ---
@@ -548,10 +559,11 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | E4 Detector | SIFT vs ORB | Resolution, pairs, RANSAC settings | RQ4 |
 | E5 Bundle adjustment × structure refinement | Each on / off | Everything else | quality gain |
 | E6 Baseline and dense | Ours vs COLMAP sparse (external); our sparse vs our dense | Same images, same starting `K` | RQ5 |
+| E7 Other datasets | Three ETH3D scenes; SIFT contrast threshold | Pipeline defaults | generalisation |
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
 
-**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 6 k points into 2 M with fewer outliers (E6, RQ5).
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error costs a quarter to a third of the completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 2× the points but 6× the pose error (RQ4); bundle adjustment cuts pose error 5× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 10 k points into 1.8 M with fewer outliers (E6, RQ5); on three ETH3D scenes every camera registers at 0.06–0.18° (E7).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -589,14 +601,14 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 ## 15. Limitations
 
 1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered.
-2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error halves completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset; refining the principal point was measured: it only halves that offset and makes calibrated runs worse, because on a ring it trades off against rotation — E3b), and one shared focal length assumes one camera at one zoom — photos whose starting `K` differ keep `K` fixed.
+2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error costs a quarter to a third of the completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); the principal point and lens distortion are not refined (the guess keeps a 0.76° rotation offset; refining the principal point was measured: it only partly removes that offset and makes calibrated runs worse, because on a ring it trades off against rotation — E3b), and one shared focal length assumes one camera at one zoom — photos whose starting `K` differ keep `K` fixed.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
-4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
+4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~1400 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.
 6. Sparse clouds do not represent complete surfaces. The dense stage covers textured surfaces seen by a stereo partner (a median 20 % of each templeRing image has a depth: the object, not the black background); a 1 px band around every gap is dropped against edge fattening, and 0.8 % of points still fall outside a silhouette. Uniform regions get no depth, and the Poisson mesh closes holes by extrapolation.
 7. No metric scale without an external reference; one measured distance sets it (on templeRing consistent with the full fit to < 1 %).
 8. Matching is exhaustive up to 50 images (sequential beyond); there is no loop closure or global SfM, so very long sequences may drift.
-9. Evaluated on one public dataset; results vary across datasets and camera setups.
+9. Evaluated on Middlebury (three sets) and three ETH3D scenes; the experiments E1–E5 use templeRing only, and results vary across datasets and camera setups.
 
 Failure cases are documented with evidence in [docs/experiments.md](docs/experiments.md#failure-cases).
 
@@ -609,7 +621,7 @@ Directly suggested by the results:
 - **Better dense stereo:** several partners per view or plane-sweep / PatchMatch stereo, an outlier filter fast enough for millions of points; COLMAP's dense stereo as a comparison on a CUDA machine.
 - **Radial distortion** in bundle adjustment for photo sets that need it (Middlebury's images are distortion-free; the principal point was measured and left fixed, E3b), and per-camera intrinsics for mixed-camera photo sets.
 - **Sparser rings:** a relative-pose registration fallback (now default) and optional affine simulation are in; dinoSparseRing still registers 6/16 because its weak neighbour pairs do not determine a relative pose ([`data/sample/README.md`](data/sample/README.md)). Learned matchers (SuperPoint/LightGlue) or more views are the remaining options.
-- More datasets with ground truth (ETH3D, Tanks & Temples) and own captures; dinoRing is done (48/48, [`data/sample/README.md`](data/sample/README.md#results-on-dinoring)).
+- More datasets with ground truth (the other ETH3D scenes, Tanks & Temples) and own captures; dinoRing (48/48) and three ETH3D scenes (E7) are done.
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.
 

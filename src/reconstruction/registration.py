@@ -96,7 +96,9 @@ def register_from_neighbour(
 ) -> Registration:
     """Register ``image`` from its relative pose to a registered image.
 
-    Registered images are tried in order of shared tracks (at least ``min_inliers``).
+    Registered images are tried in order of shared tracks (at least
+    ``fallback_min_pair_inliers``, more than PnP's ``min_inliers``: an essential matrix
+    from few points over a wide baseline is poorly conditioned).
     The essential matrix of the shared keypoints gives the rotation and the direction
     of the baseline: ``R = R_rel R_n``, ``t = R_rel t_n + s t_rel``. Only the baseline
     length ``s`` is unknown, and each landmark the image sees fixes it linearly
@@ -150,14 +152,14 @@ def register_from_neighbour(
 
 def _shared_keypoints(image, registry, tracks, features, config):
     """(neighbour, its keypoints, the image's keypoints) for every registered image that
-    shares at least ``min_inliers`` tracks with ``image``, most shared first."""
+    shares at least ``fallback_min_pair_inliers`` tracks with ``image``, most shared first."""
     in_image = tracks.image == image
     keypoint_of_track = np.full(tracks.n_tracks, -1, np.int64)
     keypoint_of_track[tracks.track[in_image]] = tracks.keypoint[in_image]
     shared = np.isin(tracks.image, registry.images) & (keypoint_of_track[tracks.track] >= 0)
     counts = np.bincount(tracks.image[shared], minlength=len(features))
     for neighbour in np.argsort(-counts, kind="stable"):  # ties: lower index first
-        if counts[neighbour] < config.min_inliers:
+        if counts[neighbour] < config.fallback_min_pair_inliers:
             break
         pair = shared & (tracks.image == neighbour)
         yield (int(neighbour), features[neighbour].points[tracks.keypoint[pair]],
@@ -166,7 +168,7 @@ def _shared_keypoints(image, registry, tracks, features, config):
 
 def _relative_pose(x_n, x_m, K, config):
     """(R, unit t) from normalised points of the neighbour to those of the new image, or
-    None without ``min_inliers`` inliers in front of both cameras."""
+    None without ``fallback_min_pair_inliers`` inliers in front of both cameras."""
     focal = float(np.sqrt(K[0, 0] * K[1, 1]))
     cv2.setRNGSeed(0)
     E, mask = cv2.findEssentialMat(
@@ -176,7 +178,7 @@ def _relative_pose(x_n, x_m, K, config):
     if E is None or E.shape != (3, 3):
         return None
     n_good, R, t, _ = cv2.recoverPose(E, x_n, x_m, np.eye(3), mask=mask)
-    return (R, t.ravel()) if n_good >= config.min_inliers else None
+    return (R, t.ravel()) if n_good >= config.fallback_min_pair_inliers else None
 
 
 def _fits(camera: Camera, X: np.ndarray, pixels: np.ndarray, config) -> np.ndarray:
