@@ -111,6 +111,8 @@ def test_dense_stage_writes_a_dense_cloud_and_mesh(filtered, tmp_path):
     summary = json.loads((tmp_path / "reconstruction" / "reconstruction.json").read_text())
     assert summary["dense"]["points"] == len(points)
     assert summary["dense"]["mesh"]["triangles"] > 0
+    # 4 views: fewer than distortion_min_images, so no distortion was estimated.
+    assert summary["self_calibration"] is None
     # In the ground-truth frame the dense points lie on the box scene's surface.
     to_truth = _similarity_to_truth(dense)
     distance = box_scene_distance(to_truth.apply(points))

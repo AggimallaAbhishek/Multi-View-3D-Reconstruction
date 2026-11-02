@@ -351,6 +351,7 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
             "K": cameras[0].K.tolist(),
             "focal_scale": rec.focal_scale,
         },
+        "self_calibration": None if r.distortion is None else r.distortion.summary(),
         "settings": {k: cfg.to_dict()[k] for k in ("registration", "bundle_adjustment")},
         "frame": MULTI_VIEW_FRAME,
     }
@@ -405,6 +406,14 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         print(
             f"Focal length refined: {f0 * rec.focal_scale:.1f} px "
             f"(started at {f0:.1f} px, {rec.focal_scale - 1:+.1%})"
+        )
+    d = r.distortion
+    if d is not None:
+        last = d.estimates[-1]
+        print(
+            f"Lens distortion: k1 {d.distortion.k1:+.4f}, k2 {d.distortion.k2:+.4f} applied "
+            f"({d.passes} more reconstruction(s)); remaining estimate moves a corner "
+            f"{last.shift_px:.1f} px"
         )
     if unregistered:
         print(f"[WARNING] not registered: {', '.join(unregistered)}")

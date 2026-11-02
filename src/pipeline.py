@@ -12,6 +12,7 @@ the feature cache.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ from src.features.matcher import (
     match_pairs,
     select_pairs,
 )
+from src.geometry.calibration import Intrinsics
 from src.geometry.epipolar import TwoViewGeometry
 from src.geometry.pose_estimation import (
     InitialPair,
@@ -50,6 +52,12 @@ from src.geometry.pose_estimation import (
 from src.geometry.verification import VerificationStats, verify_matches
 from src.pointcloud.coloring import color_points
 from src.pointcloud.filtering import CloudFilterResult, filter_cloud
+from src.reconstruction.bundle_adjustment import scale_focal
+from src.reconstruction.distortion import (
+    RadialDistortion,
+    SelfCalibration,
+    estimate_radial_distortion,
+)
 from src.reconstruction.incremental import Reconstruction, reconstruct
 from src.reconstruction.tracks import Tracks, ViewGraph, build_tracks
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
@@ -98,6 +106,7 @@ class PipelineResult:
     reconstruction: Reconstruction | None = None  # "reconstruct", if an initial pair exists
     filtering: CloudFilterResult | None = None  # "filter": which landmarks to export
     dense: DenseResult | None = None  # "dense", if a reconstruction exists
+    distortion: SelfCalibration | None = None  # "reconstruct", when self-calibrating
 
     @property
     def images(self) -> list[PreparedImage]:
@@ -287,4 +296,85 @@ def run_pipeline(
         start = time.perf_counter()
         _STEPS[stage](result)
         result.timings[stage] = time.perf_counter() - start
+        if stage == "reconstruct" and _self_calibrates(result):
+            result = _self_calibrate(result, images, on_stage)
     return result
+
+
+def _self_calibrates(result: PipelineResult) -> bool:
+    """Radial distortion is estimated when the focal length is refined (so E3's fixed-K
+    runs stay fixed), every image starts from one K, no distortion is known, at least
+    ``distortion_min_images`` images are registered and the view is wide enough to
+    observe it (``distortion_min_field_radius``)."""
+    ba = result.config.bundle_adjustment
+    first = result.images[0]
+    return bool(
+        result.reconstruction is not None
+        and len(result.reconstruction.registry.images) >= ba.distortion_min_images
+        and RadialDistortion.field_radius(first.K, (first.width, first.height))
+        >= ba.distortion_min_field_radius
+        and ba.enabled and ba.refine_focal and ba.estimate_distortion
+        and all(np.array_equal(im.K, first.K) for im in result.images)
+        and not any(np.any(im.source_dist) for im in result.images)
+    )  # fmt: skip
+
+
+def _self_calibrate(
+    result: PipelineResult, images: str | Path, on_stage: StageCallback | None
+) -> PipelineResult:
+    """Estimate radial distortion from the reconstruction; while it moves an image corner
+    by more than ``distortion_min_shift_px`` (and passes remain), undistort the images
+    with everything estimated so far and run every stage up to ``reconstruct`` again.
+    A pass that registers fewer images than the one before, or as many with a higher
+    mean reprojection error, is discarded (and the loop stops). Time spent on every pass
+    is added to each stage's timing."""
+    ba = result.config.bundle_adjustment
+    first = result.images[0]
+    applied, scale = RadialDistortion(0.0, 0.0), 1.0
+    kept, kept_applied, kept_scale = result, applied, scale  # the pass returned
+    estimates, passes = [], 0
+    while True:
+        start = time.perf_counter()
+        rec = result.reconstruction
+        cameras, obs, points = rec.landmarks.as_problem(rec.registry, result.features)
+        estimate = estimate_radial_distortion(cameras, obs, points, ba)
+        shift = estimate.distortion.corner_shift_px(cameras[0].K, (first.width, first.height))
+        estimates.append(dataclasses.replace(estimate, shift_px=shift))
+        result.timings["reconstruct"] += time.perf_counter() - start
+        if shift < ba.distortion_min_shift_px or len(estimates) > ba.distortion_passes:
+            break
+        applied = applied.then(estimate.distortion)
+        scale *= rec.focal_scale * estimate.focal_scale
+        width, height = first.original_size
+        intrinsics = Intrinsics(scale_focal(first.source_K, scale), applied.coefficients,
+                                width, height, first.intrinsics_source)  # fmt: skip
+        config = result.config.with_overrides({"camera.focal_scale": 1.0})  # now in K
+        previous = result.timings
+        start = time.perf_counter()
+        result = PipelineResult(config=result.config,
+                                dataset=prepare_dataset(images, config, intrinsics))  # fmt: skip
+        result.timings["dataset"] = previous["dataset"] + time.perf_counter() - start
+        for stage in stages_until("reconstruct"):
+            if on_stage is not None:
+                on_stage(stage, result)
+            start = time.perf_counter()
+            _STEPS[stage](result)
+            result.timings[stage] = previous[stage] + time.perf_counter() - start
+        if _quality(result) < _quality(kept):
+            kept.timings = result.timings
+            result, applied, scale = kept, kept_applied, kept_scale
+            break
+        kept, kept_applied, kept_scale = result, applied, scale
+        passes += 1
+    result.distortion = SelfCalibration(estimates, applied, scale, passes)
+    return result
+
+
+def _quality(result: PipelineResult) -> tuple[int, float]:
+    """(images registered, -mean reprojection error), compared in that order: a wrong
+    undistortion leaves the images registered but raised the error 4x (rendered views;
+    a right one lowered it 2x on rendered views and ETH3D pipes)."""
+    rec = result.reconstruction
+    if rec is None:
+        return 0, 0.0
+    return len(rec.registry.images), -float(np.mean(rec.landmarks.error))

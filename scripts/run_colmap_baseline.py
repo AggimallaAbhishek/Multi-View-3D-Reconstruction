@@ -4,7 +4,7 @@
 
 Both start from the same prepared images (our loading, resizing and undistortion) and
 the same intrinsics, and both refine the focal length (``--fix-intrinsics``: COLMAP's is
-held fixed). Camera errors are measured
+held fixed; ``--distortion``: COLMAP also refines radial distortion). Camera errors are measured
 against ``gt_cameras.json`` after a similarity alignment. Writes ``comparison.json``,
 COLMAP's cloud (``colmap_external.ply``) and its model (text format) into a run directory.
 """
@@ -59,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="hold COLMAP's focal length fixed (default: refined, as ours)",
     )
+    parser.add_argument(
+        "--distortion",
+        action="store_true",
+        help="COLMAP's RADIAL camera with k1, k2 refined (default: PINHOLE, none)",
+    )
     args = parser.parse_args(argv)
     config = load_config(args.config)
     gt = load_cameras_json(args.images / GT_CAMERAS_FILE)
@@ -83,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         colmap = run_colmap(
             {im.name: im.image for im in images}, images[0].K, run_dir / "colmap",
             config.features.max_features, refine_intrinsics=not args.fix_intrinsics,
+            distortion=args.distortion,
         )  # fmt: skip
     except ColmapError as exc:
         print(f"COLMAP baseline not run: {exc}")
@@ -92,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
 
     keep = result.filtering.keep
     ours_cams = {result.names[m]: rec.registry.camera(m) for m in rec.registry.images}
-    colmap_label = "colmap (external)" + (", K fixed" if args.fix_intrinsics else "")
+    colmap_label = ("colmap (external)" + (", K fixed" if args.fix_intrinsics else "")
+                    + (", radial" if args.distortion else ""))  # fmt: skip
     table = {
         "ours": summarise(ours_cams, rec.landmarks.position[keep], rec.landmarks.error[keep],
                           truth, len(images), ours_s),

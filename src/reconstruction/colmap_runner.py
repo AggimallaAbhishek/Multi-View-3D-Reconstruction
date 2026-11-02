@@ -24,7 +24,8 @@ from src.geometry.camera import Camera
 # Parameters before the distortion terms, per COLMAP camera model: focal(s), cx, cy.
 _FOCAL_MODELS = {
     "SIMPLE_PINHOLE": 1, "SIMPLE_RADIAL": 1, "RADIAL": 1, "SIMPLE_RADIAL_FISHEYE": 1,
-    "PINHOLE": 2, "OPENCV": 2, "FULL_OPENCV": 2,
+    "RADIAL_FISHEYE": 1, "PINHOLE": 2, "OPENCV": 2, "FULL_OPENCV": 2, "OPENCV_FISHEYE": 2,
+    "FOV": 2, "THIN_PRISM_FISHEYE": 2,
 }  # fmt: skip
 
 
@@ -88,13 +89,14 @@ def run_colmap(
     work_dir: str | Path,
     max_features: int,
     refine_intrinsics: bool = True,
+    distortion: bool = False,
 ) -> ColmapModel:
     """COLMAP SfM on ``images`` (name -> BGR) taken by one camera with intrinsics ``K``
     (our convention), at most ``max_features`` SIFT features per image;
     ``refine_intrinsics`` lets bundle adjustment refine the focal length (COLMAP's
-    default). Everything else is COLMAP's defaults except a PINHOLE camera (no
-    distortion parameters, like our pipeline). Returns the model with the most
-    registered images."""
+    default). Everything else is COLMAP's defaults except the camera model: PINHOLE (no
+    distortion), or with ``distortion`` RADIAL (one focal length, ``k1, k2`` from zero,
+    refined like ours). Returns the model with the most registered images."""
     exe = colmap_executable()
     if exe is None:
         raise ColmapError("colmap is not on PATH (macOS: brew install colmap)")
@@ -107,16 +109,18 @@ def run_colmap(
             raise ColmapError(f"could not write {image_dir / name}")
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2] + 0.5, K[1, 2] + 0.5
     refine = str(int(refine_intrinsics))
+    model, params = ("RADIAL", f"{np.sqrt(fx * fy)},{cx},{cy},0,0") if distortion else (
+        "PINHOLE", f"{fx},{fy},{cx},{cy}")  # fmt: skip
     steps = [
         ["feature_extractor", "--database_path", database, "--image_path", image_dir,
-         "--ImageReader.single_camera", "1", "--ImageReader.camera_model", "PINHOLE",
-         "--ImageReader.camera_params", f"{fx},{fy},{cx},{cy}",
+         "--ImageReader.single_camera", "1", "--ImageReader.camera_model", model,
+         "--ImageReader.camera_params", params,
          "--FeatureExtraction.use_gpu", "0",
          "--SiftExtraction.max_num_features", str(max_features)],
         ["exhaustive_matcher", "--database_path", database, "--FeatureMatching.use_gpu", "0"],
         ["mapper", "--database_path", database, "--image_path", image_dir,
          "--output_path", sparse, "--Mapper.ba_refine_focal_length", refine,
-         "--Mapper.ba_refine_extra_params", "0"],
+         "--Mapper.ba_refine_extra_params", str(int(distortion))],
     ]  # fmt: skip
     with (work / "colmap.log").open("w") as log:
         for step in steps:

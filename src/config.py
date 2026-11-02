@@ -145,6 +145,11 @@ class BundleAdjustmentConfig:
     refine_structure: bool = True
     refine_focal: bool = True
     max_focal_change: float = 3.0
+    estimate_distortion: bool = True
+    distortion_min_shift_px: float = 2.0
+    distortion_passes: int = 2
+    distortion_min_images: int = 5
+    distortion_min_field_radius: float = 0.3
 
 
 @dataclass(frozen=True)

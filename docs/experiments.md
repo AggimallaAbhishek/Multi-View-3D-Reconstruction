@@ -177,6 +177,19 @@ With OpenCV's default contrast threshold (0.04, our default until this experimen
 
 **A wrong pose from the relative-pose fallback.** With an adaptive target of 2000 features, pipes registered 14/14 but every camera was 1.1° off: one image had been added by the fallback from a pair with only 40 essential-matrix inliers over a 42° baseline — a pose 5° off whose 21 landmark links still fit within the reprojection threshold (they cover a small region, where rotation and translation trade off), and the global bundle adjustment then tilted every camera towards it. The fallback now needs `fallback_min_pair_inliers` (50) inliers in the pair it takes the pose from, more than PnP's 30 links; that removed the failure (1.14° → 0.07°) without losing a registration on any of the six datasets.
 
+### E8 — lens distortion: self-calibration (ETH3D original images)
+
+ETH3D also publishes the original JPGs of each scene, with their real lens distortion (a thin-prism fisheye model, about 25 px at the corners at our 1600 px working size). `python scripts/download_eth3d.py <scene> --distorted` writes them with only the pinhole part of the calibration in `camera.yaml`, so the pipeline has to find the distortion itself (methodology §8b). terrains is left out: its mixed image sizes switch self-calibration off.
+
+| scene | self-calibration off | **on (default)** | estimated k1, k2 (passes) | undistorted images (E7) | COLMAP (external), PINHOLE | COLMAP, RADIAL |
+|---|---|---|---|---|---|---|
+| pipes: registered, rotation error median / max | 10/14, 1.30° / 3.27° | **14/14, 0.17° / 0.24°** | −0.102, +0.069 (2) | 14/14, 0.06° / 0.12° | 11/14, 0.26° / 0.37° | 11/14, 0.23° / 0.30° |
+| office | 14/26, 2.07° / 5.08° | **26/26, 0.05° / 0.31°** | −0.106, +0.074 (2) | 26/26, 0.14° / 0.35° | 26/26, 0.11° / 1.17° | 26/26, 0.10° / 1.13° |
+
+Without self-calibration a pinhole model on distorted images loses 4 and 12 images and leaves the rest 1.3–2.1° off (centre errors 4.3 % and 2.9 %); with it every image registers, and the camera centres are within 0.4 % of the true ones. The estimates of the two scenes — the same DSLR lens — agree (k1 −0.102 / −0.106, k2 +0.069 / +0.074), and the remaining corner shift after two passes is 0.9 px. On office the result is even better than from ETH3D's own undistorted images; on pipes it stays behind them (0.17° vs 0.06°), the two-coefficient radial model being an approximation of the real thin-prism fisheye lens. COLMAP (same images, same starting `K`) registers 11/14 and 26/26 with or without its own radial refinement.
+
+Where it does nothing: on Middlebury and on ETH3D's undistorted images every result is unchanged — the Middlebury views are too narrow to estimate distortion (skipped), the undistorted ETH3D scenes estimate ≤ 0.4 px at the corners (no second pass).
+
 ## Failure cases
 
 | Case | What happens | Why | Evidence |
@@ -197,6 +210,6 @@ The −20 % cloud (middle) looks like the calibrated one (left) to the eye — t
 
 - E1–E5 use one dataset, one object (plaster, black background, a ring of views); conclusions about view spacing and detector choice are specific to such low-texture objects. E6 adds the two dino sets and E7 three ETH3D scenes for registration and pose accuracy only.
 - The reference shares our SIFT features and matches; it measures geometry given the tracks, not against an independent surface scan.
-- E3b refines the focal length only; distortion is assumed zero (true for templeRing) and the principal point stays fixed.
+- E3b refines the focal length only and the principal point stays fixed; distortion is zero on templeRing. E8 covers lens distortion on two ETH3D scenes only.
 - E6 runs COLMAP with its default parameters (besides the camera model, `K` and the feature cap); tuned, it may register more of dinoRing. The dense cloud is scored by silhouette consistency only (no public ground-truth surface for the Middlebury sets), which catches points off the object but not errors along the viewing ray inside it; the rendered-scene tests cover depth accuracy.
 - Each setting runs once. The pipeline is deterministic (seeded RANSAC), so repeats give identical numbers; variation across datasets is not measured.

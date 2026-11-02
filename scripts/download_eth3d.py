@@ -1,9 +1,11 @@
 """Download an ETH3D high-resolution multi-view training scene with ground-truth cameras.
 
-Usage: python scripts/download_eth3d.py pipes   (needs the `data` extra: py7zr)
+Usage: python scripts/download_eth3d.py pipes [--distorted]   (needs the `data` extra: py7zr)
 
 Takes the undistorted DSLR images (pinhole, one camera per scene, 6220 x 4141) and writes
-into data/raw/eth3d_<scene>/ (git-ignored):
+into data/raw/eth3d_<scene>/ (git-ignored) — or, with ``--distorted``, the original JPGs
+with their lens distortion into data/raw/eth3d_<scene>_jpg/, with only the pinhole part of
+the calibration in camera.yaml (a test of the pipeline's distortion self-calibration):
   *.JPG             the images
   camera.yaml       the shared intrinsics, for camera.calibration_file
   gt_cameras.json   ground-truth K, R, t per image (world -> camera, P = K [R | t])
@@ -30,7 +32,11 @@ from src.evaluation.ground_truth import GT_CAMERAS_FILE  # noqa: E402
 from src.pointcloud.export import write_cameras_json  # noqa: E402
 from src.reconstruction.colmap_runner import read_text_model  # noqa: E402
 
-URL = "https://www.eth3d.net/data/{scene}_dslr_undistorted.7z"
+URL = "https://www.eth3d.net/data/{scene}_{variant}.7z"
+VARIANTS = {  # name -> (archive variant, image folder, calibration folder)
+    "undistorted": ("dslr_undistorted", "dslr_images_undistorted", "dslr_calibration_undistorted"),
+    "distorted": ("dslr_jpg", "dslr_images", "dslr_calibration_jpg"),
+}
 SCENES = (
     "courtyard", "delivery_area", "electro", "facade", "kicker", "meadow", "office",
     "pipes", "playground", "relief", "relief_2", "terrace", "terrains",
@@ -50,7 +56,7 @@ def download(url: str, path: Path, attempts: int = 3, timeout: float = 60) -> bo
     return False
 
 
-def main(scene: str = "pipes") -> int:
+def main(scene: str = "pipes", distorted: bool = False) -> int:
     try:
         import py7zr
     except ImportError:
@@ -59,23 +65,24 @@ def main(scene: str = "pipes") -> int:
     if scene not in SCENES:
         print(f"unknown scene {scene!r}; choose from {', '.join(SCENES)}")
         return 2
-    target = ROOT / "data" / "raw" / f"eth3d_{scene}"
+    variant, image_dir, calibration_dir = VARIANTS["distorted" if distorted else "undistorted"]
+    target = ROOT / "data" / "raw" / f"eth3d_{scene}{'_jpg' if distorted else ''}"
     target.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
         archive = Path(tmp) / "scene.7z"
-        if not download(URL.format(scene=scene), archive):
+        if not download(URL.format(scene=scene, variant=variant), archive):
             if not any(target.iterdir()):
                 target.rmdir()
             return 1
         with py7zr.SevenZipFile(archive) as z:
             names = z.getnames()
-            wanted = [n for n in names if "/dslr_images_undistorted/" in n and n.endswith(".JPG")
-                      or "/dslr_calibration_undistorted/" in n and n.endswith(".txt")]  # fmt: skip
+            wanted = [n for n in names if f"/{image_dir}/" in n and n.endswith(".JPG")
+                      or f"/{calibration_dir}/" in n and n.endswith(".txt")]  # fmt: skip
             z.extract(path=Path(tmp) / "x", targets=wanted)
         extracted = Path(tmp) / "x"
         for image in extracted.rglob("*.JPG"):
             image.replace(target / image.name)  # flattened; never trust archive paths
-        calibration = next(extracted.rglob("dslr_calibration_undistorted"))
+        calibration = next(extracted.rglob(calibration_dir))
         model = read_text_model(calibration)
 
     cameras = {Path(name).name: camera for name, camera in model.cameras.items()}
@@ -90,9 +97,14 @@ def main(scene: str = "pipes") -> int:
     )  # fmt: skip
     K = cameras[names[0]].K
     width, height = sizes[0]
+    header = (
+        "# ETH3D calibration's pinhole part only: the images' lens distortion\n"
+        "# (THIN_PRISM_FISHEYE) is left for the pipeline to estimate.\n"
+        if distorted
+        else "# Intrinsics from the ETH3D calibration (undistorted images, shared by all).\n"
+    )
     (target / "camera.yaml").write_text(
-        "# Intrinsics from the ETH3D calibration (undistorted images, shared by all).\n"
-        f"width: {width}\nheight: {height}\n"
+        header + f"width: {width}\nheight: {height}\n"
         f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
         "dist: [0.0, 0.0, 0.0, 0.0, 0.0]\n",
         encoding="utf-8",
@@ -102,4 +114,5 @@ def main(scene: str = "pipes") -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(*sys.argv[1:2]))
+    args = [a for a in sys.argv[1:] if a != "--distorted"]
+    sys.exit(main(*args[:1], distorted="--distorted" in sys.argv[1:]))

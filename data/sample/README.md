@@ -78,4 +78,6 @@ python scripts/evaluate_against_ground_truth.py data/raw/eth3d_pipes
 | office (26) | 26/26 | 0.14° / 0.35° | 0.66 % | 3170 |
 | terrains (42) | 42/42 | 0.18° / 0.22° | 0.21 % | 17832 |
 
-With OpenCV's default SIFT contrast threshold (0.04) these were 7/14, 25/26 and 30/42; the comparison with COLMAP and the reasons are in [`docs/experiments.md`](../../docs/experiments.md#e7--other-datasets-eth3d-generalisation).
+From the original JPGs (`--distorted`, lens distortion not given), with the distortion estimated by the pipeline: pipes 14/14 at 0.17° / 0.24°, office 26/26 at 0.05° / 0.31° (E8).
+
+With OpenCV's default SIFT contrast threshold (0.04) the undistorted scenes gave 7/14, 25/26 and 30/42; the comparison with COLMAP and the reasons are in [`docs/experiments.md`](../../docs/experiments.md#e7--other-datasets-eth3d-generalisation).

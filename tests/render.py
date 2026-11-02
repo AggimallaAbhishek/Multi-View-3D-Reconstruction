@@ -181,3 +181,14 @@ def box_scene_distance(X: np.ndarray) -> np.ndarray:
     outside = np.linalg.norm(np.maximum(q, 0), axis=1)
     inside = np.minimum(q.max(axis=1), 0)
     return np.minimum(np.abs(X[:, 1] - 1.0), np.abs(outside + inside))
+
+
+def distort_image(image: np.ndarray, K: np.ndarray, dist: np.ndarray) -> np.ndarray:
+    """What a lens with OpenCV distortion ``dist`` would have recorded: every output
+    (distorted) pixel samples the undistorted image where its ray lands."""
+    h, w = image.shape[:2]
+    u, v = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    grid = np.stack([u, v], axis=-1).reshape(-1, 1, 2)
+    source = cv2.undistortPoints(grid, K, np.asarray(dist, float), P=K).reshape(h, w, 2)
+    return cv2.remap(image, source[..., 0], source[..., 1], cv2.INTER_LINEAR,
+                     borderMode=cv2.BORDER_CONSTANT, borderValue=(40, 40, 40))  # fmt: skip
