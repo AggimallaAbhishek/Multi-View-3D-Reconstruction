@@ -185,3 +185,19 @@ def test_plan_views_do_not_check_a_depth_with_the_same_stereo_pair():
     for i, checks in enumerate(plan.checks):
         assert len(checks) == 6
         assert all(plan.partner[k] != i for k in checks)
+
+
+@pytest.mark.parametrize("px", [1, 2])
+def test_pair_depth_drops_a_band_around_every_gap(scene, px):
+    """Stereo fattens edges (background next to an object takes its depth): no depth is
+    kept within ``edge_erosion_px`` of a pixel without one."""
+    import cv2
+
+    cams = _cameras(scene)
+    full, eroded = (pair_depth(scene.images[3], cams[3], scene.images[4], cams[4],
+                               _surface_points(scene), DenseConfig(edge_erosion_px=e))
+                    for e in (0, px))  # fmt: skip
+    gaps = (~np.isfinite(full)).astype(np.uint8)
+    near_gap = cv2.dilate(gaps, np.ones((2 * px + 1,) * 2, np.uint8)) > 0
+    assert not np.isfinite(eroded[near_gap]).any()
+    np.testing.assert_array_equal(eroded[~near_gap], full[~near_gap])

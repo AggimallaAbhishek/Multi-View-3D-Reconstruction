@@ -111,8 +111,11 @@ def pair_depth(
     f, cx, cy = P1[0, 0], P1[0, 2], P1[1, 2]
     x, y = (rect[..., 0] - cx) / f, (rect[..., 1] - cy) / f
     depth = Z * (R1[0, 2] * x + R1[1, 2] * y + R1[2, 2])  # z of R1^T (Z [x, y, 1])
-    textured = local_std(image_i, config.block_size) >= config.min_texture
-    return np.where((depth > 0) & textured, depth, np.nan)
+    valid = (depth > 0) & (local_std(image_i, config.block_size) >= config.min_texture)
+    if config.edge_erosion_px > 0:  # edges fatten (background takes the object's depth)
+        band = np.ones((2 * config.edge_erosion_px + 1,) * 2, np.uint8)
+        valid = cv2.erode(valid.astype(np.uint8), band) > 0
+    return np.where(valid, depth, np.nan)
 
 
 def local_std(image: np.ndarray, window: int) -> np.ndarray:

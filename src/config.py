@@ -171,6 +171,7 @@ class DenseConfig:
     speckle_range: int = 2
     disp12_max_diff: int = 1
     min_texture: float = 2.0
+    edge_erosion_px: int = 1
     fusion_views: int = 4
     min_consistent_views: int = 2
     depth_tolerance: float = 0.01
