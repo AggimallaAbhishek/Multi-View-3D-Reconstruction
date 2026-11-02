@@ -31,6 +31,9 @@ from src.evaluation.ground_truth import (  # noqa: E402
 from src.evaluation.metrics import camera_pose_errors  # noqa: E402
 from src.geometry.camera import Camera  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
+
+# Private helpers: this measurement script is coupled to bundle_adjustment's parameter
+# layout (cameras, points, focal scale) and residual order (x, y per observation).
 from src.reconstruction.bundle_adjustment import (  # noqa: E402
     _structure,
     _unpack,
