@@ -12,9 +12,8 @@ the feature cache.
 
 from __future__ import annotations
 
-import dataclasses
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
@@ -290,33 +289,54 @@ def run_pipeline(
     start = time.perf_counter()
     result = PipelineResult(config=config, dataset=prepare_dataset(images, config))
     result.timings["dataset"] = time.perf_counter() - start
-    for stage in stages_until(until):
+    stages = stages_until(until)
+    if "reconstruct" in stages:
+        _run_stages(result, stages_until("reconstruct"), on_stage)
+        if _self_calibrates(result):
+            result = _self_calibrate(result, images, on_stage)
+        stages = stages[len(stages_until("reconstruct")) :]
+    _run_stages(result, stages, on_stage)
+    return result
+
+
+def _run_stages(
+    result: PipelineResult,
+    stages: Sequence[Stage],
+    on_stage: StageCallback | None,
+    earlier: dict[str, float] | None = None,
+) -> None:
+    """Run ``stages`` in order, timing each (plus its time in ``earlier`` passes)."""
+    for stage in stages:
         if on_stage is not None:
             on_stage(stage, result)
         start = time.perf_counter()
         _STEPS[stage](result)
-        result.timings[stage] = time.perf_counter() - start
-        if stage == "reconstruct" and _self_calibrates(result):
-            result = _self_calibrate(result, images, on_stage)
-    return result
+        result.timings[stage] = (earlier or {}).get(stage, 0.0) + time.perf_counter() - start
 
 
 def _self_calibrates(result: PipelineResult) -> bool:
     """Radial distortion is estimated when the focal length is refined (so E3's fixed-K
-    runs stay fixed), every image starts from one K, no distortion is known, at least
-    ``distortion_min_images`` images are registered and the view is wide enough to
-    observe it (``distortion_min_field_radius``)."""
-    ba = result.config.bundle_adjustment
-    first = result.images[0]
+    runs stay fixed), the images can be undistorted, every image starts from one K, no
+    distortion is known, at least ``distortion_min_images`` images are registered and
+    the view is wide enough to observe it (``distortion_min_field_radius``)."""
+    config, rec = result.config, result.reconstruction
+    ba, first = config.bundle_adjustment, result.images[0]
     return bool(
-        result.reconstruction is not None
-        and len(result.reconstruction.registry.images) >= ba.distortion_min_images
-        and RadialDistortion.field_radius(first.K, (first.width, first.height))
-        >= ba.distortion_min_field_radius
-        and ba.enabled and ba.refine_focal and ba.estimate_distortion
+        ba.enabled and ba.refine_focal and ba.estimate_distortion
+        and config.preprocessing.undistort
+        and rec is not None and len(rec.registry.images) >= ba.distortion_min_images
         and all(np.array_equal(im.K, first.K) for im in result.images)
         and not any(np.any(im.source_dist) for im in result.images)
+        and RadialDistortion.field_radius(first.K, (first.width, first.height))
+        >= ba.distortion_min_field_radius
     )  # fmt: skip
+
+
+@dataclass(frozen=True, eq=False)
+class _Pass:
+    result: PipelineResult
+    applied: RadialDistortion  # undistortion applied to its images
+    scale: float  # its starting K / the first pass's
 
 
 def _self_calibrate(
@@ -325,49 +345,44 @@ def _self_calibrate(
     """Estimate radial distortion from the reconstruction; while it moves an image corner
     by more than ``distortion_min_shift_px`` (and passes remain), undistort the images
     with everything estimated so far and run every stage up to ``reconstruct`` again.
-    A pass that registers fewer images than the one before, or as many with a higher
-    mean reprojection error, is discarded (and the loop stops). Time spent on every pass
-    is added to each stage's timing."""
-    ba = result.config.bundle_adjustment
-    first = result.images[0]
-    applied, scale = RadialDistortion(0.0, 0.0), 1.0
-    kept, kept_applied, kept_scale = result, applied, scale  # the pass returned
+    A pass is kept if it registers more images, or as many without a higher mean
+    reprojection error; otherwise it is discarded and the loop stops. An estimate whose
+    focal scale leaves ``max_focal_change`` is not applied. Time spent on every pass is
+    added to each stage's timing; ``on_stage`` is called again for every re-run stage."""
+    ba, first = result.config.bundle_adjustment, result.images[0]
+    size = (first.width, first.height)
+    kept = _Pass(result, RadialDistortion(0.0, 0.0), 1.0)
     estimates, passes = [], 0
     while True:
         start = time.perf_counter()
-        rec = result.reconstruction
-        cameras, obs, points = rec.landmarks.as_problem(rec.registry, result.features)
-        estimate = estimate_radial_distortion(cameras, obs, points, ba)
-        shift = estimate.distortion.corner_shift_px(cameras[0].K, (first.width, first.height))
-        estimates.append(dataclasses.replace(estimate, shift_px=shift))
-        result.timings["reconstruct"] += time.perf_counter() - start
-        if shift < ba.distortion_min_shift_px or len(estimates) > ba.distortion_passes:
-            break
-        applied = applied.then(estimate.distortion)
-        scale *= rec.focal_scale * estimate.focal_scale
-        width, height = first.original_size
+        rec = kept.result.reconstruction
+        cameras, obs, points = rec.landmarks.as_problem(rec.registry, kept.result.features)
+        estimate = estimate_radial_distortion(cameras, obs, points, size, ba)
+        estimates.append(estimate)
+        kept.result.timings["reconstruct"] += time.perf_counter() - start
+        scale = kept.scale * rec.focal_scale * estimate.focal_scale
+        if (
+            estimate.shift_px < ba.distortion_min_shift_px
+            or len(estimates) > ba.distortion_passes
+            or not 1 / ba.max_focal_change <= scale <= ba.max_focal_change
+        ):
+            break  # fmt: skip
+        applied = kept.applied.then(estimate.distortion)
         intrinsics = Intrinsics(scale_focal(first.source_K, scale), applied.coefficients,
-                                width, height, first.intrinsics_source)  # fmt: skip
+                                *first.original_size, first.intrinsics_source)  # fmt: skip
         config = result.config.with_overrides({"camera.focal_scale": 1.0})  # now in K
-        previous = result.timings
+        earlier = kept.result.timings
         start = time.perf_counter()
-        result = PipelineResult(config=result.config,
-                                dataset=prepare_dataset(images, config, intrinsics))  # fmt: skip
-        result.timings["dataset"] = previous["dataset"] + time.perf_counter() - start
-        for stage in stages_until("reconstruct"):
-            if on_stage is not None:
-                on_stage(stage, result)
-            start = time.perf_counter()
-            _STEPS[stage](result)
-            result.timings[stage] = previous[stage] + time.perf_counter() - start
-        if _quality(result) < _quality(kept):
-            kept.timings = result.timings
-            result, applied, scale = kept, kept_applied, kept_scale
+        candidate = PipelineResult(config=config,
+                                   dataset=prepare_dataset(images, config, intrinsics))  # fmt: skip
+        candidate.timings["dataset"] = earlier["dataset"] + time.perf_counter() - start
+        _run_stages(candidate, stages_until("reconstruct"), on_stage, earlier)
+        if _quality(candidate) < _quality(kept.result):
+            kept.result.timings.update(candidate.timings)  # its time was still spent
             break
-        kept, kept_applied, kept_scale = result, applied, scale
-        passes += 1
-    result.distortion = SelfCalibration(estimates, applied, scale, passes)
-    return result
+        kept, passes = _Pass(candidate, applied, scale), passes + 1
+    kept.result.distortion = SelfCalibration(estimates, kept.applied, kept.scale, passes)
+    return kept.result
 
 
 def _quality(result: PipelineResult) -> tuple[int, float]:

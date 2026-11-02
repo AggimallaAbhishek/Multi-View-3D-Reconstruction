@@ -109,8 +109,10 @@ def run_colmap(
             raise ColmapError(f"could not write {image_dir / name}")
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2] + 0.5, K[1, 2] + 0.5
     refine = str(int(refine_intrinsics))
-    model, params = ("RADIAL", f"{np.sqrt(fx * fy)},{cx},{cy},0,0") if distortion else (
-        "PINHOLE", f"{fx},{fy},{cx},{cy}")  # fmt: skip
+    if distortion:  # RADIAL: one focal length, cx, cy, k1, k2
+        model, params = "RADIAL", f"{np.sqrt(fx * fy)},{cx},{cy},0,0"
+    else:
+        model, params = "PINHOLE", f"{fx},{fy},{cx},{cy}"
     steps = [
         ["feature_extractor", "--database_path", database, "--image_path", image_dir,
          "--ImageReader.single_camera", "1", "--ImageReader.camera_model", model,

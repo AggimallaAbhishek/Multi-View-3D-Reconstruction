@@ -23,13 +23,10 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from PIL import Image
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.evaluation.ground_truth import GT_CAMERAS_FILE  # noqa: E402
-from src.pointcloud.export import write_cameras_json  # noqa: E402
+from src.evaluation.ground_truth import write_ground_truth  # noqa: E402
 from src.reconstruction.colmap_runner import read_text_model  # noqa: E402
 
 URL = "https://www.eth3d.net/data/{scene}_{variant}.7z"
@@ -86,29 +83,13 @@ def main(scene: str = "pipes", distorted: bool = False) -> int:
         model = read_text_model(calibration)
 
     cameras = {Path(name).name: camera for name, camera in model.cameras.items()}
-    names = sorted(cameras)
-    sizes = []
-    for name in names:
-        with Image.open(target / name) as im:
-            sizes.append(im.size)
-    write_cameras_json(
-        target / GT_CAMERAS_FILE, [cameras[n] for n in names], names, sizes,
+    write_ground_truth(
+        target, cameras,
         frame="ETH3D ground truth (world -> camera: x_c = R X + t), original resolution",
+        header="ETH3D calibration's pinhole part only: the images' lens distortion\n"
+        "(THIN_PRISM_FISHEYE) is left for the pipeline to estimate." if distorted
+        else "Intrinsics from the ETH3D calibration (undistorted images, shared by all).",
     )  # fmt: skip
-    K = cameras[names[0]].K
-    width, height = sizes[0]
-    header = (
-        "# ETH3D calibration's pinhole part only: the images' lens distortion\n"
-        "# (THIN_PRISM_FISHEYE) is left for the pipeline to estimate.\n"
-        if distorted
-        else "# Intrinsics from the ETH3D calibration (undistorted images, shared by all).\n"
-    )
-    (target / "camera.yaml").write_text(
-        header + f"width: {width}\nheight: {height}\n"
-        f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-        "dist: [0.0, 0.0, 0.0, 0.0, 0.0]\n",
-        encoding="utf-8",
-    )
     print(f"{len(cameras)} images with ground truth in {target}")
     return 0
 

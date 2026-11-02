@@ -243,3 +243,26 @@ def test_reports_draw_figures_and_a_results_table(tmp_path, plot, rows):
     table = (directory / "results.md").read_text()
     assert all(r["setting"] in table for r in rows)
     assert "RQ?" in table
+
+
+def test_write_ground_truth_round_trips(tmp_path):
+    """What the download scripts write reloads as the same cameras and intrinsics."""
+    from src.evaluation.ground_truth import load_cameras_json, write_ground_truth
+    from src.geometry.calibration import load_camera_file
+    from tests.images import write_image
+    from tests.synthetic import make_scene
+
+    s = make_scene(n_cameras=3)
+    poses = zip(s.rotations, s.translations, strict=True)
+    cameras = {f"im{k}.png": Camera(s.K, R, t) for k, (R, t) in enumerate(poses)}
+    for name in cameras:
+        write_image(tmp_path / name, np.zeros((480, 640, 3), np.uint8))
+    write_ground_truth(tmp_path, cameras, frame="test frame", header="line one\nline two")
+    loaded = load_cameras_json(tmp_path / "gt_cameras.json")
+    for name, cam in cameras.items():
+        np.testing.assert_allclose(loaded[name].R, cam.R)
+        np.testing.assert_allclose(loaded[name].t, cam.t)
+    intrinsics = load_camera_file(tmp_path / "camera.yaml")
+    np.testing.assert_allclose(intrinsics.K, s.K)
+    assert (intrinsics.width, intrinsics.height) == (640, 480) and not intrinsics.dist.any()
+    assert (tmp_path / "camera.yaml").read_text().startswith("# line one\n# line two\n")

@@ -32,13 +32,13 @@ from src.evaluation.metrics import camera_pose_errors  # noqa: E402
 from src.geometry.camera import Camera  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
 
-# Private helpers: this measurement script is coupled to bundle_adjustment's parameter
-# layout (cameras, points, focal scale) and residual order (x, y per observation).
+# Coupled to bundle_adjustment's parameter layout (cameras, points, focal scale) and
+# residual order (x, y per observation).
 from src.reconstruction.bundle_adjustment import (  # noqa: E402
-    _structure,
-    _unpack,
+    jacobian_structure,
     pack,
     residuals,
+    unpack,
 )
 
 
@@ -63,7 +63,7 @@ def refine_with_principal_point(cameras, obs, X, ba):
 
     # Sparsity: the usual camera/point/focal pattern plus the offset's two columns
     # (dx for every x residual, dy for every y residual).
-    rows, cols, _ = _structure(obs.view, obs.point, len(cameras), len(X), True)
+    rows, cols, _ = jacobian_structure(obs.view, obs.point, len(cameras), len(X), True)
     m, n = 2 * len(obs.view), len(full)
     rows = np.concatenate([rows, np.arange(0, m, 2), np.arange(1, m, 2)])
     cols = np.concatenate([cols, np.full(m // 2, n - 2), np.full(m // 2, n - 1)])
@@ -73,7 +73,7 @@ def refine_with_principal_point(cameras, obs, X, ba):
         x_scale="jac", method="trf", max_nfev=ba.max_iterations, ftol=ba.function_tolerance,
     )  # fmt: skip
     p, d = split(solution.x)
-    cam, _, s = _unpack(p, len(cameras), True)
+    cam, _, s = unpack(p, len(cameras), True)
     refined = []
     for v, c in enumerate(cameras):
         Kn = c.K @ np.diag([s, s, 1.0])

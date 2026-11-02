@@ -232,8 +232,11 @@ def prepare_dataset(
     if n is not None and n < len(paths):  # evenly spaced, first and last included
         paths = [paths[k] for k in np.round(np.linspace(0, len(paths) - 1, n)).astype(int)]
 
-    calibration_file = None if intrinsics else find_calibration_file(directory, config)
-    calibration = intrinsics or (load_camera_file(calibration_file) if calibration_file else None)
+    if intrinsics is not None:
+        calibration_file, calibration = None, intrinsics
+    else:
+        calibration_file = find_calibration_file(directory, config)
+        calibration = load_camera_file(calibration_file) if calibration_file else None
     cache_dir = config.cache_path("images")
     cache = ImageCache(cache_dir, config, calibration_file, intrinsics) if cache_dir else None
 

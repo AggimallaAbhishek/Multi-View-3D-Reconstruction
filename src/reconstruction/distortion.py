@@ -22,7 +22,15 @@ from scipy.sparse import coo_matrix
 from src.config import BundleAdjustmentConfig
 from src.geometry.camera import Camera
 from src.geometry.triangulation import Observations
-from src.reconstruction.bundle_adjustment import _structure, _unpack, pack, rotate
+from src.reconstruction.bundle_adjustment import (
+    free_parameters,
+    jacobian_structure,
+    pack,
+    residuals,
+    rms,
+    scale_focal,
+    solver_options,
+)
 
 
 @dataclass(frozen=True)
@@ -72,7 +80,7 @@ class DistortionEstimate:
     focal_scale: float  # refined / starting focal length
     initial_rms_px: float
     final_rms_px: float
-    shift_px: float = 0.0  # its corner_shift_px, filled in by the pipeline
+    shift_px: float  # how far it moves the farthest image corner (pixels)
 
 
 @dataclass(frozen=True)
@@ -101,51 +109,38 @@ def estimate_radial_distortion(
     cameras: Sequence[Camera],
     obs: Observations,
     points: np.ndarray,
+    size: tuple[int, int],
     config: BundleAdjustmentConfig,
     fixed: Collection[int] = (0,),
 ) -> DistortionEstimate:
     """Refine every pose, point, one focal scale and ``(k1, k2)`` (shared by all
     cameras, starting at zero) against the observations; ``fixed`` cameras hold the
-    gauge."""
+    gauge. ``size`` (working resolution) sets the reported corner shift."""
     K = np.stack([c.K for c in cameras])
-    n_cams = len(cameras)
-    full = np.concatenate([pack(cameras, points, 1.0), [0.0, 0.0]])
-    free = np.ones(len(full), bool)
-    for v in fixed:
-        free[6 * v : 6 * v + 6] = False
+    full = np.concatenate([pack(cameras, points, 1.0), [0.0, 0.0]])  # ..., s, k1, k2
+    free = free_parameters(len(full), fixed)
 
     def with_free(x: np.ndarray) -> np.ndarray:
         p = full.copy()
         p[free] = x
         return p
 
-    def residuals(x: np.ndarray) -> np.ndarray:
+    def f(x: np.ndarray) -> np.ndarray:
         p = with_free(x)
-        cam, X, s = _unpack(p[:-2], n_cams, True)
-        X_cam = rotate(X[obs.point], cam[obs.view, :3]) + cam[obs.view, 3:]
-        xd = RadialDistortion(*p[-2:]).apply(X_cam[:, :2] / X_cam[:, 2:3])
-        Kv = K[obs.view]
-        return (np.einsum("kij,kj->ki", Kv[:, :2, :2], s * xd) + Kv[:, :2, 2] - obs.xy).ravel()
+        return residuals(p[:-2], K, obs, refine_focal=True,
+                         distortion=RadialDistortion(*p[-2:]).apply)  # fmt: skip
 
-    rows, cols, _ = _structure(obs.view, obs.point, n_cams, len(points), True)
+    # The bundle adjustment's pattern plus k1 and k2, on which every residual depends.
+    rows, cols, _ = jacobian_structure(obs.view, obs.point, len(cameras), len(points), True)
     m, n = 2 * len(obs.view), len(full)
     rows = np.concatenate([rows, np.arange(m), np.arange(m)])
     cols = np.concatenate([cols, np.full(m, n - 2), np.full(m, n - 1)])
     sparsity = coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(m, n)).tocsc()[:, free]
-
-    def rms(r: np.ndarray) -> float:
-        return float(np.sqrt(2 * np.mean(r**2))) if len(r) else 0.0
-
     x0 = full[free]
-    solution = least_squares(
-        residuals, x0, jac_sparsity=sparsity, loss=config.loss, f_scale=config.loss_scale_px,
-        max_nfev=config.max_iterations, ftol=config.function_tolerance, x_scale="jac",
-        method="trf",
-    )  # fmt: skip
-    p = with_free(solution.x)
+    solution = least_squares(f, x0, jac_sparsity=sparsity, **solver_options(config))
+    *_, s, k1, k2 = with_free(solution.x)
+    distortion = RadialDistortion(float(k1), float(k2))
     return DistortionEstimate(
-        RadialDistortion(float(p[-2]), float(p[-1])),
-        float(p[-3]),
-        rms(residuals(x0)),
-        rms(solution.fun),
-    )
+        distortion, float(s), rms(f(x0)), rms(solution.fun),
+        distortion.corner_shift_px(scale_focal(K[0], s), size),
+    )  # fmt: skip

@@ -17,13 +17,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from PIL import Image
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_middlebury_par  # noqa: E402
-from src.pointcloud.export import write_cameras_json  # noqa: E402
+from src.evaluation.ground_truth import load_middlebury_par, write_ground_truth  # noqa: E402
 
 URL = "https://vision.middlebury.edu/mview/data/data/{name}.zip"
 DATASETS = ("templeRing", "templeSparseRing", "dinoRing", "dinoSparseRing")
@@ -51,24 +48,11 @@ def main(name: str = "templeRing") -> int:
 
     par = next(target.glob("*_par.txt"))
     cameras = load_middlebury_par(par)
-    names = sorted(cameras)
-    sizes = []
-    for name in names:
-        with Image.open(target / name) as im:
-            sizes.append(im.size)
-    write_cameras_json(
-        target / GT_CAMERAS_FILE, [cameras[n] for n in names], names, sizes,
+    write_ground_truth(
+        target, cameras,
         frame="Middlebury ground truth (world -> camera: x_c = R X + t), original resolution",
+        header="Intrinsics from the Middlebury calibration (shared by all images).",
     )  # fmt: skip
-    K = cameras[names[0]].K
-    width, height = sizes[0]
-    (target / "camera.yaml").write_text(
-        "# Intrinsics from the Middlebury calibration (shared by all images).\n"
-        f"width: {width}\nheight: {height}\n"
-        f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
-        "dist: [0.0, 0.0, 0.0, 0.0, 0.0]\n",
-        encoding="utf-8",
-    )
     print(f"{len(cameras)} images with ground truth in {target}")
     return 0
 

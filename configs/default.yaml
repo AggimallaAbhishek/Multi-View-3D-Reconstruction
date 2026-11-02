@@ -121,8 +121,8 @@ bundle_adjustment:             # joint refinement of camera poses, points and th
   distortion_min_shift_px: 2.0 # global adjustment; if it moves an image corner more than this,
   distortion_passes: 2         # undistort the images and reconstruct again (at most this often);
   distortion_min_images: 5     # only from this many registered images (2 gave a spurious
-                               # distortion); a pass registering fewer images, or as many
-                               # with a higher mean reprojection error, is discarded
+                               # distortion); a pass is kept if it registers more images, or
+                               # as many without a higher mean reprojection error
   distortion_min_field_radius: 0.3  # and only over a wide enough view: the farthest image
                                # corner this far from the axis (normalised; ETH3D 0.88,
                                # templeRing 0.26, dino 0.12 — there k1, k2 fit noise)

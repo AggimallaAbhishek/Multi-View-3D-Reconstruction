@@ -45,6 +45,34 @@ def load_middlebury_par(path: str | Path) -> dict[str, Camera]:
 GT_CAMERAS_FILE = "gt_cameras.json"  # ground truth beside the images (cameras.json format)
 
 
+def write_ground_truth(
+    folder: str | Path, cameras: dict[str, Camera], frame: str, header: str
+) -> None:
+    """``gt_cameras.json`` (``cameras`` by image name, at the images' resolution) and
+    ``camera.yaml`` (the first camera's K, no distortion, with ``header`` as comments)
+    next to the images in ``folder``, as the dataset download scripts write them."""
+    from PIL import Image
+
+    from src.pointcloud.export import write_cameras_json
+
+    folder = Path(folder)
+    names = sorted(cameras)
+    sizes = []
+    for name in names:
+        with Image.open(folder / name) as im:
+            sizes.append(im.size)
+    write_cameras_json(folder / GT_CAMERAS_FILE, [cameras[n] for n in names], names, sizes,
+                       frame=frame)  # fmt: skip
+    K, (width, height) = cameras[names[0]].K, sizes[0]
+    (folder / "camera.yaml").write_text(
+        "".join(f"# {line}\n" for line in header.splitlines())
+        + f"width: {width}\nheight: {height}\n"
+        f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
+        "dist: [0.0, 0.0, 0.0, 0.0, 0.0]\n",
+        encoding="utf-8",
+    )
+
+
 def load_cameras_json(path: str | Path) -> dict[str, Camera]:
     """Ground-truth cameras by image name, from a ``cameras.json`` (the same format the
     pipeline exports; see ``src.pointcloud.export.write_cameras_json``)."""

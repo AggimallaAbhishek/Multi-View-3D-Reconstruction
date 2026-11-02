@@ -15,7 +15,7 @@ projection.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
 import cv2
@@ -65,9 +65,7 @@ def bundle_adjust(
     n_cams, n_points = len(cameras), len(points)
     K = np.stack([c.K for c in cameras])
     full = pack(cameras, points, 1.0 if refine_focal else None)
-    free = np.ones(len(full), bool)
-    for v in fixed:
-        free[6 * v : 6 * v + 6] = False
+    free = free_parameters(len(full), fixed)
 
     def with_free(x: np.ndarray) -> np.ndarray:
         p = full.copy()
@@ -77,18 +75,14 @@ def bundle_adjust(
     def f(x: np.ndarray) -> np.ndarray:
         return residuals(with_free(x), K, obs, refine_focal)
 
-    def rms(r: np.ndarray) -> float:
-        """RMS of the per-observation pixel distance (as in reprojection_errors)."""
-        return float(np.sqrt(2 * np.mean(r**2))) if len(r) else 0.0
-
     x0 = full[free]
     initial = rms(f(x0))
     solution = least_squares(
-        f, x0, jac=lambda x: jacobian(with_free(x), K, obs, refine_focal)[:, free],
-        loss=config.loss, f_scale=config.loss_scale_px,
-        max_nfev=config.max_iterations, ftol=config.function_tolerance,
-        x_scale="jac", method="trf",
-    )  # fmt: skip
+        f,
+        x0,
+        jac=lambda x: jacobian(with_free(x), K, obs, refine_focal)[:, free],
+        **solver_options(config),
+    )
 
     p = with_free(solution.x)
     s = float(p[-1]) if refine_focal else 1.0
@@ -109,6 +103,26 @@ def bundle_adjust(
     )
 
 
+def rms(r: np.ndarray) -> float:
+    """RMS of the per-observation pixel distance of residuals ``r`` (x, y interleaved), as
+    in reprojection_errors."""
+    return float(np.sqrt(2 * np.mean(r**2))) if len(r) else 0.0
+
+
+def free_parameters(n_params: int, fixed: Collection[int]) -> np.ndarray:
+    """Mask over a ``pack`` vector: every parameter but the ``fixed`` cameras' poses."""
+    free = np.ones(n_params, bool)
+    for v in fixed:
+        free[6 * v : 6 * v + 6] = False
+    return free
+
+
+def solver_options(config: BundleAdjustmentConfig) -> dict:
+    """The ``least_squares`` settings every bundle adjustment shares."""
+    return dict(loss=config.loss, f_scale=config.loss_scale_px, max_nfev=config.max_iterations,
+                ftol=config.function_tolerance, x_scale="jac", method="trf")  # fmt: skip
+
+
 def scale_focal(K: np.ndarray, s: float) -> np.ndarray:
     """``K @ diag(s, s, 1)`` (one K or a stack): focal lengths and skew scaled, principal
     point kept."""
@@ -116,14 +130,21 @@ def scale_focal(K: np.ndarray, s: float) -> np.ndarray:
 
 
 def residuals(
-    params: np.ndarray, K: np.ndarray, obs: Observations, refine_focal: bool = False
+    params: np.ndarray,
+    K: np.ndarray,
+    obs: Observations,
+    refine_focal: bool = False,
+    distortion: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> np.ndarray:
     """Reprojection residuals, x then y per observation (pixels), for ``params`` =
     ``[rvec, t]`` per camera, then ``X`` per point, then (``refine_focal``) the focal
-    scale; ``K`` (C, 3, 3) per camera."""
-    cam, X, s = _unpack(params, len(K), refine_focal)
+    scale; ``K`` (C, 3, 3) per camera; ``distortion`` maps normalised coordinates (N, 2)
+    to distorted ones before ``K`` (none: pinhole)."""
+    cam, X, s = unpack(params, len(K), refine_focal)
     X_cam = rotate(X[obs.point], cam[obs.view, :3]) + cam[obs.view, 3:]
     normalised = X_cam[:, :2] / X_cam[:, 2:3]
+    if distortion is not None:
+        normalised = distortion(normalised)
     Kv = K[obs.view]
     return (np.einsum("kij,kj->ki", Kv[:, :2, :2], s * normalised) + Kv[:, :2, 2] - obs.xy).ravel()
 
@@ -133,8 +154,8 @@ def jacobian(
 ) -> csc_matrix:
     """Exact ``d residuals / d params`` (sparse): each residual depends on its camera's 6
     parameters, its point's 3 and (``refine_focal``) the shared focal scale."""
-    n_points = len(_unpack(params, len(K), refine_focal)[1])
-    rows, cols, shape = _structure(obs.view, obs.point, len(K), n_points, refine_focal)
+    n_points = len(unpack(params, len(K), refine_focal)[1])
+    rows, cols, shape = jacobian_structure(obs.view, obs.point, len(K), n_points, refine_focal)
     values = _derivatives(params, K, obs, refine_focal)
     return coo_matrix((values, (rows, cols)), shape=shape).tocsc()
 
@@ -142,9 +163,9 @@ def jacobian(
 def _derivatives(
     params: np.ndarray, K: np.ndarray, obs: Observations, refine_focal: bool
 ) -> np.ndarray:
-    """The non-zeros of ``jacobian``, in ``_structure``'s order. Rotation derivatives come
+    """The non-zeros of ``jacobian``, in ``jacobian_structure``'s order. Rotation derivatives come
     from ``cv2.Rodrigues``."""
-    cam, X, s = _unpack(params, len(K), refine_focal)
+    cam, X, s = unpack(params, len(K), refine_focal)
     view, Xw = obs.view, X[obs.point]
     Kv = scale_focal(K, s)[view]
     rodrigues = [cv2.Rodrigues(rvec) for rvec in cam[:, :3]]
@@ -165,7 +186,7 @@ def _derivatives(
     return np.concatenate([values, d_focal])
 
 
-def _structure(view, point, n_cams: int, n_points: int, refine_focal: bool):
+def jacobian_structure(view, point, n_cams: int, n_points: int, refine_focal: bool):
     """Rows, columns and shape of ``jacobian``'s non-zeros: per residual row camera
     rotation (3), translation (3), point (3) — x row, then y row — then the focal-scale
     column for every row."""
@@ -184,14 +205,14 @@ def _structure(view, point, n_cams: int, n_points: int, refine_focal: bool):
 
 def pack(cameras: Sequence[Camera], points: np.ndarray, focal_scale: float | None = None):
     """Parameter vector of ``residuals``/``jacobian``: ``[rvec, t]`` per camera, then the
-    points, then the focal scale if given (the inverse of ``_unpack``)."""
+    points, then the focal scale if given (the inverse of ``unpack``)."""
     return np.concatenate(
         [np.concatenate([cv2.Rodrigues(c.R)[0].ravel(), c.t]) for c in cameras]
         + [np.asarray(points, float).ravel(), [] if focal_scale is None else [focal_scale]]
     )
 
 
-def _unpack(params: np.ndarray, n_cams: int, refine_focal: bool):
+def unpack(params: np.ndarray, n_cams: int, refine_focal: bool):
     """Camera parameters (C, 6), points (N, 3) and focal scale from ``params``."""
     end = len(params) - refine_focal
     cam = params[: 6 * n_cams].reshape(n_cams, 6)
