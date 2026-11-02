@@ -6,7 +6,7 @@ Both start from the same prepared images (our loading, resizing and undistortion
 the same intrinsics, and both refine the focal length (``--fix-intrinsics``: COLMAP's is
 held fixed). Camera errors are measured
 against ``gt_cameras.json`` after a similarity alignment. Writes ``comparison.json``,
-COLMAP's cloud (``colmap.ply``) and its model (text format) into a run directory.
+COLMAP's cloud (``colmap_external.ply``) and its model (text format) into a run directory.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from src.evaluation.ground_truth import (  # noqa: E402
 from src.evaluation.metrics import camera_pose_errors  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
 from src.pointcloud.export import write_ply  # noqa: E402
-from src.reconstruction.colmap_runner import run_colmap  # noqa: E402
+from src.reconstruction.colmap_runner import ColmapError, run_colmap  # noqa: E402
 from src.run import create_run_dir, write_json, write_run_metadata  # noqa: E402
 
 
@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     start = time.perf_counter()
     result = run_pipeline(args.images, config, until="filter")
     ours_s = time.perf_counter() - start
+    rec = result.reconstruction
+    if rec is None:
+        print("our pipeline found no initial pair")
+        return 1
     images = result.images
     truth = {im.name: at_working_resolution(gt[im.name], im.scale) for im in images}
     if any(not np.allclose(im.K, images[0].K) for im in images):
@@ -75,16 +79,17 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = create_run_dir(config.output.root, "colmap_baseline")
     write_run_metadata(run_dir, config)
     start = time.perf_counter()
-    colmap = run_colmap({im.name: im.image for im in images}, images[0].K, run_dir / "colmap",
-                        refine_intrinsics=not args.fix_intrinsics,
-                        max_features=config.features.max_features)  # fmt: skip
-    colmap_s = time.perf_counter() - start
-    write_ply(run_dir / "colmap.ply", colmap.points, colmap.colors / 255.0)
-
-    rec = result.reconstruction
-    if rec is None:
-        print("our pipeline found no initial pair")
+    try:
+        colmap = run_colmap(
+            {im.name: im.image for im in images}, images[0].K, run_dir / "colmap",
+            config.features.max_features, refine_intrinsics=not args.fix_intrinsics,
+        )  # fmt: skip
+    except ColmapError as exc:
+        print(f"COLMAP baseline not run: {exc}")
         return 1
+    colmap_s = time.perf_counter() - start
+    write_ply(run_dir / "colmap_external.ply", colmap.points, colmap.colors / 255.0)
+
     keep = result.filtering.keep
     ours_cams = {result.names[m]: rec.registry.camera(m) for m in rec.registry.images}
     colmap_label = "colmap (external)" + (", K fixed" if args.fix_intrinsics else "")

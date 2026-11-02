@@ -31,7 +31,7 @@ def fuse_depth_maps(
     """Back-project every view's depths and keep the points whose depth at least
     ``min_consistent_views`` of the views in ``checks[i]`` confirm within
     ``depth_tolerance`` (relative); colours from view ``i`` (BGR images)."""
-    parts = []
+    points, colors, views = [], [], []
     for i, depth in enumerate(depths):
         if depth is None:
             continue
@@ -45,26 +45,19 @@ def fuse_depth_maps(
                 agree += _confirms(X, cameras[k], depths[k], config.depth_tolerance)
         keep = agree >= config.min_consistent_views
         view = cam.centre - X[keep]
-        parts.append(DenseCloud(
-            X[keep], images[i][v[keep], u[keep]][:, ::-1].copy(),
-            view / np.linalg.norm(view, axis=1, keepdims=True),
-        ))  # fmt: skip
-    if not parts:
+        points.append(X[keep])
+        colors.append(images[i][v[keep], u[keep]][:, ::-1])  # BGR -> RGB
+        views.append(view / np.linalg.norm(view, axis=1, keepdims=True))
+    if not points:
         return DenseCloud(np.empty((0, 3)), np.empty((0, 3), np.uint8), np.empty((0, 3)))
-    cloud = DenseCloud(*(np.concatenate(a) for a in zip(
-        *((p.points, p.colors, p.views) for p in parts), strict=True)))  # fmt: skip
+    cloud = DenseCloud(np.concatenate(points), np.concatenate(colors), np.concatenate(views))
     return voxel_downsample(cloud, voxel_size) if voxel_size > 0 else cloud
 
 
 def _confirms(X: np.ndarray, cam: Camera, depth: np.ndarray, tolerance: float) -> np.ndarray:
     """Whether ``depth`` (view ``cam``'s map) agrees with the points' depths in that view."""
-    h, w = depth.shape
-    x, z = cam.project(X)
-    with np.errstate(invalid="ignore"):
-        u, v = np.round(x[:, 0]), np.round(x[:, 1])
-        inside = (z > 0) & (u >= 0) & (u < w) & (v >= 0) & (v < h)
-    found = np.full(len(X), np.nan)
-    found[inside] = depth[v[inside].astype(int), u[inside].astype(int)]
+    rows, cols, inside, z = cam.nearest_pixels(X, depth.shape)
+    found = np.where(inside, depth[rows, cols], np.nan)
     with np.errstate(invalid="ignore"):
         return np.abs(z - found) <= tolerance * found
 
@@ -72,9 +65,11 @@ def _confirms(X: np.ndarray, cam: Camera, depth: np.ndarray, tolerance: float) -
 def voxel_downsample(cloud: DenseCloud, size: float) -> DenseCloud:
     """One point per occupied voxel of edge ``size``: the mean position, colour and
     (renormalised) viewing direction of the points in it."""
-    _, cell, counts = np.unique(np.floor(cloud.points / size).astype(np.int64), axis=0,
-                                return_inverse=True, return_counts=True)  # fmt: skip
-    cell = cell.ravel()
+    ijk = np.floor(cloud.points / size).astype(np.int64)
+    ijk -= ijk.min(axis=0)
+    dims = ijk.max(axis=0) + 1
+    key = (ijk[:, 0] * dims[1] + ijk[:, 1]) * dims[2] + ijk[:, 2]  # 1-D: unique is far faster
+    _, cell, counts = np.unique(key, return_inverse=True, return_counts=True)
 
     def mean(a: np.ndarray) -> np.ndarray:
         sums = np.stack([np.bincount(cell, a[:, c]) for c in range(a.shape[1])], 1)

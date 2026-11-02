@@ -458,9 +458,10 @@ def _save_dense(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | Non
     d = r.dense
     if d is None:
         return None, 0
-    cfg, cloud = r.config.dense, d.cloud
+    cloud = d.cloud
     ply = write_ply(run_dir / "point_clouds" / "dense.ply", cloud.points, cloud.colors / 255.0)
-    names = [r.names[m] for m in d.images]
+    images = r.reconstruction.registry.images
+    names = [r.names[m] for m in images]
     summary = {
         "points": len(cloud.points),
         "voxel_size": d.voxel_size,
@@ -472,7 +473,7 @@ def _save_dense(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | Non
     print(f"Dense cloud: {len(cloud.points)} points from "
           f"{sum(j is not None for j in d.plan.partner)} depth maps -> {ply}")  # fmt: skip
     if len(cloud.points):
-        mesh = poisson_mesh(cloud, cfg.poisson_depth, cfg.mesh_density_quantile)
+        mesh = poisson_mesh(cloud, r.config.dense)
         mesh_path = write_mesh(run_dir / "meshes" / "reconstructed_mesh.ply", mesh)
         summary["mesh"] = {"vertices": len(mesh.vertices), "triangles": len(mesh.triangles)}
         print(f"Mesh (Open3D Poisson, external): {len(mesh.triangles)} triangles -> {mesh_path}")
@@ -480,8 +481,8 @@ def _save_dense(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | Non
     write_json(json_path, {**read_json(json_path), "dense": summary})
 
     rec = r.reconstruction
-    cameras = [rec.registry.camera(m) for m in d.images]
-    sizes = [(r.images[m].width, r.images[m].height) for m in d.images]
+    cameras = [rec.registry.camera(m) for m in images]
+    sizes = [(r.images[m].width, r.images[m].height) for m in images]
     try:
         render = render_scene(cloud.points, cloud.colors / 255.0, cameras, sizes,
                               run_dir / "figures" / "dense.png", focus="points")  # fmt: skip

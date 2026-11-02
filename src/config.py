@@ -175,13 +175,18 @@ class DenseConfig:
     min_consistent_views: int = 2
     depth_tolerance: float = 0.01
     voxel_fraction: float = 0.001
+    normal_neighbours: int = 30
     poisson_depth: int = 9
+    poisson_threads: int = 1
     mesh_density_quantile: float = 0.02
 
 
 @dataclass(frozen=True)
 class EvaluationConfig:
     completeness_tolerance: float = 0.01
+    silhouette_threshold: int = 15
+    silhouette_close_px: int = 7
+    silhouette_margin_px: int = 2
 
 
 @dataclass(frozen=True)

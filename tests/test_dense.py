@@ -172,3 +172,16 @@ def test_pair_depth_skips_textureless_pixels(scene):
     b[100:200, 250:400] = 0
     depth = pair_depth(a, cams[3], b, cams[4], _surface_points(scene), CONFIG)
     assert not np.isfinite(depth[105:195, 255:395]).any()
+
+
+def test_plan_views_do_not_check_a_depth_with_the_same_stereo_pair():
+    """A view whose depth map came from stereo with view i cannot confirm i's depths
+    independently (same pair, same matching errors): it is not among i's checks."""
+    K = intrinsics(500.0, *SIZE)
+    angles = np.deg2rad(np.arange(0, 40, 2.0))
+    cams = [Camera(K, *look_at(5 * np.array([np.sin(a), 0, -np.cos(a)]), np.zeros(3)))
+            for a in angles]  # fmt: skip
+    plan = plan_views(cams, np.zeros((1, 3)), DenseConfig(fusion_views=6))
+    for i, checks in enumerate(plan.checks):
+        assert len(checks) == 6
+        assert all(plan.partner[k] != i for k in checks)

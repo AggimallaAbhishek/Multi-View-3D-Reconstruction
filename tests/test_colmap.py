@@ -54,7 +54,6 @@ def test_read_text_model(model_dir):
     np.testing.assert_allclose(model.points, [[1, 2, 3], [-1, 0, 4]])
     np.testing.assert_array_equal(model.colors, [[255, 0, 10], [0, 128, 0]])
     np.testing.assert_allclose(model.errors, [0.5, 0.25])
-    np.testing.assert_array_equal(model.track_lengths, [2, 1])
 
 
 def test_intrinsics_from_colmap_rejects_unknown_models():
@@ -66,7 +65,7 @@ def test_intrinsics_from_colmap_rejects_unknown_models():
 def test_run_colmap_recovers_rendered_cameras(tmp_path):
     scene = render_box_scene(n_cameras=6, arc_deg=50.0)
     images = {view_name(k): im for k, im in enumerate(scene.images)}
-    model = run_colmap(images, scene.K, tmp_path / "colmap", refine_intrinsics=False)
+    model = run_colmap(images, scene.K, tmp_path / "colmap", 8000, refine_intrinsics=False)
     truth = scene_cameras(scene)
     assert sorted(model.cameras) == sorted(truth)
     names = sorted(truth)

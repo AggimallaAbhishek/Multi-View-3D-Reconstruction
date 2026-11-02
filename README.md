@@ -64,9 +64,9 @@ On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×4
 
 | ![dense cloud](docs/images/templeRing_dense.png) |
 |---|
-| Dense cloud from our cameras (`python -m src.cli dense`): 2.57 M points in 4.6 s, plus a Poisson mesh |
+| Dense cloud from our cameras (`python -m src.cli dense`): 2.52 M points in 1.5 s, plus a Poisson mesh |
 
-**Against COLMAP (external) on the same images and starting `K`:** on templeRing both register 47/47, our median rotation error is 0.15° vs COLMAP's 0.26° (0.19° with its focal length held fixed); on dinoRing we register 48/48, COLMAP 24/48 (its default SIFT finds a third of our features on the dark object).
+**Against COLMAP (external) on the same images and starting `K`:** on templeRing both register 47/47, our median rotation error is 0.15° vs COLMAP's 0.26° (0.19° with its focal length held fixed); on dinoRing we register 48/48, COLMAP 24/48 (its SIFT, with default thresholds, finds a third of our features on the dark object).
 
 Experiments (RQ1–RQ5, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error halves completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 4×; dense stereo gives 400× the points of the sparse cloud on the same cameras (RQ5).
 
@@ -333,7 +333,7 @@ python -m src.cli reconstruct data/raw/templeRing
 #   .../figures/filtered.png (close-up render of the cleaned cloud)
 
 # the same, then a depth map per image from stereo with a neighbouring view on the
-# recovered cameras, fused into a dense cloud and meshed (~5 s more on templeRing)
+# recovered cameras, fused into a dense cloud and meshed (~1.5 s more on templeRing, plus ~2 s for the mesh)
 python -m src.cli dense data/raw/templeRing
 #   .../point_clouds/dense.ply · meshes/reconstructed_mesh.ply (Open3D Poisson, external)
 #   .../reconstruction/reconstruction.json ("dense": points, partners, coverage)
@@ -373,7 +373,7 @@ brew install colmap                                       # system dependency, n
 python scripts/run_colmap_baseline.py data/raw/templeRing [--fix-intrinsics]
 ```
 
-Runs COLMAP's SIFT extraction, exhaustive matching and incremental mapper (CPU) on the images our pipeline prepared, with the same starting `K`, and compares both reconstructions with the ground-truth cameras (`comparison.json`, `colmap.ply`, COLMAP's model as text). Everything in that output labelled `colmap` is **external**. COLMAP's dense stereo (`patch_match_stereo`) needs CUDA and is not available on macOS builds; the dense stage is our own (§7.5). The tests skip the end-to-end COLMAP run when `colmap` is not on `PATH`.
+Runs COLMAP's SIFT extraction, exhaustive matching and incremental mapper (CPU) on the images our pipeline prepared, with the same starting `K`, and compares both reconstructions with the ground-truth cameras (`comparison.json`, `colmap_external.ply`, COLMAP's model as text). Everything in that output labelled `colmap` is **external**. COLMAP's dense stereo (`patch_match_stereo`) needs CUDA and is not available on macOS builds; the dense stage is our own (§7.5). The tests skip the end-to-end COLMAP run when `colmap` is not on `PATH`.
 
 ---
 
@@ -551,7 +551,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 
 **Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
 
-**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 6 k points into 2.6 M with fewer outliers (E6, RQ5).
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error halves completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 3× the points but 4× the pose error (RQ4); bundle adjustment cuts pose error 4× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 6 k points into 2.5 M with fewer outliers (E6, RQ5).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -593,7 +593,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~870 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
 5. Moving objects violate the static-scene assumption.
-6. Sparse clouds do not represent complete surfaces. The dense stage covers textured surfaces seen by a stereo partner (a median 26 % of each templeRing image has a depth: the object, not the black background); edges keep a thin halo of background points and some scatter remains (2 % of points fall outside a silhouette). Uniform regions get no depth, and the Poisson mesh closes holes by extrapolation.
+6. Sparse clouds do not represent complete surfaces. The dense stage covers textured surfaces seen by a stereo partner (a median 26 % of each templeRing image has a depth: the object, not the black background); edges keep a thin halo of background points and some scatter remains (1.9 % of points fall outside a silhouette). Uniform regions get no depth, and the Poisson mesh closes holes by extrapolation.
 7. No metric scale without an external reference; one measured distance sets it (on templeRing consistent with the full fit to < 1 %).
 8. Matching is exhaustive up to 50 images (sequential beyond); there is no loop closure or global SfM, so very long sequences may drift.
 9. Evaluated on one public dataset; results vary across datasets and camera setups.

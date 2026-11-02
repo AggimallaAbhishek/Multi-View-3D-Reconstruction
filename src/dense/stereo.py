@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from src.config import DenseConfig
+from src.data.preprocessing import to_gray
 from src.geometry.camera import Camera
 
 _NO_DISTORTION = np.zeros(5)
@@ -26,7 +27,8 @@ class ViewPlan:
 def plan_views(cameras: Sequence[Camera], points: np.ndarray, config: DenseConfig) -> ViewPlan:
     """Pair every view with the view whose angle to it (seen from the scene centre, the
     median sparse point) is nearest ``target_angle_deg`` within [min, max], and list its
-    ``fusion_views`` angularly nearest views for the consistency check."""
+    ``fusion_views`` angularly nearest views for the consistency check, leaving out views
+    that were paired with it."""
     centre = np.median(points, axis=0)
     rays = np.stack([c.centre - centre for c in cameras])
     rays /= np.linalg.norm(rays, axis=1, keepdims=True)
@@ -37,7 +39,10 @@ def plan_views(cameras: Sequence[Camera], points: np.ndarray, config: DenseConfi
         ok = np.flatnonzero((row >= config.min_angle_deg) & (row <= config.max_angle_deg))
         partner.append(int(ok[np.argmin(np.abs(row[ok] - config.target_angle_deg))])
                        if len(ok) else None)  # fmt: skip
-    checks = [np.argsort(row, kind="stable")[: config.fusion_views].tolist() for row in angle]
+    # A view whose depth map came from stereo with i shares i's matching errors: it
+    # cannot confirm i's depths independently.
+    checks = [[int(k) for k in np.argsort(row, kind="stable") if partner[k] != i and k != i]
+              [: config.fusion_views] for i, row in enumerate(angle)]  # fmt: skip
     return ViewPlan(partner, checks)
 
 
@@ -77,17 +82,17 @@ def pair_depth(
 
     def rectified(image, K, Rr, Pr):
         """Grey, rectified, transposed for a vertical baseline (SGBM matches along rows)."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
         mx, my = cv2.initUndistortRectifyMap(K, _NO_DISTORTION, Rr, Pr, (w, h), cv2.CV_32FC1)
-        out = cv2.remap(gray, mx, my, cv2.INTER_LINEAR)
+        out = cv2.remap(to_gray(image), mx, my, cv2.INTER_LINEAR)
         return np.ascontiguousarray(out.T) if axis else out
 
     a = rectified(image_i, cam_i.K, R1, P1)
     b = rectified(image_j, cam_j.K, R2, P2)
-    bs = config.block_size
+    block = config.block_size
     sgbm = cv2.StereoSGBM_create(
-        minDisparity=min_disp, numDisparities=n_disp, blockSize=bs,
-        P1=8 * bs * bs, P2=32 * bs * bs, disp12MaxDiff=config.disp12_max_diff,
+        minDisparity=min_disp, numDisparities=n_disp, blockSize=block,
+        P1=8 * block**2, P2=32 * block**2,  # OpenCV's recommended smoothness penalties
+        disp12MaxDiff=config.disp12_max_diff,
         uniquenessRatio=config.uniqueness_ratio, speckleWindowSize=config.speckle_window,
         speckleRange=config.speckle_range, mode=cv2.STEREO_SGBM_MODE_HH,
     )  # fmt: skip
@@ -97,14 +102,15 @@ def pair_depth(
 
     # Back to view i's pixels: rectified coordinates of every pixel, disparity there.
     u, v = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-    xr = cv2.undistortPoints(np.stack([u, v], -1).reshape(-1, 1, 2), cam_i.K, _NO_DISTORTION,
+    rect = cv2.undistortPoints(np.stack([u, v], -1).reshape(-1, 1, 2), cam_i.K, _NO_DISTORTION,
                              R=R1, P=P1).reshape(h, w, 2)  # fmt: skip
-    d_at = cv2.remap(disp.astype(np.float32), xr[..., 0], xr[..., 1], cv2.INTER_LINEAR,
+    disp_at = cv2.remap(disp.astype(np.float32), rect[..., 0], rect[..., 1], cv2.INTER_LINEAR,
                      borderMode=cv2.BORDER_CONSTANT, borderValue=np.nan)  # fmt: skip
     with np.errstate(divide="ignore", invalid="ignore"):
-        Z = -P2[axis, 3] / d_at  # depth in the rectified frame
+        Z = -P2[axis, 3] / disp_at  # depth in the rectified frame
     f, cx, cy = P1[0, 0], P1[0, 2], P1[1, 2]
-    depth = Z * (R1[0, 2] * (xr[..., 0] - cx) / f + R1[1, 2] * (xr[..., 1] - cy) / f + R1[2, 2])
+    x, y = (rect[..., 0] - cx) / f, (rect[..., 1] - cy) / f
+    depth = Z * (R1[0, 2] * x + R1[1, 2] * y + R1[2, 2])  # z of R1^T (Z [x, y, 1])
     textured = local_std(image_i, config.block_size) >= config.min_texture
     return np.where((depth > 0) & textured, depth, np.nan)
 
@@ -112,9 +118,9 @@ def pair_depth(
 def local_std(image: np.ndarray, window: int) -> np.ndarray:
     """Standard deviation of the grey levels in a ``window`` x ``window`` box per pixel:
     where it is low (uniform background, featureless surface) matches are unreliable."""
-    g = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image).astype(float)
-    mean = cv2.blur(g, (window, window))
-    return np.sqrt(np.maximum(cv2.blur(g * g, (window, window)) - mean**2, 0))
+    grey = to_gray(image).astype(float)
+    mean = cv2.blur(grey, (window, window))
+    return np.sqrt(np.maximum(cv2.blur(grey * grey, (window, window)) - mean**2, 0))
 
 
 def _project(P: np.ndarray, X: np.ndarray) -> np.ndarray:

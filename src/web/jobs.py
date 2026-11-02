@@ -31,7 +31,7 @@ from src.config import Config
 from src.data.loader import discover_images
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
-from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline, stages_until
+from src.pipeline import CORE_STAGES, STAGES, PipelineResult, Stage, run_pipeline
 from src.run import read_json, run_stamp, run_stamp_of
 from src.web.report import REPORT_NAME, build_report, write_report
 
@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 _children: set[multiprocessing.process.BaseProcess] = set()  # running reconstructions
 
 RUN_LABEL = "web_reconstruct"
-JOB_STAGES = ("dataset", *stages_until("filter"), "outputs")  # what a job reports, in order
+JOB_STAGES = ("dataset", *CORE_STAGES, "outputs")  # what a job reports, in order
 
 Status = Literal["queued", "running", "done", "failed"]
 # progress(stage, timings): ``stage`` starts now; ``timings`` holds the finished ones

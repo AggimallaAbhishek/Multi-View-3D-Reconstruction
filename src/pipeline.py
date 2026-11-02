@@ -53,6 +53,7 @@ from src.pointcloud.filtering import CloudFilterResult, filter_cloud
 from src.reconstruction.incremental import Reconstruction, reconstruct
 from src.reconstruction.tracks import Tracks, ViewGraph, build_tracks
 from src.reconstruction.two_view import TwoViewStructure, build_two_view_structure
+from src.run import parallel_map
 
 Stage = Literal[
     "features",
@@ -66,6 +67,7 @@ Stage = Literal[
     "dense",
 ]
 STAGES: tuple[Stage, ...] = get_args(Stage)
+CORE_STAGES: tuple[Stage, ...] = STAGES[: STAGES.index("filter") + 1]  # dense is optional
 
 
 def stages_until(stage: Stage) -> tuple[Stage, ...]:
@@ -216,8 +218,7 @@ def filter_scene(result: PipelineResult) -> PipelineResult:
 @dataclass(frozen=True, eq=False)
 class DenseResult:
     cloud: DenseCloud
-    plan: ViewPlan  # indices into ``images``
-    images: list[int]  # the registered images the depth maps belong to
+    plan: ViewPlan  # indices into ``reconstruction.registry.images``
     coverage: list[float | None]  # per image: fraction of pixels with a depth (None: no partner)
     voxel_size: float
 
@@ -235,13 +236,18 @@ def dense_scene(result: PipelineResult) -> PipelineResult:
     cameras = [rec.registry.camera(m) for m in images]
     pixels = [result.images[m].image for m in images]
     plan = plan_views(cameras, points, cfg)
-    depths = [None if j is None else
-              pair_depth(pixels[i], cameras[i], pixels[j], cameras[j], points, cfg)
-              for i, j in enumerate(plan.partner)]  # fmt: skip
+
+    def depth(i: int) -> np.ndarray | None:
+        j = plan.partner[i]
+        return None if j is None else pair_depth(
+            pixels[i], cameras[i], pixels[j], cameras[j], points, cfg)  # fmt: skip
+
+    # Independent per image; OpenCV releases the GIL, so threads run them in parallel.
+    depths = parallel_map(depth, range(len(images)), result.config.performance.workers)
     voxel = cfg.voxel_fraction * float(np.linalg.norm(np.ptp(points, axis=0)))
     cloud = fuse_depth_maps(depths, cameras, pixels, plan.checks, voxel, cfg)
     coverage = [None if d is None else float(np.isfinite(d).mean()) for d in depths]
-    result.dense = DenseResult(cloud, plan, list(images), coverage, voxel)
+    result.dense = DenseResult(cloud, plan, coverage, voxel)
     return result
 
 

@@ -115,15 +115,15 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 
 `python -m src.cli dense` runs everything up to `filter` and then, on the recovered cameras:
 
-1. **Stereo partner.** For every registered image, the view whose angle to it — seen from the scene centre, the median sparse point — is nearest 8° within [3°, 20°]. Its `fusion_views` (4) angularly nearest views check it later.
+1. **Stereo partner.** For every registered image, the view whose angle to it — seen from the scene centre, the median sparse point — is nearest 8° within [3°, 20°]. Its `fusion_views` (4) angularly nearest views check it later — except views whose own stereo partner it is: their depth maps come from the same pair and would repeat its matching errors.
 2. **Rectification** from the known relative pose, `R = R_j R_iᵀ`, `t = t_j − R t_i`, with `cv2.stereoRectify` (zero-disparity principal points, `alpha` 1 keeps every pixel). A mostly vertical baseline is matched on the transposed images.
 3. **Disparity search range** from the sparse points: project them into both rectified views, take the 1st–99th percentile of `d = x₁ − x₂` and widen by 16 px; either sign works, SGBM searches negative disparities too.
 4. **Matching:** `cv2.StereoSGBM` (**external**; 3 px block, uniqueness and speckle filters, left-right check).
 5. **Back to the image's own pixels.** Every original pixel is mapped into the rectified view (`cv2.undistortPoints` with `R₁`, `P₁`), its disparity sampled bilinearly (missing neighbours leave it empty), and converted to depth: `Z_rect = −P₂[axis, 3] / d`, then the camera's own `z` via `R₁ᵀ`. Pixels whose grey-level standard deviation in the block window is below 2 get no depth: uniform regions match anywhere.
 6. **Fusion.** Each depth is back-projected to a world point and projected into its check views; it survives if at least 2 of their depth maps agree within 1 % (relative) at that pixel. Survivors are averaged on a voxel grid of 0.1 % of the sparse cloud's extent (position, colour, viewing direction).
-7. **Mesh:** normals from 30 neighbours, flipped towards the cameras that saw each point, screened Poisson reconstruction (Open3D, **external**; octree depth 9), and the 2 % lowest-density vertices (extrapolated surface) removed. Open3D 0.20's multithreaded Poisson aborts on some clouds, so it runs single-threaded (~2 s).
+7. **Mesh:** normals from `normal_neighbours` (30), flipped towards the cameras that saw each point, screened Poisson reconstruction (Open3D, **external**; octree depth 9), and the 2 % lowest-density vertices (extrapolated surface) removed. Open3D 0.20's multithreaded Poisson aborted (libc++abi) on a finite, voxel-deduplicated cloud, so `poisson_threads` defaults to 1 (~2 s). The per-image stereo runs on `performance.workers` threads (OpenCV releases the GIL).
 
-Tested against rendered depth with exact cameras (`tests/test_dense.py`): median depth error < 0.3 %, > 80 % of true-surface pixels covered, for horizontal and vertical baselines and a partner on either side; fused points lie within 1 % of the scene size of the true surface. Choices measured on templeRing are in [experiments.md](experiments.md#e6--colmap-baseline-and-dense-reconstruction-rq5).
+Tested against rendered depth with exact cameras (`tests/test_dense.py`): median depth error < 0.3 %, > 80 % of true-surface pixels covered, for horizontal and vertical baselines and a partner on either side; fused points lie on the true surface (median distance < 0.005, 95th percentile < 0.03, for a box of side 2 on a 12 × 12 ground plane). Choices measured on templeRing are in [experiments.md](experiments.md#e6--colmap-baseline-and-dense-reconstruction-rq5).
 
 ## 11. Evaluation
 

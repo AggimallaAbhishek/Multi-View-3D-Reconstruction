@@ -17,6 +17,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from src.geometry.camera import Camera
 
@@ -37,7 +38,6 @@ class ColmapModel:
     points: np.ndarray  # (N, 3)
     colors: np.ndarray  # (N, 3) RGB uint8
     errors: np.ndarray  # (N,) mean reprojection error, px
-    track_lengths: np.ndarray  # (N,)
 
 
 def colmap_executable() -> str | None:
@@ -70,14 +70,15 @@ def read_text_model(directory: str | Path) -> ColmapModel:
         if not fields:
             continue
         qw, qx, qy, qz, *t = (float(v) for v in fields[1:8])
-        cameras[fields[9]] = Camera(intrinsics[fields[8]], _rotation(qw, qx, qy, qz), np.array(t))
+        cameras[fields[9]] = Camera(
+            intrinsics[fields[8]], Rotation.from_quat([qx, qy, qz, qw]).as_matrix(), np.array(t)
+        )
     rows = list(_rows(directory / "points3D.txt"))
     return ColmapModel(
         cameras,
         np.array([[float(v) for v in r[1:4]] for r in rows]).reshape(-1, 3),
         np.array([[int(v) for v in r[4:7]] for r in rows], np.uint8).reshape(-1, 3),
         np.array([float(r[7]) for r in rows]),
-        np.array([(len(r) - 8) // 2 for r in rows]),
     )
 
 
@@ -85,12 +86,15 @@ def run_colmap(
     images: Mapping[str, np.ndarray],
     K: np.ndarray,
     work_dir: str | Path,
+    max_features: int,
     refine_intrinsics: bool = True,
-    max_features: int = 8192,
 ) -> ColmapModel:
     """COLMAP SfM on ``images`` (name -> BGR) taken by one camera with intrinsics ``K``
-    (our convention); ``refine_intrinsics`` lets bundle adjustment refine the focal
-    length (COLMAP's default). Returns the model with the most registered images."""
+    (our convention), at most ``max_features`` SIFT features per image;
+    ``refine_intrinsics`` lets bundle adjustment refine the focal length (COLMAP's
+    default). Everything else is COLMAP's defaults except a PINHOLE camera (no
+    distortion parameters, like our pipeline). Returns the model with the most
+    registered images."""
     exe = colmap_executable()
     if exe is None:
         raise ColmapError("colmap is not on PATH (macOS: brew install colmap)")
@@ -136,14 +140,3 @@ def _rows(path: Path):
     for line in path.read_text().splitlines():
         if line.strip() and not line.startswith("#"):
             yield line.split()
-
-
-def _rotation(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
-    """Rotation matrix of a (normalised) Hamilton quaternion, as COLMAP stores them."""
-    q = np.array([qw, qx, qy, qz]) / np.linalg.norm([qw, qx, qy, qz])
-    w, x, y, z = q
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ])  # fmt: skip

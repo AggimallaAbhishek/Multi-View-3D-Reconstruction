@@ -147,19 +147,26 @@ dense:                         # dense stereo on the recovered cameras (python -
   depth_tolerance: 0.01        # (relative) at its projection
   voxel_fraction: 0.001        # fused cloud averaged on voxels of this fraction of the sparse
                                # cloud's extent (bbox diagonal)
+  normal_neighbours: 30        # mesh normals: estimated from this many neighbours
   poisson_depth: 9             # Poisson mesh (Open3D, external): octree depth, and the fraction
   mesh_density_quantile: 0.02  # of lowest-density (extrapolated) vertices removed
+  poisson_threads: 1           # Open3D 0.20's multithreaded Poisson (-1: all cores) aborted
+                               # (libc++abi) on a finite, voxel-deduplicated 600k-point cloud;
+                               # single-threaded: ~2 s at depth 9
 
 evaluation:                    # experiments against a reference cloud (src/evaluation)
   completeness_tolerance: 0.01 # a reference point is recovered if a reconstructed point lies
                                # within this fraction of the reference's extent (bbox diagonal)
+  silhouette_threshold: 15     # scripts/evaluate_dense.py, dark-background sets: object pixels
+  silhouette_close_px: 7       # are brighter than this grey level; the mask is closed with
+  silhouette_margin_px: 2      # this kernel and dilated by this margin (edges, pose errors)
 
 output:
   root: outputs
   cache_dir: outputs/cache     # features, matches and prepared images; null disables caching
 
 performance:
-  workers: 0                   # threads for geometric verification (RANSAC is single-threaded); 0 = all cores
+  workers: 0                   # threads for geometric verification and dense stereo; 0 = all cores
 
 web:                           # local web interface (python -m src.web); one job at a time
   host: 127.0.0.1              # localhost only: no authentication
