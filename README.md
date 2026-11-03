@@ -370,12 +370,12 @@ python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--p
 
 The server has two pages:
 
-- **`/`: the overview.** It shows a real templeRing reconstruction live: the point cloud and the ring of its 47 recovered cameras, which you can orbit, with a label on each camera giving its error against ground truth. Below that come how it was made (photos, features, matches, cameras, cloud, each with numbers measured on that run), the architecture with the external parts labelled, and results against ground truth and COLMAP. The data is committed under `src/web/static/showcase/`, made by `python scripts/make_showcase.py <run folder> data/raw/templeRing` from a finished web run.
+- **`/`: the overview.** Behind the title, the full Middlebury Temple (312 photos) as this project reconstructed it turns constantly inside an even ring of 36 of its cameras: 312/312 cameras, 24 121 points, 0.08° median rotation error against ground truth. Below that come how the temple is made (photos, features, matches, cameras, cloud, each with numbers measured on that run), the same model live to explore (with all 312 cameras on request), the architecture with the external parts labelled, and results against ground truth and COLMAP. The data is committed under `src/web/static/showcase/`, made by `python scripts/make_showcase.py <run folder> data/raw/temple --up-axis y` from a finished web run (`python scripts/download_middlebury.py temple` fetches the photos).
 - **`/app.html`: the workstation.** Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The pipeline column on the right ticks through the stages live, then shows what each stage produced (features per photo, matches, verified pairs and inliers, registered cameras, points kept; cached stages marked). The 3-D view (three.js, external) has orbit and pan, fit to the object or to every camera, auto-orbit, perspective or orthographic projection, layers and a label on each camera. Tabs show the camera poses against ground truth (sortable, worst camera highlighted), the matching figures and the statistics. **Replay** plays the run back with the cameras appearing in registration order. A console logs every stage. Exports are `filtered.ply`, `cameras.json` and `report.json`.
 
-Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with twelve thumbnails of its photos, so earlier results are listed again after a restart; **Delete this run** removes one. The uploaded photos are deleted once their run has ended.
+Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with twelve thumbnails of its photos, so earlier results are listed again after a restart; **Delete this run** removes one. The workstation opens empty; the run on screen survives a page reload (and a server restart) until it is cleared or deleted. The uploaded photos are deleted once their run has ended.
 
-![overview page: the templeRing reconstruction live](docs/images/web_intro.jpg)
+![overview page: the reconstructed temple turning behind the title](docs/images/web_intro.jpg)
 
 ![workstation on templeRing](docs/images/web_ui.png)
 
@@ -588,7 +588,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-489 tests run in ~2.5 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+494 tests run in ~2.7 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 

@@ -75,7 +75,7 @@ flowchart LR
 
 Reconstructions run in a spawned child process because Open3D's offscreen renderer aborts outside the main thread, and a native crash must end one job rather than the server. A failed job keeps the outputs of the stages it finished. Finished runs are found again from their `report.json`: the job list lives in memory, the results in the run folders.
 
-The overview page (`/`) reads only committed files, `static/showcase/` (`src/web/showcase.py`, written by `scripts/make_showcase.py` from a finished run): the filtered cloud, the cameras, the report and five frames whose numbers are measured on the photos they show. It works offline except for the fonts and three.js. The workstation (`/app.html`) is the only page that talks to the API; both share `tokens.css` (colours, type, controls), `viewer.js` and `ui.js`.
+The overview page (`/`) reads only committed files, `static/showcase/` (`src/web/showcase.py`, written by `scripts/make_showcase.py` from a finished run): the filtered cloud, all cameras and an even display ring of them (`display_ring`), the report, the scene's true "up" measured against ground truth (`ground_truth_up`), and five frames whose numbers are measured on the photos they show. It works offline except for the fonts and three.js. The workstation (`/app.html`) is the only page that talks to the API; both share `tokens.css` (colours, type, controls), `viewer.js` and `ui.js`.
 
 ## Coordinate frames
 
