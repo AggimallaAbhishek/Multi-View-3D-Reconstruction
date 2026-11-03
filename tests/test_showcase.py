@@ -210,3 +210,38 @@ def test_a_known_up_picks_a_level_ring():
     ring = display_ring(cameras, points=np.zeros((10, 3)), up=np.array([0.0, 0.0, 1.0]))
     heights = np.degrees(np.arcsin([c["centre"][2] for c in ring]))
     assert np.ptp(heights) <= 14.0 + 1e-9  # one band of RING_BAND_DEG about the true axis
+
+
+def test_photos_without_a_verified_pair_are_a_clear_error(run, tmp_path, monkeypatch):
+    """The matches frame needs one verified pair; without one, say so (it was ``max() arg is
+    an empty sequence``) before writing anything."""
+    import dataclasses
+
+    import src.web.showcase as showcase
+
+    run_dir, images, config = run
+    real = showcase.run_pipeline
+
+    def nothing_verified(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.verification_stats = [
+            dataclasses.replace(s, success=False) for s in result.verification_stats
+        ]
+        return result
+
+    monkeypatch.setattr(showcase, "run_pipeline", nothing_verified)
+    with pytest.raises(ValueError, match="no verified pair"):
+        make_showcase(run_dir, images, tmp_path / "s", config)
+    assert not (tmp_path / "s" / "showcase.json").exists()
+
+
+def test_script_reports_the_error_and_exits_1(run, tmp_path, monkeypatch, capsys):
+    import scripts.make_showcase as script
+
+    def fails(*args, **kwargs):
+        raise ValueError("no verified pair of photos")
+
+    monkeypatch.setattr(script, "make_showcase", fails)
+    run_dir, images, _ = run
+    assert script.main([str(run_dir), str(images), "--out", str(tmp_path / "s")]) == 1
+    assert "no verified pair" in capsys.readouterr().err

@@ -67,11 +67,11 @@ def read_text_model(directory: str | Path) -> ColmapModel:
     lines = [line for line in (directory / "images.txt").read_text().splitlines()
              if not line.startswith("#")]  # fmt: skip
     for header in lines[0::2]:  # every image has a header line and a 2-D points line
-        fields = header.split()
+        fields = header.split(maxsplit=9)  # NAME, the last field, may hold spaces
         if not fields:
             continue
         qw, qx, qy, qz, *t = (float(v) for v in fields[1:8])
-        cameras[fields[9]] = Camera(
+        cameras[fields[9].strip()] = Camera(
             intrinsics[fields[8]], Rotation.from_quat([qx, qy, qz, qw]).as_matrix(), np.array(t)
         )
     rows = list(_rows(directory / "points3D.txt"))
@@ -124,22 +124,31 @@ def run_colmap(
          "--output_path", sparse, "--Mapper.ba_refine_focal_length", refine,
          "--Mapper.ba_refine_extra_params", str(int(distortion))],
     ]  # fmt: skip
-    with (work / "colmap.log").open("w") as log:
+    log_path = work / "colmap.log"
+    with log_path.open("w") as log:
         for step in steps:
-            done = subprocess.run([exe, *map(str, step)], stdout=log, stderr=subprocess.STDOUT)
-            if done.returncode:
-                raise ColmapError(f"colmap {step[0]} failed (see {work / 'colmap.log'})")
+            _run(exe, step, log, log_path)
         models = []
         for model_dir in sorted(p for p in sparse.iterdir() if p.is_dir()):
             text = work / "text" / model_dir.name
             text.mkdir(parents=True, exist_ok=True)
-            subprocess.run([exe, "model_converter", "--input_path", str(model_dir),
-                            "--output_path", str(text), "--output_type", "TXT"],
-                           stdout=log, stderr=subprocess.STDOUT, check=True)  # fmt: skip
+            _run(exe, ["model_converter", "--input_path", model_dir,
+                       "--output_path", text, "--output_type", "TXT"], log, log_path)  # fmt: skip
             models.append(read_text_model(text))
     if not models:
-        raise ColmapError(f"colmap reconstructed nothing (see {work / 'colmap.log'})")
+        raise ColmapError(f"colmap reconstructed nothing (see {log_path})")
     return max(models, key=lambda m: len(m.cameras))
+
+
+def _run(exe: str, step: Sequence[object], log, log_path: Path) -> None:
+    """One COLMAP step, its output to ``log`` (the file ``log_path``); any failure is a
+    ``ColmapError``."""
+    try:
+        done = subprocess.run([exe, *map(str, step)], stdout=log, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        raise ColmapError(f"could not run {exe}: {exc}") from exc
+    if done.returncode:
+        raise ColmapError(f"colmap {step[0]} failed (see {log_path})")
 
 
 def _rows(path: Path):

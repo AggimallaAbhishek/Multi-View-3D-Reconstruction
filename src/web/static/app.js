@@ -479,9 +479,11 @@ async function showFailure(job) {
   show("failed");
   $("restart-run").hidden = false;
   renderPipeline(job);
-  const stage = STAGE_LABELS[job.stage] ?? job.stage;
-  setStatus(`Failed: ${stage}`, job.error || "unknown error");
-  log(`${stage} failed: ${job.error || "unknown error"}`, "bad");
+  // no stage: a run whose report could not be read, or that never finished
+  const stage = job.stage ? STAGE_LABELS[job.stage] ?? job.stage : null;
+  const error = job.error || "unknown error";
+  setStatus(stage ? `Failed: ${stage}` : "Failed", error);
+  log(stage ? `${stage} failed: ${error}` : `Failed: ${error}`, "bad");
   refreshPreviousRuns(job.id);
   let files = [];
   try { files = await api(jobUrl(job.id, "/files")); } catch { /* nothing written */ }

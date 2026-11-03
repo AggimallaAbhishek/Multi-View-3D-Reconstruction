@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -308,7 +309,6 @@ def test_previous_runs_are_rediscovered(tmp_path):
     (suffixed / "report.json").write_text("{}")
     for name in (
         "20261030-010000_reconstruct",  # a CLI run
-        "20261030-020000_web_reconstruct",  # no report
         "20261030-030000_web_reconstruct_copy",  # not a run folder name
     ):
         (tmp_path / "outputs" / name).mkdir()
@@ -387,6 +387,69 @@ def test_only_web_run_folders_inside_the_output_root_are_deleted(tmp_path):
     client = client_for(manager, output={"root": str(tmp_path / "outputs")})
     assert client.delete("/api/jobs/j").status_code == 409
     assert elsewhere.exists()
+
+
+def test_failed_run_of_an_earlier_server_is_listed_and_can_be_deleted(tmp_path):
+    run_dir = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    run_dir.mkdir(parents=True)
+    failure = {
+        "error": "too few matches",
+        "stage": "pose",
+        "stages_done": ["dataset"],
+        "timings": {"dataset": 1.0},
+    }
+    (run_dir / "failure.json").write_text(json.dumps(failure))
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    [listed] = client.get("/api/jobs").json()
+    assert (listed["id"], listed["status"]) == (run_dir.name, "failed")
+    assert (listed["stage"], listed["error"]) == ("pose", "too few matches")
+    assert listed["stages_done"] == ["dataset"]
+    assert client.get(f"/api/jobs/{run_dir.name}/report").status_code == 409
+    assert client.delete(f"/api/jobs/{run_dir.name}").status_code == 204
+    assert not run_dir.exists()
+
+
+@pytest.mark.parametrize("bad", ["{not json", "[1, 2]", '{"timings": 3}'])
+def test_unreadable_report_lists_the_run_as_failed_instead_of_breaking_the_list(tmp_path, bad):
+    good = web_run(tmp_path, "20261031-110000_web_reconstruct")
+    broken = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    broken.mkdir()
+    (broken / "report.json").write_text(bad)
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    response = client.get("/api/jobs")
+    assert response.status_code == 200
+    jobs = {j["id"]: j for j in response.json()}
+    assert jobs[good.name]["status"] == "done"
+    assert jobs[broken.name]["status"] == "failed"
+    assert "report.json" in jobs[broken.name]["error"]
+    assert client.delete(f"/api/jobs/{broken.name}").status_code == 204  # can be cleared
+
+
+def test_run_folder_that_never_finished_is_listed_as_failed_and_can_be_deleted(tmp_path):
+    """A worker that crashed, or a failure.json that could not be written, leaves a folder
+    with neither file: it must not be stuck on disk, invisible to the page."""
+    run_dir = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    (run_dir / "thumbnails").mkdir(parents=True)
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    [listed] = client.get("/api/jobs").json()
+    assert (listed["id"], listed["status"]) == (run_dir.name, "failed")
+    assert "did not finish" in listed["error"]
+    assert client.delete(f"/api/jobs/{run_dir.name}").status_code == 204
+    assert not run_dir.exists()
+
+
+def test_the_running_jobs_own_folder_is_not_listed_as_failed(tmp_path):
+    """While a job writes its outputs, its folder has no report.json yet."""
+    running = Job(id="live", status="running", started="20261031-120000")
+    writing = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    writing.mkdir(parents=True)
+    manager = FakeManager()
+    manager.jobs["live"], manager.running = running, running
+    client = client_for(manager, output={"root": str(tmp_path / "outputs")})
+    assert [j["id"] for j in client.get("/api/jobs").json()] == ["live"]
+    (writing / "report.json").write_text('{"timings": {}}')  # it finished meanwhile
+    manager.running = None
+    assert client.get(f"/api/jobs/{writing.name}").json()["status"] == "done"  # not cached
 
 
 def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):

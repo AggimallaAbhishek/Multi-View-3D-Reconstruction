@@ -201,14 +201,41 @@ def test_pipeline_with_learned_config_recovers_true_poses(tmp_path):
 def test_match_cache_key_changes_with_the_lightglue_version(tmp_path, monkeypatch):
     """LightGlue's weights ship with kornia: a kornia upgrade may change matches of
     unchanged descriptors, so it must not reuse cached LightGlue matches."""
+    from src.features import learned as learned_module
+    from src.features.matcher import DescriptorMatcher
+
+    cfg = MatchConfig(method="lightglue")
+    before = LightGlueMatcher(cfg, [(64, 48)], device="cpu").cache_tag
+    monkeypatch.setattr(learned_module, "_learned_version", lambda: "kornia-0.0.0")
+    assert LightGlueMatcher(cfg, [(64, 48)], device="cpu").cache_tag != before
+    # The classical matchers do not depend on kornia at all.
+    assert DescriptorMatcher(MatchConfig()).cache_tag == ""
+
+
+def test_match_cache_digest_covers_keypoint_positions():
+    """LightGlue matches on keypoint positions too: same descriptors at other positions (a
+    new max_side, another detector setting) must not reuse cached matches."""
+    import dataclasses
+
+    from src.features.extractor import Features
+    from src.features.matcher import MatchCache
+
+    rng = np.random.default_rng(0)
+    points = rng.uniform(0, 100, (5, 2))
+    ones = np.ones(5)
+    descriptors = rng.standard_normal((5, 128)).astype(np.float32)
+    features = Features(points, descriptors, ones, ones, ones, "disk")
+    moved = dataclasses.replace(features, points=points + 1.0)
+    assert MatchCache.digest(moved) != MatchCache.digest(features)
+
+
+def test_match_cache_key_changes_with_the_lightglue_device(tmp_path):
+    """GPU kernels can reorder near-equal scores, as for the DISK feature cache."""
     from src.features import matcher as matcher_module
 
     cache = matcher_module.MatchCache(tmp_path)
     cfg = MatchConfig(method="lightglue")
-    before = cache.path_for("a", "b", cfg)
-    monkeypatch.setattr(matcher_module, "_learned_version", lambda: "kornia-0.0.0")
-    assert cache.path_for("a", "b", cfg) != before
-    # The classical matchers do not depend on kornia at all.
-    assert cache.path_for("a", "b", MatchConfig()) == matcher_module.MatchCache(tmp_path).path_for(
-        "a", "b", MatchConfig()
-    )
+    assert cache.path_for("a", "b", cfg, "cpu") != cache.path_for("a", "b", cfg, "mps")
+    matcher = LightGlueMatcher(cfg, [(64, 48)], device="cpu")
+    assert matcher.cache_tag.endswith("|cpu")
+    assert matcher_module.DescriptorMatcher(MatchConfig()).cache_tag == ""  # CPU only

@@ -71,6 +71,7 @@ class Matcher(Protocol):
     """What ``match_pairs`` needs: ``DescriptorMatcher`` or the learned ``LightGlueMatcher``."""
 
     config: MatchConfig
+    cache_tag: str  # what else changes its matches, for the match cache key ("": nothing)
 
     def match(
         self, features_i: Features, features_j: Features, i: int = 0, j: int = 1
@@ -85,6 +86,8 @@ class DescriptorMatcher:
     With ``method: flann`` (SIFT only) each image's k-d tree is built once, seeded,
     and reused for every pair the image takes part in.
     """
+
+    cache_tag = ""  # its matches depend on the descriptors and settings only
 
     def __init__(self, config: MatchConfig):
         self.config = config
@@ -195,22 +198,9 @@ class DescriptorMatcher:
         return idx, dist
 
 
-def _learned_version() -> str:
-    """kornia's and torch's versions, read without importing them: LightGlue's weights ship
-    with kornia and run on torch, so either can change its matches."""
-    from importlib.metadata import PackageNotFoundError, version
-
-    def get(package: str) -> str:
-        try:
-            return version(package)
-        except PackageNotFoundError:
-            return "none"
-
-    return f"kornia-{get('kornia')}-torch-{get('torch')}"
-
-
 class MatchCache:
-    """Matches on disk, keyed by both images' descriptors and the matching settings.
+    """Matches on disk, keyed by both images' keypoints and descriptors and the matching
+    settings (for LightGlue also its versions and the torch device).
 
     Lets a later command (``verify`` after ``matches``, or a rerun) skip matching; any
     change to features or matching settings gives new keys.
@@ -223,15 +213,16 @@ class MatchCache:
     def digest(features: Features) -> str:
         h = hashlib.sha1(f"{features.detector}{features.descriptors.shape}".encode())
         h.update(np.ascontiguousarray(features.descriptors).data)
+        # LightGlue matches on keypoint positions as well as descriptors
+        h.update(np.ascontiguousarray(features.points, dtype=np.float64).data)
         return h.hexdigest()
 
-    def path_for(self, digest_i: str, digest_j: str, config: MatchConfig) -> Path:
+    def path_for(self, digest_i: str, digest_j: str, config: MatchConfig, tag: str = "") -> Path:
+        """``tag``: the matcher's ``cache_tag``, e.g. LightGlue's torch device."""
         settings = {
             k: v for k, v in dataclasses.asdict(config).items() if k not in PAIR_SELECTION_FIELDS
         }
-        settings = f"{sorted(settings.items())}|cv{cv2.__version__}"
-        if config.method == "lightglue":  # its weights ship with kornia
-            settings += f"|{_learned_version()}"
+        settings = f"{sorted(settings.items())}|cv{cv2.__version__}|{tag}"
         key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
         return self.directory / f"{key[:24]}.npz"
 
@@ -293,7 +284,7 @@ def match_pairs(
         i, j = pair
         if cache is not None:
             start = time.perf_counter()
-            path = cache.path_for(digests[i], digests[j], matcher.config)
+            path = cache.path_for(digests[i], digests[j], matcher.config, matcher.cache_tag)
             entry = cache.load(path, i, j) if path.exists() else None
             if entry is not None:
                 m, raw, after_ratio = entry
