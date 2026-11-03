@@ -17,6 +17,7 @@ centres to ours. Source: https://www.eth3d.net/datasets (Schöps et al., CVPR 20
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 import tempfile
@@ -94,6 +95,15 @@ def main(scene: str = "pipes", distorted: bool = False) -> int:
     return 0
 
 
+def cli(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("scene", nargs="?", default="pipes", choices=sorted(SCENES))
+    parser.add_argument(
+        "--distorted", action="store_true", help="the original JPGs, with their lens distortion"
+    )
+    args = parser.parse_args(argv)
+    return main(args.scene, distorted=args.distorted)
+
+
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--distorted"]
-    sys.exit(main(*args[:1], distorted="--distorted" in sys.argv[1:]))
+    sys.exit(cli())

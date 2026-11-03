@@ -624,3 +624,15 @@ def test_main_exits_quietly_on_ctrl_c(monkeypatch, tmp_path):
     config = tmp_path / "web.yaml"
     config.write_text("web:\n  open_browser: false\n")
     entry.main(["--config", str(config)])  # returns instead of raising
+
+
+@pytest.mark.parametrize("page", ["index.html", "app.html"])
+def test_every_third_party_resource_is_labelled_external(page):
+    """CLAUDE.md: anything provided by an external tool is labelled as external, so every
+    host the page loads from is named in an <!-- External: ... --> comment."""
+    import re
+
+    html = (Path(__file__).parent.parent / "src" / "web" / "static" / page).read_text()
+    used = set(re.findall(r'(?:href|src)?"https://([^/"]+)', html.split("</head>")[0]))
+    labelled = " ".join(re.findall(r"<!-- External:(.*?)-->", html, re.S))
+    assert used and {host for host in used if host not in labelled} == set()

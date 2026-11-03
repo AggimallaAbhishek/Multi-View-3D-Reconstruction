@@ -9,23 +9,31 @@ observations reproject beyond the threshold (one bad keypoint, or a wrongly merg
 from __future__ import annotations
 
 import argparse
+import sys
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
 
-from src.config import load_config
-from src.geometry.triangulation import Observations, triangulate_and_filter
-from src.pipeline import run_pipeline
-from src.reconstruction.landmarks import keypoint_pixels
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))  # runnable from any folder, like the other scripts
+
+from src.config import load_config  # noqa: E402
+from src.geometry.triangulation import Observations, triangulate_and_filter  # noqa: E402
+from src.pipeline import run_pipeline  # noqa: E402
+from src.reconstruction.landmarks import keypoint_pixels  # noqa: E402
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("images", type=Path)
-    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--config", type=Path, help="YAML config (default: configs/default.yaml)")
     parser.add_argument("--min-views", type=int, default=3)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
 
     config = load_config(args.config)
     result = run_pipeline(args.images, config, until="reconstruct")

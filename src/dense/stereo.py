@@ -91,7 +91,7 @@ def pair_depth(
     block = config.block_size
     sgbm = cv2.StereoSGBM_create(
         minDisparity=min_disp, numDisparities=n_disp, blockSize=block,
-        P1=8 * block**2, P2=32 * block**2,  # OpenCV's recommended smoothness penalties
+        P1=config.sgbm_p1_factor * block**2, P2=config.sgbm_p2_factor * block**2,
         disp12MaxDiff=config.disp12_max_diff,
         uniquenessRatio=config.uniqueness_ratio, speckleWindowSize=config.speckle_window,
         speckleRange=config.speckle_range, mode=cv2.STEREO_SGBM_MODE_HH,

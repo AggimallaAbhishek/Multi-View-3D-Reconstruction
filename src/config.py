@@ -174,6 +174,8 @@ class DenseConfig:
     disparity_margin_px: int = 16
     max_disparities: int = 384
     block_size: int = 3
+    sgbm_p1_factor: int = 8
+    sgbm_p2_factor: int = 32
     uniqueness_ratio: int = 10
     speckle_window: int = 100
     speckle_range: int = 2
@@ -350,6 +352,11 @@ def _check_ranges(config: Config, source: str) -> None:
         raise ConfigError(
             f"{source}: dataset.max_images ({dataset.max_images}) must be >= "
             f"dataset.min_images ({dataset.min_images})"
+        )
+    if config.dense.sgbm_p2_factor <= config.dense.sgbm_p1_factor:  # OpenCV requires P2 > P1
+        raise ConfigError(
+            f"{source}: dense.sgbm_p2_factor ({config.dense.sgbm_p2_factor}) must be > "
+            f"dense.sgbm_p1_factor ({config.dense.sgbm_p1_factor})"
         )
     if config.dense.block_size % 2 == 0:
         raise ConfigError(f"{source}: dense.block_size must be odd (got {config.dense.block_size})")

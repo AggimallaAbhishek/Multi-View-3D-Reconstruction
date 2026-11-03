@@ -183,6 +183,11 @@ def test_every_shipped_config_is_in_range():
     assert load_config().with_overrides({"dense.poisson_threads": -1}).dense.poisson_threads == -1
 
 
+def test_sgbm_p2_must_exceed_p1():
+    with pytest.raises(ConfigError, match=r"dense\.sgbm_p2_factor"):
+        load_config().with_overrides({"dense.sgbm_p1_factor": 32, "dense.sgbm_p2_factor": 32})
+
+
 def test_max_images_below_min_images_is_rejected():
     with pytest.raises(ConfigError, match=r"dataset\.max_images"):
         load_config().with_overrides({"dataset.min_images": 3, "dataset.max_images": 2})
