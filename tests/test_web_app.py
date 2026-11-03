@@ -633,6 +633,12 @@ def test_every_third_party_resource_is_labelled_external(page):
     import re
 
     html = (Path(__file__).parent.parent / "src" / "web" / "static" / page).read_text()
-    used = set(re.findall(r'(?:href|src)?"https://([^/"]+)', html.split("</head>")[0]))
-    labelled = " ".join(re.findall(r"<!-- External:(.*?)-->", html, re.S))
-    assert used and {host for host in used if host not in labelled} == set()
+    host = r"""(?:https?:)?//([^/"'\s)]+)"""
+    tags = "link|script|img|iframe|source|video|audio"  # elements that load what they name
+    loading = rf"""<(?:{tags})\b[^>]*?\b(?:href|src)=["']{host}"""
+    importmap = "".join(re.findall(r'<script type="importmap">(.*?)</script>', html, re.S))
+    used = set(re.findall(loading, html)) | set(re.findall(rf'"{host}', importmap))
+    used |= set(re.findall(rf"""url\(["']?{host}""", html))  # inline CSS
+    comments = " ".join(re.findall(r"<!-- External:(.*?)-->", html, re.S))
+    labelled = set(re.findall(r"[\w.-]+\.[a-z]{2,}", comments))
+    assert used and used - labelled == set()

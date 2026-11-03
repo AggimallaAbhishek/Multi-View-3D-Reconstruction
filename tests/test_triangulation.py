@@ -225,4 +225,6 @@ def test_refine_points_takes_its_iterations_from_the_caller():
 
     from src.geometry.triangulation import refine_points
 
-    assert inspect.signature(refine_points).parameters["iterations"].default is inspect._empty
+    assert (
+        inspect.signature(refine_points).parameters["iterations"].default is inspect.Parameter.empty
+    )

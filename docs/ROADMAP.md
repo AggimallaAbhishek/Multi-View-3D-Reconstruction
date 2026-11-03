@@ -393,7 +393,7 @@ Every figure/table in the report regenerates from committed configs with one com
 >   - one home for reconstruction statistics: `Reconstruction.reprojection_errors`, `Reconstruction.unregistered`, `Landmarks.track_lengths` (used by the CLI, experiments and the evaluation script);
 >   - `reconstruct` writes the multi-view cloud under the spec's names (`point_clouds/sparse.ply`, `filtered.ply`, `camera_poses/cameras.json`) and no longer the two-view files (`save_cloud`'s `cameras_name` removed);
 >   - experiments record raw and final matches per pair, save each run's `reprojection_errors.npy`, and reports draw `reprojection.png` per experiment; translation direction stays a pairwise metric (`evaluate_against_ground_truth.py`), multi-view uses rotation + centre error (README §12);
->   - `bundle_adjustment.refine_structure` switches structure refinement independently of bundle adjustment; E5 is now a 2×2 grid — BA does the work (4× pose error, completeness 0.38 → 0.92 at the old SIFT threshold; now 5.5× and 0.90 → 0.94, experiments.md), refinement removes every observation beyond 2 px and trims pose errors ~12 %. E1–E4 reproduce identically.
+>   - `bundle_adjustment.refine_structure` switches structure refinement independently of bundle adjustment; E5 is now a 2×2 grid — BA does the work (4× pose error, completeness 0.38 → 0.92 at the old SIFT threshold; now 5.5× and 0.90 → 0.94, experiments.md), refinement removes every observation beyond 2 px and trims pose errors ~12 % (~10 % now). E1–E4 reproduce identically.
 > Still open, judgement calls: colours are uint8 on `Landmarks` but float in `[0, 1]` elsewhere; the reconstruction functions pass the same five arguments around (a state object would bundle them).
 
 ### Tasks

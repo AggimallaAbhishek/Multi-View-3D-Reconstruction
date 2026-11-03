@@ -166,6 +166,7 @@ def test_learned_config_file_selects_disk_and_lightglue():
         ("matching.ratio", float("nan")),  # NaN compares False with every bound
         ("verification.confidence", float("nan")),
         ("camera.focal_scale", float("inf")),
+        ("dense.sgbm_p1_factor", 0),
     ],
 )
 def test_out_of_range_values_name_their_key(key, value):

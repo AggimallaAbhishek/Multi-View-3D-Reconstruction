@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from src.config import MatchConfig
+from src.config import FeatureConfig, MatchConfig
 from src.data.preprocessing import to_gray
 from src.features.extractor import FeatureExtractor, Features
 from src.features.matcher import Matches, MatchStats
@@ -60,7 +60,7 @@ class DISKExtractor(FeatureExtractor):
     descriptor_dim = 128
     descriptor_dtype = np.float32
 
-    def __init__(self, max_features: int = 8000, device: str = "auto"):
+    def __init__(self, max_features: int = FeatureConfig().max_features, device: str = "auto"):
         super().__init__(max_features)
         self.device = torch_device(device)
         self.model = DISK.from_pretrained("depth", device=self.device).eval()

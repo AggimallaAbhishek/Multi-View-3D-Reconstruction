@@ -328,6 +328,7 @@ _RANGES: dict[str, tuple[float | None, float | None, bool, bool]] = {
     "web.thumbnail_quality": (0, 100, False, False),
     "web.showcase_quality": (0, 100, False, False),
     "web.port": (1, 65535, False, False),
+    "dense.sgbm_p1_factor": (0, None, True, False),  # 0: no penalty for 1 px steps
     "dense.rectify_alpha": (-1, 1, False, False),  # OpenCV: -1 means "let it choose"
     "dense.poisson_threads": (-1, None, False, False),  # Open3D: -1 means all cores
 }
