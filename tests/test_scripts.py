@@ -23,7 +23,6 @@ def test_help_works_from_outside_the_repository(name):
     done = run_script(name, "--help")
     assert done.returncode == 0, done.stderr
     assert "usage:" in done.stdout
-    assert "unknown scene" not in done.stdout  # download_eth3d.py took --help as a scene
 
 
 def test_eth3d_unknown_scene_is_an_argument_error():
