@@ -403,13 +403,20 @@ def test_shutdown_stops_running_reconstructions(monkeypatch):
     assert calls == [1]
 
 
-def test_page_is_served():
+def test_intro_page_is_served_and_leads_to_the_workstation():
     response = client_for().get("/")
     assert response.status_code == 200
     assert "<html" in response.text.lower()
+    assert 'href="app.html"' in response.text  # the call to action
 
 
-@pytest.mark.parametrize("path", ["/", "/app.js", "/viewer.js", "/style.css"])
+def test_workstation_page_is_served_with_its_upload_form():
+    response = client_for().get("/app.html")
+    assert response.status_code == 200
+    assert 'id="images"' in response.text and 'id="run"' in response.text
+
+
+@pytest.mark.parametrize("path", ["/", "/app.html", "/app.js", "/viewer.js", "/style.css"])
 def test_page_files_are_revalidated_on_every_load(path):
     """Without Cache-Control, browsers reuse a cached app.js after the page was updated."""
     client = client_for()

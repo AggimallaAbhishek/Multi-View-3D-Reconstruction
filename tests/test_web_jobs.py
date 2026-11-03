@@ -313,3 +313,19 @@ def test_terminate_children_stops_a_running_reconstruction(tmp_path):
     job = manager.get(job.id)
     assert job.status == "failed"
     assert "crashed" in job.error
+
+
+def test_run_folder_keeps_small_thumbnails_of_the_photos(tmp_path):
+    """Uploads are deleted when a job ends; the run keeps thumbnails so a previous run can
+    still show its photos (at most ``web.thumbnails``, longest side ``web.thumbnail_px``)."""
+    import cv2
+
+    _, images, config = rendered_upload(tmp_path)
+    config = config.with_overrides({"web.thumbnails": 3, "web.thumbnail_px": 120})
+    run_dir = reconstruct(images, config, lambda s, t: None)
+
+    thumbs = sorted((run_dir / "thumbnails").iterdir())
+    assert [p.name for p in thumbs] == ["view_01.jpg", "view_02.jpg", "view_03.jpg"]
+    for path in thumbs:
+        image = cv2.imread(str(path))
+        assert max(image.shape[:2]) == 120 and image.std() > 5  # a real, downscaled photo

@@ -133,3 +133,32 @@ def test_partial_run_with_fallback_intrinsics_warns(scene_dir):
 def test_report_names_the_feature_method(result):
     """The page shows which detector and matcher made the run (classical or learned)."""
     assert build_report(result)["features"] == {"detector": "sift", "matcher": "bruteforce"}
+
+
+def test_report_gives_each_stage_its_numbers(result):
+    """The pipeline column shows what each stage produced: features, matches, verified
+    pairs and inliers, the initial pair, registered cameras, points kept."""
+    stages = build_report(result)["stages"]
+    counts = sorted(len(f) for f in result.features)
+
+    assert stages["features"]["per_image_median"] == counts[len(counts) // 2]
+    assert stages["features"]["total"] == sum(counts)
+    assert stages["features"]["cached"] is False  # first run of this scene
+    assert stages["matches"]["pairs"] == N_VIEWS * (N_VIEWS - 1) // 2  # exhaustive
+    assert stages["matches"]["matches"] > 0
+    verified = stages["verification"]
+    assert 0 < verified["pairs"] <= stages["matches"]["pairs"]
+    assert 0 < verified["inliers"] <= stages["matches"]["matches"]
+    assert 0.5 < verified["inlier_ratio"] <= 1
+    assert set(stages["initial_pair"]) <= set(result.names) and len(stages["initial_pair"]) == 2
+    assert stages["reconstruction"]["registered"] == N_VIEWS
+    assert stages["filter"]["kept"] <= stages["filter"]["total"]
+
+
+def test_stages_that_did_not_run_are_null(scene_dir):
+    images, camera, raw, _ = scene_dir
+    config = config_from_dict({**raw, "camera": {"calibration_file": str(camera)}})
+    stages = build_report(run_pipeline(images, config, until="verify"))["stages"]
+    assert stages["verification"]["pairs"] > 0
+    assert stages["initial_pair"] is None
+    assert stages["reconstruction"] is None and stages["filter"] is None

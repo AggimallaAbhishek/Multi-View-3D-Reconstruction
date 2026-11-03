@@ -198,3 +198,5 @@ web:                           # local web interface (python -m src.web); one jo
                                # count come from dataset.extensions / dataset.min_images
   poll_interval_ms: 1000       # how often the page asks for job progress
   open_browser: true           # open the page when the server starts
+  thumbnails: 12               # photos kept per run as thumbnails (uploads are deleted)
+  thumbnail_px: 240            # longest side of a thumbnail

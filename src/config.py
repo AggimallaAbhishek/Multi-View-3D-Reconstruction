@@ -217,6 +217,8 @@ class WebConfig:
     max_upload_images: int = 200
     poll_interval_ms: int = 1000
     open_browser: bool = True
+    thumbnails: int = 12
+    thumbnail_px: int = 240
 
 
 @dataclass(frozen=True)

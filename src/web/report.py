@@ -72,6 +72,7 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
             "focal_scale": None if rec is None else rec.focal_scale,
         },
         "reprojection": reprojection,
+        "stages": _stages(result),
         "timings": dict(result.timings),
         "total_s": sum(result.timings.values()),
         "warnings": warnings,
@@ -83,6 +84,49 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
 
 def write_report(report: dict[str, Any], run_dir: str | Path) -> Path:
     return write_json(Path(run_dir) / REPORT_NAME, report)
+
+
+def _stages(result: PipelineResult) -> dict[str, Any]:
+    """What each stage produced, for the page's pipeline column; ``None`` where the stage
+    did not run (or, for the initial pair, found none)."""
+    features = matches = verification = initial = reconstruction = filtering = None
+    if result.feature_stats is not None:
+        counts = sorted(s.n_features for s in result.feature_stats)
+        features = {
+            "per_image_median": counts[len(counts) // 2] if counts else 0,
+            "total": sum(counts),
+            "cached": bool(counts) and all(s.cached for s in result.feature_stats),
+        }
+    if result.match_stats is not None:
+        matches = {
+            "pairs": len(result.match_stats),
+            "matches": sum(s.final for s in result.match_stats),
+            "cached": bool(result.match_stats) and all(s.cached for s in result.match_stats),
+        }
+    if result.verification_stats is not None:
+        ok = [s for s in result.verification_stats if s.success]
+        tested = sum(s.n_matches for s in ok)
+        verification = {
+            "pairs": len(ok),
+            "inliers": sum(s.n_inliers for s in ok),
+            "inlier_ratio": sum(s.n_inliers for s in ok) / tested if tested else 0.0,
+        }
+    if result.initial_pair is not None:
+        initial = [result.names[result.initial_pair.i], result.names[result.initial_pair.j]]
+    if result.reconstruction is not None:
+        rec = result.reconstruction
+        reconstruction = {"registered": len(rec.registry.images), "landmarks": len(rec.landmarks)}
+    if result.filtering is not None:
+        keep = result.filtering.keep
+        filtering = {"kept": int(keep.sum()), "total": len(keep)}
+    return {
+        "features": features,
+        "matches": matches,
+        "verification": verification,
+        "initial_pair": initial,
+        "reconstruction": reconstruction,
+        "filter": filtering,
+    }
 
 
 def _ground_truth(
