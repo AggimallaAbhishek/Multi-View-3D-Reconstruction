@@ -3,11 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Multi-view 3D reconstruction</title>
+  <title>Workstation · Multi-View 3D Reconstruction</title>
+  <meta name="description" content="Upload overlapping photos, reconstruct them in 3-D and inspect the cameras and points.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112..125,600..800&family=Atkinson+Hyperlegible+Next:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10' fill='none' stroke='%233cc2b5' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script type="importmap">
     {
       "imports": {
@@ -18,150 +21,193 @@
   </script>
   <script type="module" src="app.js"></script>
 </head>
-<body data-state="upload">
-  <header class="masthead">
-    <div>
-      <h1>Multi-view 3D reconstruction</h1>
-      <p class="tagline">Structure from motion on your own photos, run on this machine.</p>
+<body data-state="empty">
+  <a class="skip-link" href="#stage">Skip to the reconstruction</a>
+
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Multi-View 3D Reconstruction: back to the overview">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <span class="brand-name">Multi-View 3D Reconstruction</span>
+      <span class="brand-page">Workstation</span>
+    </a>
+    <div class="topbar-tools">
+      <label class="runs">
+        <span class="visually-hidden">Open a previous run</span>
+        <select id="previous-runs"><option value="">No runs yet</option></select>
+      </label>
+      <button type="button" class="btn btn-quiet btn-small" id="replay" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>Replay
+      </button>
     </div>
-    <label class="previous">
-      <span>Open previous run</span>
-      <select id="previous-runs">
-        <option value="">No runs yet</option>
-      </select>
-    </label>
   </header>
 
-  <main>
-    <!-- 1. Upload ------------------------------------------------------------------ -->
-    <section class="view view-upload" aria-labelledby="upload-title">
-      <h2 id="upload-title" class="visually-hidden">Choose photos</h2>
-      <div class="upload-grid">
-        <label class="dropzone fiducial" id="dropzone">
+  <main class="desk">
+    <!-- Left: a new run, and the run on screen ---------------------------------------- -->
+    <section class="col col-left" aria-label="Runs">
+      <section class="card new-run" aria-labelledby="new-run-title">
+        <h2 class="card-title" id="new-run-title">New reconstruction</h2>
+        <label class="dropzone" id="dropzone">
           <input type="file" id="images" multiple class="visually-hidden">
-          <span class="dropzone-title">Drop overlapping photos of one object or scene</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="dropzone-title">Drop overlapping photos</span>
           <span class="dropzone-sub">or <u>choose files</u></span>
-          <span class="dropzone-hint" id="dropzone-hint">At least 2 photos. Walk around the subject so neighbouring photos overlap by about two thirds.</span>
         </label>
+        <p class="hint" id="dropzone-hint">At least 2 photos. Walk round the subject so neighbouring photos overlap by about two thirds.</p>
 
-        <aside class="extras">
-          <h3>Optional files</h3>
-          <p class="extras-note">Choose them here, or drop them in with the photos.</p>
+        <div class="selection" id="selection" hidden>
+          <div class="selection-bar">
+            <span class="num" id="selection-count"></span>
+            <button type="button" class="link-button" id="clear">Clear</button>
+          </div>
+          <ol class="thumbs" id="thumbs"></ol>
+        </div>
+
+        <details class="extras">
+          <summary>Optional files</summary>
           <div class="extra">
             <label for="camera">Camera intrinsics <code>camera.yaml</code></label>
             <input type="file" id="camera" accept=".yaml,.yml">
-            <p>Without it, the focal length comes from the photos' EXIF data or a default guess.</p>
+            <p>Without it the focal length comes from EXIF data or a guess.</p>
           </div>
           <div class="extra">
             <label for="ground-truth">Ground-truth poses <code>gt_cameras.json</code></label>
             <input type="file" id="ground-truth" accept=".json">
-            <p>Scores the recovered camera poses against known ones.</p>
+            <p>Scores the recovered cameras against known ones.</p>
           </div>
-          <button type="button" id="run" class="primary" disabled>Reconstruct</button>
-          <div class="message error" id="upload-message" role="alert" hidden></div>
-        </aside>
-      </div>
+        </details>
 
-      <div class="selection" id="selection" hidden>
-        <div class="selection-bar">
-          <span id="selection-count"></span>
-          <button type="button" class="quiet" id="clear">Clear photos</button>
-        </div>
-        <ol class="thumbs" id="thumbs"></ol>
-      </div>
-    </section>
+        <button type="button" id="run" class="btn btn-primary run-button" disabled>Reconstruct</button>
+        <div class="message" id="upload-message" role="alert" hidden></div>
+      </section>
 
-    <!-- 2. Running ----------------------------------------------------------------- -->
-    <section class="view view-running" aria-labelledby="running-title">
-      <h2 id="running-title">Reconstructing</h2>
-      <p class="run-id" id="running-id"></p>
-      <ol class="stages" id="stages" aria-live="polite"></ol>
-      <div class="message error" id="failure" role="alert" hidden></div>
-      <div id="partial" hidden>
-        <h3>Results written before the failure</h3>
-        <div class="gallery" id="partial-gallery"></div>
-        <ul class="file-list" id="partial-files"></ul>
-      </div>
-      <div class="run-actions">
-        <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
-        <div class="delete-run" id="delete-failed" hidden>
-          <button type="button" class="quiet" data-delete="ask">Delete this run</button>
-          <span class="delete-confirm" hidden><span class="delete-question"></span>
-            <button type="button" class="danger" data-delete="confirm">Delete</button>
-            <button type="button" class="quiet" data-delete="cancel">Cancel</button>
-          </span>
+      <section class="card this-run" id="this-run" aria-labelledby="run-title" hidden>
+        <div class="card-head">
+          <h2 class="card-title" id="run-title">This run</h2>
+          <span class="status-tag num" id="run-status"></span>
         </div>
-      </div>
-    </section>
-
-    <!-- 3. Results ----------------------------------------------------------------- -->
-    <section class="view view-results" aria-labelledby="results-title">
-      <div class="results-head">
-        <div>
-          <h2 id="results-title">Reconstruction</h2>
-          <p class="run-id" id="results-id"></p>
-        </div>
+        <p class="run-when num" id="run-when"></p>
+        <dl class="kv" id="run-facts"></dl>
+        <ul class="run-photos" id="run-photos" aria-label="Photos of this run"></ul>
         <div class="run-actions">
-          <button type="button" class="quiet" id="restart">Start a new reconstruction</button>
           <div class="delete-run">
-            <button type="button" class="quiet" data-delete="ask">Delete this run</button>
+            <button type="button" class="btn btn-quiet btn-small" data-delete="ask">Delete this run</button>
             <span class="delete-confirm" hidden><span class="delete-question"></span>
-              <button type="button" class="danger" data-delete="confirm">Delete</button>
-              <button type="button" class="quiet" data-delete="cancel">Cancel</button>
+              <span class="delete-buttons">
+                <button type="button" class="btn btn-danger btn-small" data-delete="confirm">Delete</button>
+                <button type="button" class="btn btn-quiet btn-small" data-delete="cancel">Cancel</button>
+              </span>
             </span>
           </div>
         </div>
-      </div>
+      </section>
+    </section>
 
-      <ul class="warnings" id="warnings" hidden></ul>
+    <!-- Centre: the reconstruction --------------------------------------------------- -->
+    <section class="col col-centre" id="stage" tabindex="-1" aria-label="Reconstruction">
+      <div class="card stage">
+        <div class="tabs" role="tablist" aria-label="Views of the run">
+          <button type="button" role="tab" id="tab-viewer" aria-controls="panel-viewer" aria-selected="true" data-tab="viewer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>3-D view</button>
+          <button type="button" role="tab" id="tab-poses" aria-controls="panel-poses" aria-selected="false" tabindex="-1" data-tab="poses" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Camera poses</button>
+          <button type="button" role="tab" id="tab-matches" aria-controls="panel-matches" aria-selected="false" tabindex="-1" data-tab="matches" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15 15 9M10.5 6.5l1-1a4 4 0 0 1 6 6l-1 1M13.5 17.5l-1 1a4 4 0 0 1-6-6l1-1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Matches</button>
+          <button type="button" role="tab" id="tab-figures" aria-controls="panel-figures" aria-selected="false" tabindex="-1" data-tab="figures" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-7M20 20V8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Statistics</button>
+        </div>
 
-      <figure class="viewer-frame fiducial">
-        <div class="viewer" id="viewer" tabindex="0" aria-label="3-D point cloud with camera positions. Drag to orbit, scroll to zoom, right-drag to pan."></div>
-        <div class="viewer-controls">
-          <div class="segmented" role="group" aria-label="Point cloud">
-            <button type="button" data-cloud="filtered" aria-pressed="true">Filtered</button>
-            <button type="button" data-cloud="sparse" aria-pressed="false">Sparse</button>
-          </div>
-          <label class="slider">Point size
-            <input type="range" id="point-size" min="1" max="8" step="0.5" value="2">
-          </label>
-          <div class="control-group" role="group" aria-labelledby="fit-label">
-            <span id="fit-label">Fit to</span>
-            <div class="segmented">
-              <button type="button" data-fit="object" aria-pressed="true">Object</button>
-              <button type="button" data-fit="cameras" aria-pressed="false">Cameras</button>
+        <ul class="warnings" id="warnings" hidden></ul>
+
+        <div class="panel" id="panel-viewer" role="tabpanel" aria-labelledby="tab-viewer" data-panel="viewer">
+          <div class="viewport" id="viewer" tabindex="0" aria-label="3-D point cloud with the recovered cameras. Drag to orbit, scroll to zoom, right-drag or arrow keys to pan.">
+            <div class="fiducials" aria-hidden="true"></div>
+            <div class="viewer-tools" id="viewer-tools" hidden>
+              <div class="tool-group" role="group" aria-label="Viewer tools">
+                <button type="button" data-tool="orbit" aria-pressed="true" title="Orbit (drag)" aria-label="Orbit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <button type="button" data-tool="pan" aria-pressed="false" title="Pan (drag)" aria-label="Pan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+                <button type="button" data-fit="object" title="Fit to the object" aria-label="Fit to the object"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <button type="button" data-fit="cameras" title="Fit to every camera" aria-label="Fit to every camera"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 2.6"/></svg></button>
+                <button type="button" id="spin" aria-pressed="false" title="Turn slowly round the object" aria-label="Auto-orbit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5c-2 0-3.8-.3-5.3-.9M8 19l-2.2-3.4L9.4 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              </div>
+              <div class="segmented" role="group" aria-label="Projection">
+                <button type="button" data-projection="perspective" aria-pressed="true">Persp</button>
+                <button type="button" data-projection="orthographic" aria-pressed="false">Ortho</button>
+              </div>
+            </div>
+            <div class="cam-label num" id="cam-label" role="status" hidden></div>
+            <div class="layers" id="layers" hidden>
+              <div class="segmented" role="group" aria-label="Point cloud">
+                <button type="button" data-cloud="filtered" aria-pressed="true">Filtered</button>
+                <button type="button" data-cloud="sparse" aria-pressed="false">Sparse</button>
+              </div>
+              <fieldset>
+                <legend class="visually-hidden">Layers</legend>
+                <label><span>Points <span class="num" id="layer-points-count"></span></span><input type="checkbox" data-layer="points" checked></label>
+                <label><span>Cameras <span class="num" id="layer-cameras-count"></span></span><input type="checkbox" data-layer="cameras" checked></label>
+                <label><span>Capture path</span><input type="checkbox" data-layer="path"></label>
+                <label><span>Grid</span><input type="checkbox" data-layer="grid" checked></label>
+              </fieldset>
+              <label class="size"><span>Point size</span><input type="range" id="point-size" min="1" max="6" step="0.5" value="2.5"></label>
+            </div>
+            <div class="viewer-status" id="viewer-status">
+              <p class="status-title" id="status-title">No run open</p>
+              <p class="status-text" id="status-text">Drop overlapping photos in the panel on the left, or open a previous run.</p>
             </div>
           </div>
         </div>
-        <p class="viewer-status" id="viewer-status"></p>
-        <figcaption class="datastrip" id="datastrip"></figcaption>
-      </figure>
 
-      <section class="panel" id="gt-panel" hidden aria-labelledby="gt-title">
-        <h3 id="gt-title">Against ground truth</h3>
-        <p class="panel-note">Camera positions are compared after aligning the two reconstructions (rotation, translation, scale). Position error is a percentage of the true cameras' spread.</p>
-        <div class="gt-summary" id="gt-summary"></div>
-        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="gt-title">
-          <table class="gt-table">
-            <thead><tr>
-              <th scope="col" aria-sort="ascending"><button type="button" data-sort="image">Photo</button></th>
-              <th scope="col" aria-sort="none"><button type="button" data-sort="rotation_deg">Rotation error</button></th>
-              <th scope="col" aria-sort="none"><button type="button" data-sort="centre">Position error</button></th>
-            </tr></thead>
-            <tbody id="gt-rows"></tbody>
-          </table>
+        <div class="panel panel-scroll" id="panel-poses" role="tabpanel" aria-labelledby="tab-poses" data-panel="poses" hidden>
+          <p class="panel-note">Recovered cameras against the uploaded ground truth, after aligning the two (rotation, translation, scale). Position error is a share of the true cameras' spread.</p>
+          <dl class="gt-summary" id="gt-summary"></dl>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Error of every camera">
+            <table class="gt-table">
+              <thead><tr>
+                <th scope="col" aria-sort="ascending"><button type="button" data-sort="image">Photo</button></th>
+                <th scope="col" aria-sort="none"><button type="button" data-sort="rotation_deg">Rotation error</button></th>
+                <th scope="col" aria-sort="none"><button type="button" data-sort="centre">Position error</button></th>
+              </tr></thead>
+              <tbody id="gt-rows"></tbody>
+            </table>
+          </div>
         </div>
-      </section>
+        <div class="panel panel-scroll" id="panel-matches" role="tabpanel" aria-labelledby="tab-matches" data-panel="matches" hidden>
+          <div class="gallery" id="gallery-matches"></div>
+        </div>
+        <div class="panel panel-scroll" id="panel-figures" role="tabpanel" aria-labelledby="tab-figures" data-panel="figures" hidden>
+          <div class="gallery" id="gallery-figures"></div>
+        </div>
 
-      <section class="panel" aria-labelledby="diag-title">
-        <h3 id="diag-title">Diagnostics</h3>
-        <div class="gallery" id="gallery"></div>
-      </section>
+        <dl class="datastrip" id="datastrip" aria-label="Run summary"></dl>
+      </div>
+    </section>
 
-      <section class="panel" aria-labelledby="dl-title">
-        <h3 id="dl-title">Downloads</h3>
+    <!-- Right: pipeline, summary, export --------------------------------------------- -->
+    <aside class="col col-right" aria-label="Pipeline and results">
+      <section class="card" aria-labelledby="pipeline-title">
+        <h2 class="card-title" id="pipeline-title">Pipeline</h2>
+        <ol class="pipeline" id="pipeline" aria-live="polite"></ol>
+      </section>
+      <section class="card" id="summary-card" aria-labelledby="summary-title" hidden>
+        <h2 class="card-title" id="summary-title">Summary</h2>
+        <dl class="summary" id="summary"></dl>
+      </section>
+      <section class="card" id="export-card" aria-labelledby="export-title" hidden>
+        <h2 class="card-title" id="export-title">Export</h2>
         <ul class="downloads" id="downloads"></ul>
       </section>
+    </aside>
+
+    <!-- Bottom: ground truth, console ------------------------------------------------- -->
+    <section class="card gt-card" id="gt-card" aria-labelledby="gt-title" hidden>
+      <h2 class="card-title" id="gt-title">Against ground truth</h2>
+      <div class="gt-mini">
+        <svg viewBox="0 0 120 80" id="gt-ring" aria-hidden="true"></svg>
+        <dl id="gt-mini"></dl>
+      </div>
+    </section>
+    <section class="card console-card" aria-labelledby="console-title">
+      <h2 class="card-title" id="console-title">Console</h2>
+      <ol class="console num" id="console" aria-live="polite"></ol>
     </section>
   </main>
 
@@ -170,14 +216,14 @@
       <img id="lightbox-image" alt="">
       <figcaption>
         <span id="lightbox-caption"></span>
-        <span class="lightbox-count" id="lightbox-count"></span>
+        <span class="lightbox-count num" id="lightbox-count"></span>
       </figcaption>
     </figure>
     <div class="lightbox-nav">
-      <button type="button" class="quiet" data-step="-1" aria-label="Previous figure">&larr;</button>
-      <button type="button" class="quiet" data-step="1" aria-label="Next figure">&rarr;</button>
+      <button type="button" class="btn btn-quiet btn-small" data-step="-1" aria-label="Previous figure">&larr;</button>
+      <button type="button" class="btn btn-quiet btn-small" data-step="1" aria-label="Next figure">&rarr;</button>
       <a class="lightbox-open" id="lightbox-open" target="_blank" rel="noopener">Open full size</a>
-      <button type="button" class="quiet" id="lightbox-close">Close</button>
+      <button type="button" class="btn btn-quiet btn-small" id="lightbox-close">Close</button>
     </div>
   </dialog>
 </body>

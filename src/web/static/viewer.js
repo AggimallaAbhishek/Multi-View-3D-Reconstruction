@@ -486,7 +486,7 @@ export class Viewer {
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
     // a little further back, so the cameras in front of the cloud stay in view
     let distance = (1.3 * radius) / tanHalf;
-    if (target === "overview" && reaches.length) distance = Math.max(distance, 1.6 * Math.min(...reaches));
+    if (target === "overview" && reaches.length) distance = Math.max(distance, 1.15 * Math.min(...reaches));
     const direction = this.cameraForward
       ? this.cameraForward.clone().transformDirection(this.group.matrixWorld)
       : new THREE.Vector3(0, 0, -1);
