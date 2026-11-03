@@ -191,14 +191,18 @@ def save_upload(
     web = config.web
     allowed = {ext.lower() for ext in config.dataset.extensions}
     to_save: dict[str, UploadFile] = {}
+    seen: dict[str, str] = {}  # casefolded -> name: one file on a case-insensitive disk
     for upload in images:
         name = Path(upload.filename or "").name  # drop any client-side directories
         if not name or name.startswith("."):
             _reject(f"{upload.filename!r} is not an image file name")
         if Path(name).suffix.lower() not in allowed:
             _reject(f"{name}: not an image ({', '.join(sorted(allowed))})")
-        if name in to_save:
-            _reject(f"{name} is uploaded twice")
+        if name.casefold() in seen:
+            first = seen[name.casefold()]
+            twice = "twice" if first == name else f"twice ({first} and {name} differ only in case)"
+            _reject(f"{name} is uploaded {twice}")
+        seen[name.casefold()] = name
         to_save[name] = upload
     if len(to_save) < config.dataset.min_images:
         _reject(f"{len(to_save)} image(s) uploaded; at least {config.dataset.min_images} required")

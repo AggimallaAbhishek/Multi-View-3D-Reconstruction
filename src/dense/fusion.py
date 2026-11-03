@@ -19,6 +19,10 @@ class DenseCloud:
     colors: np.ndarray  # (N, 3) RGB uint8
     views: np.ndarray  # (N, 3) unit vectors from the point towards the camera(s) that saw it
 
+    @classmethod
+    def empty(cls) -> DenseCloud:
+        return cls(np.empty((0, 3)), np.empty((0, 3), np.uint8), np.empty((0, 3)))
+
 
 def fuse_depth_maps(
     depths: Sequence[np.ndarray | None],
@@ -48,8 +52,8 @@ def fuse_depth_maps(
         points.append(X[keep])
         colors.append(images[i][v[keep], u[keep]][:, ::-1])  # BGR -> RGB
         views.append(view / np.linalg.norm(view, axis=1, keepdims=True))
-    if not points:
-        return DenseCloud(np.empty((0, 3)), np.empty((0, 3), np.uint8), np.empty((0, 3)))
+    if not sum(len(p) for p in points):  # no depth maps, or none with a confirmed depth
+        return DenseCloud.empty()
     cloud = DenseCloud(np.concatenate(points), np.concatenate(colors), np.concatenate(views))
     return voxel_downsample(cloud, voxel_size) if voxel_size > 0 else cloud
 

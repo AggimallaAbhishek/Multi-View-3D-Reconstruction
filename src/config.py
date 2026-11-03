@@ -8,6 +8,7 @@ so that typos in experiment configs fail loudly instead of being ignored.
 from __future__ import annotations
 
 import dataclasses
+import math
 import types
 import typing
 from dataclasses import dataclass, field
@@ -289,12 +290,78 @@ def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: top level must be a mapping")
     config = _build(Config, raw, source)
+    _check_ranges(config, source)
     if config.matching.method == "lightglue" and config.features.detector != "disk":
         raise ConfigError(
             f"{source}: matching.method lightglue needs features.detector disk "
             f"(got {config.features.detector!r})"
         )
     return config
+
+
+# Validity limits (what a setting can mean at all), not tuning thresholds: those live in
+# configs/default.yaml. Every number must be finite and >= 0 unless its range here
+# starts below 0. key -> (low, high, low exclusive?, high exclusive?); None is unbounded.
+_RANGES: dict[str, tuple[float | None, float | None, bool, bool]] = {
+    "dataset.min_images": (2, None, False, False),
+    "dataset.max_images": (1, None, False, False),
+    "preprocessing.max_side": (1, None, False, False),
+    "features.max_features": (1, None, False, False),
+    "matching.ratio": (0, 1, True, False),
+    "verification.confidence": (0, 1, True, True),
+    "registration.confidence": (0, 1, True, True),
+    "verification.ransac_threshold_px": (0, None, True, False),
+    "registration.reprojection_error_px": (0, None, True, False),
+    "triangulation.max_reprojection_error_px": (0, None, True, False),
+    "filtering.max_reprojection_error_px": (0, None, True, False),
+    "camera.focal_scale": (0, None, True, False),
+    "bundle_adjustment.loss_scale_px": (0, None, True, False),
+    "matching.sequential_window": (1, None, False, False),
+    "calibration.min_views": (1, None, False, False),
+    "calibration.subpix_window": (1, None, False, False),
+    "features.coverage_grid": (1, None, False, False),
+    "dense.fusion_views": (1, None, False, False),
+    "web.max_upload_images": (1, None, False, False),
+    "web.poll_interval_ms": (1, None, False, False),
+    "web.thumbnail_quality": (0, 100, False, False),
+    "web.showcase_quality": (0, 100, False, False),
+    "web.port": (1, 65535, False, False),
+    "dense.rectify_alpha": (-1, 1, False, False),  # OpenCV: -1 means "let it choose"
+    "dense.poisson_threads": (-1, None, False, False),  # Open3D: -1 means all cores
+}
+
+
+def _check_ranges(config: Config, source: str) -> None:
+    """Range-check every number, so a bad value fails here with its key instead of
+    deep inside a stage (a negative max_images crashed np.linspace)."""
+    for key, value in _numbers(config):
+        if value is None:
+            continue
+        where = f"{source}: {key}"
+        if not math.isfinite(value):  # NaN compares False with every bound below
+            raise ConfigError(f"{where} must be a finite number (got {value})")
+        low, high, low_open, high_open = _RANGES.get(key, (0, None, False, False))
+        if low is not None and (value <= low if low_open else value < low):
+            raise ConfigError(f"{where} must be {'>' if low_open else '>='} {low} (got {value})")
+        if high is not None and (value >= high if high_open else value > high):
+            raise ConfigError(f"{where} must be {'<' if high_open else '<='} {high} (got {value})")
+    dataset = config.dataset
+    if dataset.max_images is not None and dataset.max_images < dataset.min_images:
+        raise ConfigError(
+            f"{source}: dataset.max_images ({dataset.max_images}) must be >= "
+            f"dataset.min_images ({dataset.min_images})"
+        )
+    if config.dense.block_size % 2 == 0:
+        raise ConfigError(f"{source}: dense.block_size must be odd (got {config.dense.block_size})")
+
+
+def _numbers(obj: Any, prefix: str = "") -> typing.Iterator[tuple[str, Any]]:
+    for f in dataclasses.fields(obj):
+        value = getattr(obj, f.name)
+        if dataclasses.is_dataclass(value):
+            yield from _numbers(value, f"{prefix}{f.name}.")
+        elif value is None or (isinstance(value, int | float) and not isinstance(value, bool)):
+            yield f"{prefix}{f.name}", value
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

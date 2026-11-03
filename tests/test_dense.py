@@ -205,3 +205,18 @@ def test_pair_depth_drops_a_band_around_every_gap(scene, px):
     border[[0, -1], :] = border[:, [0, -1]] = True
     kept = border & ~near_gap & np.isfinite(full)
     assert kept.any() and np.isfinite(eroded[kept]).all()
+
+
+def test_fusion_of_depth_maps_without_a_single_depth_is_empty():
+    """Partners found but no depth survived (no texture, no sparse points in view): an
+    empty cloud, not a crash in voxel down-sampling."""
+    from src.config import DenseConfig
+    from src.dense import fuse_depth_maps
+    from src.geometry.camera import Camera
+
+    K = np.array([[500.0, 0, 320], [0, 500, 240], [0, 0, 1]])
+    cameras = [Camera(K, np.eye(3), np.zeros(3)), Camera(K, np.eye(3), np.array([-0.1, 0, 0]))]
+    depths = [np.full((480, 640), np.nan), np.full((480, 640), np.nan)]
+    images = [np.zeros((480, 640, 3), np.uint8)] * 2
+    cloud = fuse_depth_maps(depths, cameras, images, [[1], [0]], 0.01, DenseConfig())
+    assert cloud.points.shape == (0, 3) and cloud.colors.shape == (0, 3)

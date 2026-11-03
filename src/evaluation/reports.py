@@ -74,7 +74,8 @@ def _reprojection_figure(errors: dict[str, np.ndarray], title: str, path):
     from matplotlib import colormaps
     from matplotlib.figure import Figure
 
-    limit = max(float(np.percentile(e, 99.5)) for e in errors.values() if len(e)) or 1.0
+    limit = max((float(np.percentile(e, 99.5)) for e in errors.values() if len(e)), default=0.0)
+    limit = limit or 1.0  # no observations at all: an arbitrary unit range
     bins = np.linspace(0.0, limit, 60)
     colours = colormaps["viridis"](np.linspace(0, 0.9, len(errors)))
     fig = Figure(figsize=(8, 4.2), layout="constrained")

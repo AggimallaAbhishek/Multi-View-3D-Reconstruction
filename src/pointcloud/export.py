@@ -33,23 +33,48 @@ def to_open3d(points: np.ndarray, colors: np.ndarray | None = None) -> o3d.t.geo
 
 
 def write_ply(path: str | Path, points: np.ndarray, colors: np.ndarray | None = None) -> Path:
+    """Write a point cloud; an empty one becomes a valid header-only PLY (Open3D refuses
+    to write zero points, but a stage that keeps none is a result, not an error)."""
     import open3d as o3d
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if len(points) == 0:
+        if colors is not None and len(colors):
+            raise ValueError(f"0 points but {len(colors)} colors")
+        properties = ["property double x", "property double y", "property double z"]
+        if colors is not None:
+            properties += ["property float red", "property float green", "property float blue"]
+        header = ["ply", "format ascii 1.0", "element vertex 0", *properties, "end_header"]
+        path.write_text("\n".join(header) + "\n")
+        return path
     if not o3d.t.io.write_point_cloud(str(path), to_open3d(points, colors)):
         raise OSError(f"could not write {path}")
     return path
 
 
 def read_ply(path: str | Path) -> tuple[np.ndarray, np.ndarray | None]:
-    """(points (N, 3), colours (N, 3) in [0, 1] or None)."""
+    """(points (N, 3), colours (N, 3) in [0, 1] or None); an empty cloud gives (0, 3)."""
     import open3d as o3d
 
     cloud = o3d.t.io.read_point_cloud(str(path))
+    if "positions" not in cloud.point:  # no vertices: Open3D reads no attributes at all
+        has_colors = _ply_header_has_colors(Path(path))
+        return np.empty((0, 3)), np.empty((0, 3)) if has_colors else None
     points = cloud.point.positions.numpy().astype(np.float64)
     colors = cloud.point.colors.numpy().astype(np.float64) if "colors" in cloud.point else None
     return points, colors
+
+
+def _ply_header_has_colors(path: Path) -> bool:
+    with path.open("rb") as f:
+        for line in f:
+            text = line.decode("latin1").strip()
+            if text == "end_header":
+                return False
+            if text.startswith("property") and text.split()[-1] in ("red", "r"):
+                return True
+    return False
 
 
 def write_cameras_json(

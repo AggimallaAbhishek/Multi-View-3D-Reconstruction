@@ -245,6 +245,15 @@ def dense_scene(result: PipelineResult) -> PipelineResult:
     images = rec.registry.images
     keep = result.filtering.keep if result.filtering is not None else slice(None)
     points = rec.landmarks.position[keep]
+    if not len(points):  # no sparse points to plan stereo or set depth ranges with
+        n = len(images)
+        result.dense = DenseResult(
+            cloud=DenseCloud.empty(),
+            plan=ViewPlan(partner=[None] * n, checks=[[] for _ in range(n)]),
+            coverage=[None] * n,
+            voxel_size=0.0,
+        )
+        return result
     cameras = [rec.registry.camera(m) for m in images]
     pixels = [result.images[m].image for m in images]
     plan = plan_views(cameras, points, cfg)
@@ -396,4 +405,7 @@ def _quality(result: PipelineResult) -> tuple[int, float]:
     rec = result.reconstruction
     if rec is None:
         return 0, 0.0
-    return len(rec.registry.images), -float(np.mean(rec.landmarks.error))
+    errors = rec.landmarks.error
+    # no landmarks: no error to compare, and NaN would compare as "not worse"
+    score = -float(np.mean(errors)) if len(errors) else -np.inf  # no landmarks: worst
+    return len(rec.registry.images), score

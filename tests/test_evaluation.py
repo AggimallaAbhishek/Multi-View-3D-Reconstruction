@@ -266,3 +266,34 @@ def test_write_ground_truth_round_trips(tmp_path):
     np.testing.assert_allclose(intrinsics.K, s.K)
     assert (intrinsics.width, intrinsics.height) == (640, 480) and not intrinsics.dist.any()
     assert (tmp_path / "camera.yaml").read_text().startswith("# line one\n# line two\n")
+
+
+def test_report_of_runs_without_any_observation_still_draws(tmp_path):
+    """Every run's final reprojection errors are empty (nothing reconstructed): the
+    reprojection figure falls back to a unit range instead of max() of nothing."""
+    from src.evaluation.reports import make_report
+    from src.run import write_json
+
+    directory = tmp_path / "e"
+    directory.mkdir()
+    _fake_experiment(directory, {"y": ["registered"]}, [_row("a")])
+    (directory / "a").mkdir()
+    np.save(directory / "a" / "reprojection_errors.npy", np.empty(0))
+    meta = json.loads((directory / "experiment.json").read_text())
+    write_json(directory / "experiment.json", {**meta, "runs": [{"label": "a", "directory": "a"}]})
+    names = {f.name for f in make_report(directory)}
+    assert "reprojection.png" in names
+
+
+def test_pose_errors_skip_registered_images_without_ground_truth(rendered):
+    """Ground truth that lacks one of the registered images scores the others instead of
+    aborting the experiment with a KeyError."""
+    from src.evaluation.experiments import collect_metrics
+    from src.pipeline import run_pipeline
+
+    images, gt, config = rendered
+    result = run_pipeline(images, config, until="filter")
+    partial = dict(list(gt.items())[1:])  # the first image has no ground truth
+    row = collect_metrics(result, partial)
+    assert np.isfinite(row["rotation_error_median_deg"])
+    assert row["rotation_error_median_deg"] < 0.5
