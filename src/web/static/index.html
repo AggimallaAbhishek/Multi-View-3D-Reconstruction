@@ -141,10 +141,16 @@
         <h3 id="gt-title">Against ground truth</h3>
         <p class="panel-note">Camera positions are compared after aligning the two reconstructions (rotation, translation, scale). Position error is a percentage of the true cameras' spread.</p>
         <div class="gt-summary" id="gt-summary"></div>
-        <table class="gt-table">
-          <thead><tr><th scope="col">Photo</th><th scope="col">Rotation error</th><th scope="col">Position error</th></tr></thead>
-          <tbody id="gt-rows"></tbody>
-        </table>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="gt-title">
+          <table class="gt-table">
+            <thead><tr>
+              <th scope="col" aria-sort="ascending"><button type="button" data-sort="image">Photo</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="rotation_deg">Rotation error</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="centre">Position error</button></th>
+            </tr></thead>
+            <tbody id="gt-rows"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="diag-title">
@@ -158,5 +164,21 @@
       </section>
     </section>
   </main>
+
+  <dialog class="lightbox" id="lightbox" aria-labelledby="lightbox-caption">
+    <figure>
+      <img id="lightbox-image" alt="">
+      <figcaption>
+        <span id="lightbox-caption"></span>
+        <span class="lightbox-count" id="lightbox-count"></span>
+      </figcaption>
+    </figure>
+    <div class="lightbox-nav">
+      <button type="button" class="quiet" data-step="-1" aria-label="Previous figure">&larr;</button>
+      <button type="button" class="quiet" data-step="1" aria-label="Next figure">&rarr;</button>
+      <a class="lightbox-open" id="lightbox-open" target="_blank" rel="noopener">Open full size</a>
+      <button type="button" class="quiet" id="lightbox-close">Close</button>
+    </div>
+  </dialog>
 </body>
 </html>

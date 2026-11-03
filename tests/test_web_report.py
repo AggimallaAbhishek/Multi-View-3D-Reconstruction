@@ -128,3 +128,8 @@ def test_partial_run_with_fallback_intrinsics_warns(scene_dir):
     assert any("fallback" in w for w in report["warnings"])
     assert any("no reconstruction" in w for w in report["warnings"])
     json.dumps(report)
+
+
+def test_report_names_the_feature_method(result):
+    """The page shows which detector and matcher made the run (classical or learned)."""
+    assert build_report(result)["features"] == {"detector": "sift", "matcher": "bruteforce"}

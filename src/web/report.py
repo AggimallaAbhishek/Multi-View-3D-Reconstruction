@@ -61,6 +61,10 @@ def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) ->
             "unregistered": unregistered,
         },
         "points": points,
+        "features": {
+            "detector": result.config.features.detector,
+            "matcher": result.config.matching.method,
+        },
         "calibration": {
             "sources": sources,
             # Before bundle adjustment, of the image reconstruction.json reports.

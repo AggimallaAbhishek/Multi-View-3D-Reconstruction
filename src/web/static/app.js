@@ -37,6 +37,10 @@ const DOWNLOADS = [
 
 const CALIBRATION_SOURCES = { file: "camera.yaml", exif: "EXIF", fallback: "a guess" };
 
+// report.features: which detector and matcher made the run (learned ones are external).
+const DETECTORS = { sift: "SIFT", orb: "ORB", disk: "DISK" };
+const MATCHERS = { bruteforce: "ratio test", flann: "ratio test (FLANN)", lightglue: "LightGlue" };
+
 let config = null;      // GET /api/config
 let photos = new Map(); // name -> File
 const thumbUrls = new Map(); // File -> object URL, made once per file
@@ -44,6 +48,10 @@ let pollToken = 0;      // bumps to cancel a running poll loop
 let viewer = null;
 let viewerJob = null;   // {id, clouds: {filtered, sparse}}
 let shownJob = null;    // the finished or failed job on screen: what "Delete this run" deletes
+let gtSort = { key: "image", descending: false }; // ground-truth table order
+let shownGroundTruth = null;
+let lightboxItems = [];  // [{href, caption}] of the gallery the lightbox was opened from
+let lightboxIndex = 0;
 
 // --- API --------------------------------------------------------------------------------
 
@@ -391,6 +399,11 @@ function focalCell(calibration, fallback) {
   return cell("Focal length", `${Math.round(final)} px`, note, fallback);
 }
 
+function featuresCell({ detector, matcher }) {
+  const learned = detector === "disk" || matcher === "lightglue";
+  return cell("Features", DETECTORS[detector] ?? detector, `${MATCHERS[matcher] ?? matcher}${learned ? " · learned" : ""}`);
+}
+
 function renderDataStrip(report) {
   const { images, points, reprojection, calibration } = report;
   const fallback = calibration.sources.includes("fallback");
@@ -404,6 +417,7 @@ function renderDataStrip(report) {
         ? cell("Reprojection error", `${small(reprojection.median_px)} px`, `median · p90 ${small(reprojection.p90_px)}`)
         : cell("Reprojection error", "–"),
       focalCell(calibration, fallback),
+      report.features ? featuresCell(report.features) : null,
       cell("Time", `${seconds(report.total_s)} s`)),
   );
 }
@@ -411,6 +425,7 @@ function renderDataStrip(report) {
 function renderGroundTruth(gt) {
   const panel = $("gt-panel");
   panel.hidden = !gt;
+  shownGroundTruth = gt && !gt.error ? gt : null;
   if (!gt) return;
   if (gt.error) {
     $("gt-summary").replaceChildren(el("p", { class: "message error" }, `Could not score against ground truth: ${gt.error}`));
@@ -423,21 +438,84 @@ function renderGroundTruth(gt) {
       cell("Rotation error", `${small(gt.rotation_deg.median)}° median · ${small(gt.rotation_deg.max)}° max`),
       cell("Position error", `${percent(gt.centre.median)} median · ${percent(gt.centre.max)} max`)),
   );
+  renderGroundTruthRows();
+}
+
+// An error with a bar scaled to the worst camera's, so outliers stand out in a long list.
+function errorCell(value, max, text) {
+  const share = max > 0 ? value / max : 0;
+  return el("td", {},
+    el("span", { class: "bar", style: `--share: ${share.toFixed(3)}`, "aria-hidden": "true" }),
+    el("span", { class: "bar-value" }, text));
+}
+
+function renderGroundTruthRows() {
+  const gt = shownGroundTruth;
+  if (!gt) return;
+  const { key, descending } = gtSort;
+  const byName = (a, b) => a.image.localeCompare(b.image, undefined, { numeric: true });
+  const rows = [...gt.per_camera].sort((a, b) =>
+    (key === "image" ? byName(a, b) : a[key] - b[key] || byName(a, b)) * (descending ? -1 : 1));
+  const maxRot = Math.max(...gt.per_camera.map((c) => c.rotation_deg));
+  const maxCentre = Math.max(...gt.per_camera.map((c) => c.centre));
   $("gt-rows").replaceChildren(
-    ...[...gt.per_camera].sort((a, b) => a.image.localeCompare(b.image, undefined, { numeric: true })).map((c) =>
-      el("tr", {}, el("td", {}, c.image), el("td", {}, `${small(c.rotation_deg)}°`), el("td", {}, percent(c.centre)))),
+    ...rows.map((c) =>
+      el("tr", { class: c.rotation_deg === maxRot || c.centre === maxCentre ? "worst" : "" },
+        el("td", {}, c.image),
+        errorCell(c.rotation_deg, maxRot, `${small(c.rotation_deg)}°`),
+        errorCell(c.centre, maxCentre, percent(c.centre)))),
   );
+  for (const th of document.querySelectorAll(".gt-table th")) {
+    const sorted = th.querySelector("[data-sort]").dataset.sort === key;
+    th.setAttribute("aria-sort", sorted ? (descending ? "descending" : "ascending") : "none");
+  }
+}
+
+// Photos in name order; errors worst first on the first click.
+function sortGroundTruth(key) {
+  gtSort = gtSort.key === key
+    ? { key, descending: !gtSort.descending }
+    : { key, descending: key !== "image" };
+  renderGroundTruthRows();
 }
 
 /** The diagnostic figures among the run's ``files``. */
 function renderGallery(container, id, files) {
+  const items = DIAGNOSTICS.filter(([path]) => files.includes(path))
+    .map(([path, caption]) => ({ href: fileUrl(id, path), caption }));
   container.replaceChildren(
-    ...DIAGNOSTICS.filter(([path]) => files.includes(path)).map(([path, caption]) =>
-      el("figure", {},
-        el("a", { href: fileUrl(id, path), target: "_blank", rel: "noopener" },
-          el("img", { src: fileUrl(id, path), alt: caption, loading: "lazy" })),
-        el("figcaption", {}, caption))),
+    ...items.map(({ href, caption }, index) => {
+      const link = el("a", { href, target: "_blank", rel: "noopener" },
+        el("img", { src: href, alt: caption, loading: "lazy" }));
+      link.addEventListener("click", (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // a new tab as asked
+        e.preventDefault();
+        openLightbox(items, index);
+      });
+      return el("figure", {}, link, el("figcaption", {}, caption));
+    }),
   );
+}
+
+// --- Lightbox: a diagnostic figure at full width, arrow keys for the others --------------
+
+function openLightbox(items, index) {
+  lightboxItems = items;
+  showLightboxItem(index);
+  const dialog = $("lightbox");
+  if (!dialog.open) dialog.showModal();
+}
+
+function showLightboxItem(index) {
+  const n = lightboxItems.length;
+  lightboxIndex = (index + n) % n;
+  const { href, caption } = lightboxItems[lightboxIndex];
+  $("lightbox-image").src = href;
+  $("lightbox-image").alt = caption;
+  $("lightbox-caption").textContent = caption;
+  $("lightbox-count").textContent = n > 1 ? `${lightboxIndex + 1} / ${n}` : "";
+  $("lightbox-open").href = href;
+  for (const b of document.querySelectorAll("#lightbox [data-step]")) b.hidden = n < 2;
 }
 
 // --- Viewer -----------------------------------------------------------------------------
@@ -531,6 +609,21 @@ function wire() {
     button.addEventListener("click", () => switchCloud(button.dataset.cloud));
   }
   $("point-size").addEventListener("input", (e) => viewer?.setPointSize(Number(e.target.value)));
+  for (const button of document.querySelectorAll("[data-sort]")) {
+    button.addEventListener("click", () => sortGroundTruth(button.dataset.sort));
+  }
+  const lightbox = $("lightbox");
+  for (const button of lightbox.querySelectorAll("[data-step]")) {
+    button.addEventListener("click", () => showLightboxItem(lightboxIndex + Number(button.dataset.step)));
+  }
+  $("lightbox-close").addEventListener("click", () => lightbox.close());
+  lightbox.addEventListener("click", (e) => { if (e.target === lightbox) lightbox.close(); }); // backdrop
+  lightbox.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      showLightboxItem(lightboxIndex + (e.key === "ArrowRight" ? 1 : -1));
+    }
+  });
   for (const button of document.querySelectorAll("[data-fit]")) {
     button.addEventListener("click", () => fitTo(button.dataset.fit)); // again: re-frame
   }
