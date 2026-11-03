@@ -27,19 +27,14 @@ html { scroll-padding-top: 80px; scroll-behavior: smooth; } /* headings and focu
   overflow: hidden; border-bottom: 1px solid var(--rule);
 }
 
-/* The turning temple: a picture, not a control. Nothing a visitor does changes it;
-   only a request for reduced motion holds it still (tokens.css). */
-.orbit { grid-area: orbit; justify-self: center; margin: var(--s6) var(--margin) var(--s6) 0; width: min(100%, 560px); pointer-events: none; user-select: none; -webkit-user-select: none; }
-.orbit-frame { position: relative; aspect-ratio: 1; padding: 7%; }
-.orbit-frame .fiducials { --fid-inset: 0; }
-.orbit-spin { position: relative; width: 100%; height: 100%; animation: orbit 90s linear infinite; will-change: transform; }
-.orbit-spin img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; box-shadow: 0 18px 60px rgb(0 0 0 / 0.55); }
-.orbit-ring { position: absolute; inset: -9%; width: 118%; height: 118%; max-width: none; overflow: visible; }
-.orbit-track { fill: none; stroke: var(--accent-line); stroke-width: 0.18; }
-.orbit-cameras line { stroke: var(--accent); stroke-width: 0.35; stroke-linecap: round; }
-.orbit-cameras circle { fill: var(--accent); }
-.orbit figcaption { margin-top: var(--s4); text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 48ch; margin-inline: auto; }
-@keyframes orbit { to { transform: rotate(360deg); } }
+/* The turning model: a picture, not a control. Nothing a visitor does changes it;
+   only a request for reduced motion holds it still. */
+.orbit { grid-area: orbit; justify-self: center; margin: var(--s6) var(--margin) var(--s6) 0; width: min(100%, 620px); pointer-events: none; user-select: none; -webkit-user-select: none; }
+.orbit-frame { position: relative; aspect-ratio: 1; }
+.orbit-frame .fiducials { --fid-inset: 0; z-index: 1; }
+.orbit-model { position: absolute; inset: 0; }
+.orbit-model canvas { display: block; }
+.orbit figcaption { margin-top: var(--s3); text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 48ch; margin-inline: auto; }
 
 /* The live reconstruction, further down */
 .live { border-top: 1px solid var(--rule); }
@@ -66,8 +61,9 @@ html { scroll-padding-top: 80px; scroll-behavior: smooth; } /* headings and focu
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero h1 .num { font-family: inherit; letter-spacing: inherit; }
 .hero-error { margin-top: var(--s3); color: var(--error); }
+.live-tools { position: absolute; z-index: 3; right: 44px; bottom: 36px; display: flex; gap: var(--s2); }
 .pause {
-  position: absolute; z-index: 3; right: 44px; bottom: 36px; min-height: 36px; padding: 0 var(--s3);
+  position: relative; min-height: 36px; padding: 0 var(--s3);
   background: rgb(9 13 16 / 0.86); border: 1px solid var(--rule); border-radius: var(--r-control); color: var(--ink-2); font-size: 13px; cursor: pointer;
 }
 .pause:hover { color: var(--ink); border-color: var(--accent-line); }

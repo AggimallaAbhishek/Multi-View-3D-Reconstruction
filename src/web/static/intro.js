@@ -19,10 +19,7 @@ function fill(values) {
 }
 
 async function loadShowcase() {
-  const [showcase, temple] = await Promise.all([
-    fetch("showcase/showcase.json").then((r) => r.json()),
-    fetch("showcase/temple.json").then((r) => r.json()),
-  ]);
+  const showcase = await fetch("showcase/showcase.json").then((r) => r.json());
   const { report, frames } = showcase;
   const frame = Object.fromEntries(frames.map((f) => [f.file.replace(".jpg", ""), f]));
   const gt = report.ground_truth && !report.ground_truth.error ? report.ground_truth : null;
@@ -36,21 +33,19 @@ async function loadShowcase() {
     keypoints: count(frame.features.keypoints),
     verified: count(frame.matches.verified),
     matches: count(frame.matches.matches),
-    "temple-views": String(temple.views),
-    "temple-keypoints": count(temple.keypoints),
-    "temple-verified": count(temple.verified),
-    "temple-matches": count(temple.matches),
+    ring: String(frame.cameras.ring ?? frame.cameras.cameras),
+    "cameras-total": String(report.images.registered),
   });
   renderPhotos(showcase.photos ?? []);
   renderFragment(report);
-  return { showcase, frame, gt, temple };
+  return { showcase, frame, gt };
 }
 
 function renderPhotos(photos) {
   $("photo-row").replaceChildren(...photos.map(({ file, name }) => {
     const item = document.createElement("li");
     const figure = document.createElement("figure");
-    const img = Object.assign(document.createElement("img"), { src: `showcase/${file}`, alt: `templeRing photo ${name}`, loading: "lazy", width: 480, height: 360 });
+    const img = Object.assign(document.createElement("img"), { src: `showcase/${file}`, alt: `Temple photo ${name}`, loading: "lazy", width: 480, height: 360 });
     const caption = Object.assign(document.createElement("figcaption"), { textContent: name.replace(/\.[^.]+$/, "") });
     figure.append(img, caption);
     item.append(figure);
@@ -85,21 +80,49 @@ function renderFragment(report) {
 
 // --- Hero: the reconstruction, live -----------------------------------------------------
 
-async function startHero({ showcase, gt }) {
-  const container = $("hero-viewer");
-  const viewer = new Viewer(container);
-  const [cloud, cameras] = await Promise.all([
+async function loadModel() {
+  const [cloud, ring, all] = await Promise.all([
     fetch("showcase/cloud.ply").then((r) => r.arrayBuffer()).then(parsePly),
     fetch("showcase/cameras.json").then((r) => r.json()),
+    fetch("showcase/cameras-all.json").then((r) => r.json()).catch(() => null),
   ]);
+  return { cloud, ring: ring.cameras, all: all?.cameras ?? ring.cameras };
+}
+
+/** The top of the page: the model turning without end, inside its ring of cameras. It
+ * takes no input at all (no controls, no pointer events); reduced motion holds it. */
+function startOrbit({ cloud, ring }) {
+  const viewer = new Viewer($("orbit-model"));
+  viewer.controls.enabled = false;
+  viewer.setPointSize(2);
+  viewer.setCloud({ positions: cloud.positions.slice(), colours: cloud.colours?.slice() ?? null });
+  viewer.setCameras(ring, { pullIn: 2.6 }); // drawn close round the model (caption says so)
+  viewer.setLayer("grid", false);
+  viewer.fit("cameras");
+  viewer.controls.autoRotateSpeed = 1.2;
+  viewer.spin(true);
+}
+
+async function startHero({ showcase, gt }, model) {
+  const container = $("hero-viewer");
+  const viewer = new Viewer(container);
+  const { cloud, ring, all } = model;
   viewer.setPointSize(2.5);
   viewer.setCloud(cloud);
-  viewer.setCameras(cameras.cameras);
+  viewer.setCameras(ring);
   viewer.setLayer("grid", true);
-  viewer.fit("overview");
+  viewer.fit("cameras");
   $("hero-caption").textContent = `${showcase.name} · ${count(cloud.count)} points · drag to orbit`;
+  const allButton = $("all-cameras");
+  allButton.addEventListener("click", () => {
+    const showing = allButton.getAttribute("aria-pressed") === "true";
+    viewer.setCameras(showing ? ring : all);
+    viewer.reveal(1, Infinity);
+    allButton.setAttribute("aria-pressed", String(!showing));
+    allButton.firstChild.textContent = showing ? "Show all " : "Show one ring of ";
+    allButton.querySelector(".num").textContent = showing ? String(all.length) : String(ring.length);
+  });
 
-  // Hold the orbit while the visitor drives it, and while the hero is off screen.
   // Paused by the button, by the visitor moving the view (pointer or keys), off screen, or
   // under reduced motion (WCAG 2.2.2: anything moving for more than 5 s can be paused).
   let visible = true;
@@ -123,7 +146,7 @@ async function startHero({ showcase, gt }) {
   const errors = Object.fromEntries((gt?.per_camera ?? []).map((c) => [c.image, c.rotation_deg]));
   const announcer = $("hero-announce");
   cameraLabels(viewer, $("cam-label"), (k) => {
-    const name = cameras.cameras[k].name;
+    const name = viewer.cameraNames?.[k] ?? ring[k]?.name;
     const bold = Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` });
     return [bold, ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`];
   }, {
@@ -136,18 +159,18 @@ async function startHero({ showcase, gt }) {
 
 // --- How it was made: the pinned stage follows the step in view ---------------------------
 
-function startStory({ frame, temple }) {
+function startStory({ frame }) {
   const steps = [...document.querySelectorAll(".step")];
   const layers = [$("stage-a"), $("stage-b")];
   const caption = $("stage-caption");
   const describe = {
-    "temple-photos": () => [`The temple seen from ${temple.views} positions`, `The temple seen from ${temple.views} positions`],
-    "temple-features": () => [`The temple with its ${count(temple.keypoints)} SIFT keypoints`, `${count(temple.keypoints)} SIFT keypoints on one view`],
-    "temple-matches": () => [`${count(temple.verified)} verified matches between two views of the temple`, `${count(temple.verified)} of ${count(temple.matches)} matches verified (150 drawn)`],
-    cameras: () => [`The ${frame.cameras.cameras} recovered cameras round the benchmark temple`, `Benchmark temple: ${frame.cameras.cameras} recovered cameras`],
-    cloud: () => [`The filtered point cloud of ${count(frame.cloud.points)} points`, `Benchmark temple: ${count(frame.cloud.points)} points after filtering`],
+    photos: () => [`Five of the ${frame.photos.photos} temple photos`, `${frame.photos.photos} photos`],
+    features: () => [`${frame.features.photo} with its ${count(frame.features.keypoints)} SIFT keypoints`, `${frame.features.photo} · ${count(frame.features.keypoints)} keypoints`],
+    matches: () => [`${frame.matches.verified} verified matches between ${frame.matches.photos.join(" and ")}`, `${frame.matches.photos.join(" ↔ ")} · ${count(frame.matches.verified)} of ${count(frame.matches.matches)} verified (150 drawn)`],
+    cameras: () => [`One ring of ${frame.cameras.ring ?? frame.cameras.cameras} of the ${frame.cameras.cameras} recovered cameras`, `${frame.cameras.cameras} cameras recovered · one ring of ${frame.cameras.ring ?? frame.cameras.cameras} shown`],
+    cloud: () => [`The filtered point cloud of ${count(frame.cloud.points)} points`, `${count(frame.cloud.points)} points after filtering`],
   };
-  let current = "temple-photos";
+  let current = "photos";
   let front = 0; // the layer on show
   const select = (name) => {
     if (name === current) return;
@@ -215,9 +238,11 @@ function startEntrances() {
 
 startEntrances();
 loadShowcase()
-  .then((data) => {
+  .then(async (data) => {
     startStory(data);
-    return startHero(data);
+    const model = await loadModel();
+    startOrbit(model);
+    return startHero(data, model);
   })
   .catch((error) => {
     const box = $("hero-error");

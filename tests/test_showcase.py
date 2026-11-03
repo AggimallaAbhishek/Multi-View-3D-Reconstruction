@@ -99,21 +99,58 @@ def test_a_single_showcase_photo_is_the_first(run, tmp_path):
     assert [p["name"] for p in photos] == ["view_01.png"]
 
 
-def test_temple_frames_are_drawn_from_measurements_on_the_picture(tmp_path):
-    """One picture tilted into five 'views': the keypoints and the verified matches shown
-    are the project's own SIFT and matching run on those views."""
-    from src.config import load_config
-    from src.web.showcase import TEMPLE_FRAMES, make_temple_frames
-    from tests.images import make_natural_texture
+def _camera_at(centre, target=(0.0, 0.0, 0.0)):
+    """A cameras.json entry at ``centre`` looking at ``target``."""
+    import numpy as np
 
-    picture = tmp_path / "temple.jpg"
-    cv2.imwrite(str(picture), make_natural_texture(3, 640, 640))
-    config = load_config()
-    data = make_temple_frames(picture, tmp_path / "out", config)
+    c = np.asarray(centre, float)
+    z = np.asarray(target, float) - c
+    z /= np.linalg.norm(z)
+    x = np.cross([0.0, 0.0, 1.0], z)
+    x = x / np.linalg.norm(x) if np.linalg.norm(x) > 1e-9 else np.array([1.0, 0, 0])
+    y = np.cross(z, x)
+    R = np.stack([x, y, z])
+    return {"name": "", "R": R.tolist(), "t": (-R @ c).tolist(), "centre": c.tolist()}
 
-    for name in TEMPLE_FRAMES:
-        frame = cv2.imread(str(tmp_path / "out" / f"{name}.jpg"))
-        assert frame.shape[1] == config.web.showcase_frame_px, name
-    assert data["views"] == 5
-    assert data["keypoints"] > 200
-    assert 0 < data["verified"] <= data["matches"]
+
+def test_the_most_complete_even_ring_is_chosen_for_display():
+    """Cameras on a dome: the display ring is the height band whose cameras go all the
+    way round, not the fuller band that leaves half the circle empty (24 cameras 15
+    degrees apart: one per 10-degree sector, so all of them)."""
+    import numpy as np
+
+    from src.web.showcase import display_ring
+
+    cameras = []
+    for k in range(24):  # a complete, even ring at 30 degrees elevation
+        a = 2 * np.pi * k / 24
+        cameras.append(
+            _camera_at([np.cos(a) * np.cos(0.52), np.sin(a) * np.cos(0.52), np.sin(0.52)])
+        )
+    for k in range(30):  # more cameras at 60 degrees, but only over half the circle
+        a = np.pi * k / 30
+        cameras.append(_camera_at([np.cos(a) * 0.5, np.sin(a) * 0.5, 0.866]))
+    for k, cam in enumerate(cameras):
+        cam["name"] = f"c{k:02d}"
+    ring = display_ring(cameras, points=np.zeros((10, 3)))
+    assert sorted(c["name"] for c in ring) == [f"c{k:02d}" for k in range(24)]
+
+
+def test_a_dense_band_is_thinned_to_an_even_ring():
+    """Cameras spread over a dome at every height: the ring shown is complete and even,
+    one camera per sector."""
+    import numpy as np
+
+    from src.web.showcase import RING_SECTORS, display_ring
+
+    rng = np.random.default_rng(0)
+    cameras = []
+    for k in range(3000):  # dense enough that every sector of every band has a camera
+        a, e = rng.uniform(0, 2 * np.pi), rng.uniform(0.0, 1.4)
+        cameras.append(_camera_at([np.cos(a) * np.cos(e), np.sin(a) * np.cos(e), np.sin(e)]))
+        cameras[-1]["name"] = f"c{k}"
+    ring = display_ring(cameras, points=np.zeros((10, 3)))
+    angles = np.sort([np.degrees(np.arctan2(c["centre"][1], c["centre"][0])) % 360 for c in ring])
+    gaps = np.diff(np.concatenate([angles, [angles[0] + 360]]))
+    assert len(ring) == RING_SECTORS
+    assert gaps.max() < 2 * 360 / RING_SECTORS  # even: no sector skipped

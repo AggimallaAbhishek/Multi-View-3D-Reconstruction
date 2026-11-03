@@ -31,7 +31,10 @@ from src.run import read_json, write_json
 from src.web.report import REPORT_NAME
 
 FRAMES = ("photos", "features", "matches", "cameras", "cloud")
-TEMPLE_FRAMES = ("temple-photos", "temple-features", "temple-matches")
+RING_BAND_DEG = 14.0  # height of the band of cameras shown as the display ring
+RING_SECTORS = 36  # the ring is resampled to at most one camera per 10-degree sector
+RING_MAX_GAP_DEG = 90.0  # a band with a larger gap does not go round: no ring to show
+RING_REFINEMENTS = 5  # re-estimates of the ring's axis from the chosen band
 TEMPLE_VIEWS_DEG = (-24, -12, 0, 12, 24)  # tilts that stand in for walking round the picture
 MATCH_LINES = 150  # lines drawn in the matches frame (a drawing choice, not a measurement)
 # Drawing choices for the frames (layout, not measurement):
@@ -55,13 +58,15 @@ def make_showcase(
     report = read_json(run_dir / REPORT_NAME)
     shutil.copyfile(run_dir / "point_clouds" / "filtered.ply", out / "cloud.ply")
     cameras = read_json(run_dir / "camera_poses" / "cameras.json")
-    write_json(out / "cameras.json", cameras)
+    write_json(out / "cameras-all.json", cameras)
 
     width = config.web.showcase_frame_px
     size = (width, round(width * 5 / 8))
     result = run_pipeline(images_dir, config, until="verify")
     points, colours = _read_cloud(out / "cloud.ply")
-    centres = np.array([c["centre"] for c in cameras["cameras"]], dtype=np.float64)
+    ring = display_ring(cameras["cameras"], points)
+    write_json(out / "cameras.json", {**cameras, "cameras": ring, "of": len(cameras["cameras"])})
+    centres = np.array([c["centre"] for c in ring], dtype=np.float64)
 
     _save(out, "photos", _photos(result, size), config)
     _save(out, "cameras", _render(points, colours, centres, size, cameras_only=True), config)
@@ -70,7 +75,7 @@ def make_showcase(
         {"file": "photos.jpg", "photos": len(result.images)},
         {"file": "features.jpg", **_features_frame(out, result, size, config)},
         {"file": "matches.jpg", **_matches_frame(out, result, size, config)},
-        {"file": "cameras.jpg", "cameras": len(centres)},
+        {"file": "cameras.jpg", "cameras": len(cameras["cameras"]), "ring": len(centres)},
         {"file": "cloud.jpg", "points": len(points)},
     ]
     photos = _save_photos(out, result, config)
@@ -275,115 +280,78 @@ def _render(
     return canvas
 
 
-def make_temple_frames(picture: str | Path, out_dir: str | Path, config: Config) -> dict[str, Any]:
-    """Frames for "how it works" drawn from one picture (the intro's temple illustration).
+def display_ring(cameras: list[dict[str, Any]], points: np.ndarray) -> list[dict[str, Any]]:
+    """An even ring of cameras for display: a dome of hundreds of frustums reads as
+    clutter, a ring round the object reads as "photographed from all round".
 
-    The picture is tilted into five views, as photos from positions round it would look
-    (a homography per view: a picture is flat). The project's own feature extractor and
-    matcher then run on those views; the keypoints and matches drawn, and the numbers
-    returned, are their real output. A flat picture has no depth, so the matches are
-    verified with a homography (RANSAC, ``verification.ransac_threshold_px``) rather than
-    the essential matrix the pipeline uses on real photos.
+    "Up" starts as the normal of the cameras' best-fit plane (the axis of a ring or a
+    dome), pointing from the object (median of ``points``) towards the cameras, and is
+    refined from the chosen band (up to ``RING_REFINEMENTS`` times). A band
+    ``RING_BAND_DEG`` tall slides over the cameras' elevations; the band that covers the
+    circle best (camera count times one minus its largest azimuth gap over 360°) is
+    resampled evenly: in each of ``RING_SECTORS`` equal sectors, the camera nearest the
+    sector's centre. Cameras on an arc rather than round the object (the best band still
+    leaves a gap over ``RING_MAX_GAP_DEG``) are all kept. Cameras keep their order
+    (registration).
     """
-    from src.features.extractor import create_extractor
-    from src.features.matcher import DescriptorMatcher
+    centres = np.array([c["centre"] for c in cameras], dtype=np.float64)
+    if len(centres) < 3:
+        return list(cameras)
+    middle = np.median(points, axis=0) if len(points) else centres.mean(axis=0)
+    offsets = centres - middle
+    lift = centres.mean(axis=0) - middle
+    _, _, vt = np.linalg.svd(centres - centres.mean(axis=0))
+    # First guess at "up": the direction the camera centres spread least along, pointing
+    # towards the cameras. A lopsided layout tilts it, so it is refined from the chosen
+    # band itself (one ring is planar: its normal is the true axis), and the band is
+    # chosen again.
+    up = vt[2] if np.dot(vt[2], lift) >= 0 else -vt[2]
+    distance = np.linalg.norm(offsets, axis=1)
+    best = None
+    for _ in range(RING_REFINEMENTS):
+        across = vt[0] - np.dot(vt[0], up) * up
+        if np.linalg.norm(across) < 1e-9:
+            across = np.cross(up, [1.0, 0.0, 0.0])
+        across /= np.linalg.norm(across)
+        side = np.cross(up, across)
+        elevation = np.degrees(np.arcsin(np.clip(offsets @ up / distance, -1, 1)))
+        azimuth = np.degrees(np.arctan2(offsets @ side, offsets @ across)) % 360
+        best = _best_band(elevation, azimuth)
+        if best is None or len(best) < 3:
+            break
+        _, _, band_vt = np.linalg.svd(centres[best] - centres[best].mean(axis=0))
+        refined = band_vt[2] if np.dot(band_vt[2], lift) >= 0 else -band_vt[2]
+        if np.dot(refined, up) > np.cos(np.radians(0.1)):
+            break
+        up = refined
 
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    image = cv2.imread(str(picture))
-    if image is None:
-        raise ValueError(f"cannot read {picture}")
-    views = [_tilt(image, deg) for deg in TEMPLE_VIEWS_DEG]
-    width = config.web.showcase_frame_px
-    size = (width, round(width * 5 / 8))
-
-    # photos: the five views fanned out
-    canvas = _canvas(size)
-    card = (int(width * CARD[0]), int(size[1] * CARD[1]))
-    step = (width - card[0] - width * 0.1) / (len(views) - 1)
-    for k, view in enumerate(views):
-        photo = _fit(view, card)
-        cv2.rectangle(photo, (0, 0), (photo.shape[1] - 1, photo.shape[0] - 1), MUTED, 2)
-        x = int(width * 0.05 + k * step)
-        _paste(canvas, photo, x, (size[1] - photo.shape[0]) // 2)
-    _save(out, "temple-photos", canvas, config)
-
-    extractor = create_extractor(config.features)
-    features = [extractor.detect(cv2.cvtColor(v, cv2.COLOR_BGR2GRAY)) for v in views]
-
-    # features: the middle view with every keypoint
-    middle = len(views) // 2
-    photo = _fit(views[middle], (size[0] - 40, size[1] - 40))
-    scale = photo.shape[1] / views[middle].shape[1]
-    photo = _dim(photo)
-    f = features[middle]
-    for (x, y), s in zip(f.points, f.sizes, strict=True):
-        cv2.circle(
-            photo,
-            (round(x * scale), round(y * scale)),
-            max(2, round(s * scale / 2)),
-            ACCENT,
-            1,
-            cv2.LINE_AA,
-        )
-    canvas = _canvas(size)
-    _paste(canvas, photo, (size[0] - photo.shape[1]) // 2, (size[1] - photo.shape[0]) // 2)
-    _save(out, "temple-features", canvas, config)
-
-    # matches: two neighbouring views, verified
-    a, b = middle - 1, middle
-    matches, _ = DescriptorMatcher(config.matching).match(features[a], features[b], a, b)
-    pa, pb = matches.points(features[a], features[b])
-    verified = 0
-    keep = np.zeros(len(pa), bool)
-    if len(pa) >= 4:
-        _, mask = cv2.findHomography(pa, pb, cv2.RANSAC, config.verification.ransac_threshold_px)
-        if mask is not None:
-            keep = mask.ravel().astype(bool)
-            verified = int(keep.sum())
-    half = (size[0] // 2 - 20, size[1] - 40)
-    left, right = _fit(views[a], half), _fit(views[b], half)
-    sa, sb = left.shape[1] / views[a].shape[1], right.shape[1] / views[b].shape[1]
-    canvas = _canvas(size)
-    y0, y1 = (size[1] - left.shape[0]) // 2, (size[1] - right.shape[0]) // 2
-    x_left = 10 + (half[0] - left.shape[1]) // 2
-    x_right = size[0] // 2 + 10 + (half[0] - right.shape[1]) // 2
-    _paste(canvas, _dim(left), x_left, y0)
-    _paste(canvas, _dim(right), x_right, y1)
-    good_a, good_b = pa[keep], pb[keep]
-    shown = (
-        np.linspace(0, len(good_a) - 1, min(len(good_a), MATCH_LINES)).astype(int)
-        if len(good_a)
-        else []
-    )
-    for i in shown:
-        (xa, ya), (xb, yb) = good_a[i], good_b[i]
-        cv2.line(
-            canvas,
-            (round(x_left + xa * sa), round(y0 + ya * sa)),
-            (round(x_right + xb * sb), round(y1 + yb * sb)),
-            ACCENT,
-            1,
-            cv2.LINE_AA,
-        )
-    _save(out, "temple-matches", canvas, config)
-
-    data = {"views": len(views), "keypoints": len(f), "matches": len(matches), "verified": verified}
-    write_json(out / "temple.json", data)
-    return data
+    if best is None or _largest_gap(azimuth[best]) > RING_MAX_GAP_DEG:
+        return list(cameras)  # an arc of cameras, not a ring: show them all
+    width = 360 / RING_SECTORS
+    keep = set()
+    for sector in range(RING_SECTORS):
+        centre = (sector + 0.5) * width
+        inside = best[np.abs((azimuth[best] - centre + 180) % 360 - 180) <= width / 2]
+        if len(inside):
+            keep.add(int(inside[np.argmin(np.abs((azimuth[inside] - centre + 180) % 360 - 180))]))
+    return [c for k, c in enumerate(cameras) if k in keep]
 
 
-def _tilt(image: np.ndarray, degrees: float) -> np.ndarray:
-    """The picture as seen from a camera turned ``degrees`` round its vertical axis: the
-    far side shrinks (a homography), on the page's dark background."""
-    h, w = image.shape[:2]
-    t = np.deg2rad(degrees)
-    squeeze = 0.5 * h * abs(np.sin(t)) * 0.45  # how much the far edge shrinks
-    near, far = 0.0, squeeze
-    xs = w * (1 - np.cos(t)) / 2  # the turned picture is narrower
-    if degrees >= 0:  # right edge further away
-        dst = [[xs, near], [w - xs, far], [w - xs, h - far], [xs, h - near]]
-    else:
-        dst = [[xs, far], [w - xs, near], [w - xs, h - near], [xs, h - far]]
-    H = cv2.getPerspectiveTransform(np.float32([[0, 0], [w, 0], [w, h], [0, h]]), np.float32(dst))
-    return cv2.warpPerspective(image, H, (w, h), borderValue=BACKGROUND)
+def _largest_gap(angles: np.ndarray) -> float:
+    """Largest gap (degrees) between neighbouring azimuths round the circle."""
+    angles = np.sort(angles)
+    return float(np.diff(np.concatenate([angles, [angles[0] + 360]])).max())
+
+
+def _best_band(elevation: np.ndarray, azimuth: np.ndarray) -> np.ndarray | None:
+    """Indices of the ``RING_BAND_DEG``-tall elevation band that covers the circle best
+    (camera count times one minus its largest azimuth gap over 360°)."""
+    best, best_score = None, -1.0
+    for low in np.arange(elevation.min(), elevation.max() + 1e-9, 1.0):
+        band = np.flatnonzero((elevation >= low) & (elevation < low + RING_BAND_DEG))
+        if len(band) < 3:
+            continue
+        score = len(band) * (1 - _largest_gap(azimuth[band]) / 360)
+        if score > best_score:
+            best, best_score = band, score
+    return best

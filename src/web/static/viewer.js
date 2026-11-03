@@ -283,14 +283,28 @@ export class Viewer {
 
   /** Camera frustums from ``cameras.json`` entries (in registration order), with a glow at
    * each centre, the capture path and a ground grid; sized to the current cloud. */
-  setCameras(cameras) {
+  setCameras(cameras, { pullIn = null } = {}) {
     for (const old of [this.frustums, this.markers, this.path]) this.#dispose(old);
     const box = this.points ? this.points.geometry.boundingBox : null;
     const extent = box ? box.getSize(new THREE.Vector3()).length() : 1;
     const middle = box ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+    // pullIn: draw the cameras this many cloud radii from the cloud's middle instead of
+    // where they stood (for a picture of model and ring together; not a measurement)
+    if (pullIn && this.sphere) {
+      const centreOf = (cam) => new THREE.Vector3(...cam.t).applyMatrix3(new THREE.Matrix3().set(...cam.R.flat()).transpose()).negate();
+      const distances = cameras.map((cam) => centreOf(cam).distanceTo(this.sphere.centre));
+      const scale = (pullIn * this.sphere.radius) / Math.max(1e-9, distances.sort((a, b) => a - b)[Math.floor(distances.length / 2)]);
+      cameras = cameras.map((cam) => {
+        const R = new THREE.Matrix3().set(...cam.R.flat());
+        const c = centreOf(cam).sub(this.sphere.centre).multiplyScalar(scale).add(this.sphere.centre);
+        const t = c.clone().applyMatrix3(R).negate(); // t = -R C
+        return { ...cam, t: [t.x, t.y, t.z] };
+      });
+    }
     const vertices = [];
     const forward = new THREE.Vector3();
     const up = new THREE.Vector3();
+    this.cameraNames = cameras.map((cam) => cam.name ?? "");
     const rotations = cameras.map((cam) => new THREE.Matrix3().set(...cam.R.flat()).transpose()); // R^T
     this.cameraCentres = cameras.map((cam, k) => new THREE.Vector3(...cam.t).applyMatrix3(rotations[k]).negate()); // C = -R^T t
     const median = this.cameraCentres.length ? quantile(this.cameraCentres.map((c) => c.distanceTo(middle)), 0.5) : 0;
