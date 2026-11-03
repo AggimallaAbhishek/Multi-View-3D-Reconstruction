@@ -203,6 +203,15 @@ def test_duplicate_image_names_are_rejected():
     assert "a.png" in response.json()["detail"]
 
 
+def test_names_differing_only_in_case_are_rejected():
+    """On a case-insensitive disk (macOS, Windows) IMG_1.JPG and img_1.jpg are one file:
+    one photo would silently overwrite the other."""
+    response = post(client_for(), images("IMG_1.png", "img_1.png", "b.png"))
+    assert response.status_code == 422
+    assert "img_1.png" in response.json()["detail"].lower()
+    assert nothing_uploaded()
+
+
 def test_upload_while_busy_is_a_conflict():
     response = post(client_for(FakeManager(busy=True)), images("a.png", "b.png"))
     assert response.status_code == 409
