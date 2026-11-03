@@ -32,9 +32,11 @@
   --error-soft: rgb(243 165 147 / 0.12);
 
   /* type */
-  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
-  --body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* A classical serif for titles (the temple), the engineering voice of IBM Plex for text
+     and numbers: a contrast pairing (better-typography). */
+  --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --step--1: 0.8125rem;   /* 13px: labels, captions */
   --step-0: 0.9375rem;    /* 15px: body in the workstation */
   --step-1: 1.125rem;     /* 18px: body on the intro */

@@ -11,7 +11,7 @@ web
 ## Stack
 
 FastAPI serving static HTML, CSS and ES modules; three.js 0.160 from a CDN for the 3-D
-viewer; Google Fonts (Archivo, Atkinson Hyperlegible Next, JetBrains Mono). No build
+viewer; Google Fonts (Fraunces, IBM Plex Sans, IBM Plex Mono). No build
 step, no frontend framework. Local only: `python -m src.web` on 127.0.0.1, one job at a
 time, no accounts.
 
@@ -60,7 +60,7 @@ being explicit about what is its own work and what is external.
   for cameras, the primary action and active states only.
 - Survey-instrument language: fiducial crosses at viewport corners, monospace data
   strips, hairline rules.
-- Archivo (display), Atkinson Hyperlegible Next (body), JetBrains Mono (numbers, labels).
+- Fraunces (display serif, a nod to the classical subject), IBM Plex Sans (body), IBM Plex Mono (numbers).
 
 ## Evidence on Hand
 
