@@ -219,6 +219,7 @@ class WebConfig:
     max_upload_mb: int = 500
     max_upload_images: int = 200
     poll_interval_ms: int = 1000
+    stage_timeout_s: float = 1800.0
     open_browser: bool = True
     thumbnails: int = 12
     thumbnail_px: int = 240

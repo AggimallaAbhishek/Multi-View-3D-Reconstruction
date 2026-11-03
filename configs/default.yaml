@@ -199,6 +199,9 @@ web:                           # local web interface (python -m src.web); one jo
                                # subsamples instead); accepted extensions and the minimum
                                # count come from dataset.extensions / dataset.min_images
   poll_interval_ms: 1000       # how often the page asks for job progress
+  stage_timeout_s: 1800        # a job whose worker sends no progress for this long is stopped
+                               # and fails (0: no limit); the worker reports between stages, and
+                               # the slowest seen took 184 s (reconstruct, 312 photos)
   open_browser: true           # open the page when the server starts
   thumbnails: 12               # photos kept per run as thumbnails (uploads are deleted)
   thumbnail_px: 240            # longest side of a thumbnail

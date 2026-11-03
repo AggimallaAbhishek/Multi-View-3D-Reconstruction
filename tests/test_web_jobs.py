@@ -394,3 +394,34 @@ def test_worker_is_stopped_when_relaying_its_progress_fails(tmp_path):
     time.sleep(1)  # a child left running would finish and write its run folder by now
     outputs = tmp_path / "outputs"
     assert not outputs.exists() or not any(outputs.glob("*_web_reconstruct*"))
+
+
+def _report_once_then_hang(upload_dir, config, events, stamp):
+    """A worker that is alive but silent: one progress message, then nothing (spawned, so
+    it must be importable at module level)."""
+    import time
+
+    events.put(("stage", "features", {"dataset": 0.1}))
+    time.sleep(120)
+
+
+def test_worker_silent_for_longer_than_the_stage_timeout_is_stopped(tmp_path):
+    """Alive but sending nothing: without a limit the job stayed "running" for good and
+    blocked every new upload."""
+    import multiprocessing
+    import time
+
+    config = config_from_dict({"web": {"stage_timeout_s": 1.0}})
+    seen = []
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match=r"no progress for 1 s.*web\.stage_timeout_s"):
+        reconstruct_in_subprocess(
+            tmp_path, config, lambda s, t: seen.append(s), target=_report_once_then_hang
+        )
+    assert seen == ["features"]  # its progress was relayed until it went quiet
+    assert time.monotonic() - started < 20  # stopped, not left for its 120 s
+    assert multiprocessing.active_children() == []
+
+
+def test_stage_timeout_zero_switches_the_limit_off():
+    assert config_from_dict({"web": {"stage_timeout_s": 0}}).web.stage_timeout_s == 0
