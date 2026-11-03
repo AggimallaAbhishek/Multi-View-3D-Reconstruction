@@ -86,20 +86,27 @@ async function loadModel() {
     fetch("showcase/cameras.json").then((r) => r.json()),
     fetch("showcase/cameras-all.json").then((r) => r.json()).catch(() => null),
   ]);
-  return { cloud, ring: ring.cameras, all: all?.cameras ?? ring.cameras };
+  return { cloud, ring: ring.cameras, all: all?.cameras ?? ring.cameras, up: null };
 }
 
 /** The top of the page: the model turning without end, inside its ring of cameras. It
  * takes no input at all (no controls, no pointer events); reduced motion holds it. */
-function startOrbit({ cloud, ring }) {
+/** Upright by the measured "up" when the showcase has one, else by the dome of cameras. */
+const standUp = (viewer, { up, all }) => (up ? viewer.orientUp(up) : viewer.orientByDome(all));
+
+function startOrbit(model) {
+  const { cloud, ring } = model;
   const viewer = new Viewer($("orbit-model"));
   viewer.controls.enabled = false;
-  viewer.setPointSize(2);
+  viewer.setPointSize(1.15); // fine points: the columns and cornices read clearly
   viewer.setCloud({ positions: cloud.positions.slice(), colours: cloud.colours?.slice() ?? null });
-  viewer.setCameras(ring, { pullIn: 2.6 }); // drawn close round the model (caption says so)
+  viewer.setCameras(ring, { pullIn: 2.4 }); // drawn close round the model (caption says so)
+  standUp(viewer, model);
   viewer.setLayer("grid", false);
-  viewer.fit("cameras");
-  viewer.controls.autoRotateSpeed = 1.2;
+  // a low three-quarter view, as one would photograph a building, close enough that the
+  // temple fills the background and the ring sweeps round it
+  viewer.fit("cameras", { elevation: 16, distanceScale: 0.62 });
+  viewer.controls.autoRotateSpeed = 0.9;
   viewer.spin(true);
 }
 
@@ -107,16 +114,18 @@ async function startHero({ showcase, gt }, model) {
   const container = $("hero-viewer");
   const viewer = new Viewer(container);
   const { cloud, ring, all } = model;
-  viewer.setPointSize(2.5);
+  viewer.setPointSize(1.5);
   viewer.setCloud(cloud);
   viewer.setCameras(ring);
+  standUp(viewer, model);
   viewer.setLayer("grid", true);
-  viewer.fit("cameras");
+  viewer.fit("cameras", { elevation: 22 });
   $("hero-caption").textContent = `${showcase.name} · ${count(cloud.count)} points · drag to orbit`;
   const allButton = $("all-cameras");
   allButton.addEventListener("click", () => {
     const showing = allButton.getAttribute("aria-pressed") === "true";
     viewer.setCameras(showing ? ring : all);
+    standUp(viewer, model);
     viewer.reveal(1, Infinity);
     allButton.setAttribute("aria-pressed", String(!showing));
     allButton.firstChild.textContent = showing ? "Show all " : "Show one ring of ";
@@ -240,7 +249,7 @@ startEntrances();
 loadShowcase()
   .then(async (data) => {
     startStory(data);
-    const model = await loadModel();
+    const model = { ...(await loadModel()), up: data.showcase.up ?? null };
     startOrbit(model);
     return startHero(data, model);
   })

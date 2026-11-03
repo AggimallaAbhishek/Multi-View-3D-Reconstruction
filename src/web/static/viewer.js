@@ -371,6 +371,31 @@ export class Viewer {
     this.scene.add(this.grid);
   }
 
+  /** Stand the scene upright by a dome of cameras: "up" is from the cloud's middle to
+   * the cameras' mean position (a dome sits above its object). Use all the cameras, even
+   * when only some are shown: one band of a dome need not be level. */
+  orientByDome(cameras) {
+    if (!this.sphere || cameras.length < 3) return;
+    const mean = new THREE.Vector3();
+    for (const cam of cameras) {
+      const Rt = new THREE.Matrix3().set(...cam.R.flat()).transpose();
+      mean.add(new THREE.Vector3(...cam.t).applyMatrix3(Rt).negate());
+    }
+    mean.divideScalar(cameras.length);
+    this.orientUp(mean.sub(this.sphere.centre).toArray());
+  }
+
+  /** Stand the scene upright with ``up`` (a direction in the reconstruction's frame,
+   * e.g. measured against ground truth) pointing up on screen. */
+  orientUp(up) {
+    const v = new THREE.Vector3(...up);
+    if (v.length() < 1e-9) return;
+    this.group.quaternion.setFromUnitVectors(v.normalize(), new THREE.Vector3(0, 1, 0));
+    this.cameraForward = null;
+    this.#buildGrid();
+    this.render();
+  }
+
   setPointSize(px) {
     this.pointSize = px;
     if (this.points) {
@@ -493,7 +518,7 @@ export class Viewer {
 
   /** Frame the cloud ("object"), the cloud and every camera ("cameras"), or the cloud with
    * the nearer cameras round it ("overview"), looking the way the photos did. */
-  fit(target = "object") {
+  fit(target = "object", { elevation = null, distanceScale = 1 } = {}) {
     this.group.updateMatrixWorld();
     const sphere = this.points && this.sphere;
     if (!sphere) return;
@@ -508,7 +533,10 @@ export class Viewer {
       ? this.cameraForward.clone().transformDirection(this.group.matrixWorld)
       : new THREE.Vector3(0, 0, -1);
     if (Math.hypot(direction.x, direction.z) < 1e-3) direction.set(0, 0, -1); // looking straight down
-    direction.setY(0).normalize().add(new THREE.Vector3(0, this.cameraForward ? -0.35 : -0.8, 0)).normalize(); // from above
+    // from above: by ``elevation`` degrees when given, else the photos' own tilt
+    const drop = elevation === null ? (this.cameraForward ? -0.35 : -0.8) : -Math.tan(THREE.MathUtils.degToRad(elevation));
+    direction.setY(0).normalize().add(new THREE.Vector3(0, drop, 0)).normalize();
+    distance *= distanceScale;
     this.camera.position.copy(centre).addScaledVector(direction, -distance);
     this.camera.lookAt(centre);
     this.perspective.near = distance / 1000;

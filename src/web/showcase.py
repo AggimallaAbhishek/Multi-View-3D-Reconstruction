@@ -25,6 +25,8 @@ import numpy as np
 
 from src.config import Config
 from src.data.preprocessing import resize_max_side
+from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
+from src.evaluation.metrics import align_similarity
 from src.geometry.verification import inlier_matches
 from src.pipeline import run_pipeline
 from src.run import read_json, write_json
@@ -50,7 +52,12 @@ MUTED = (169, 163, 143)  # BGR of --muted (#8fa3a9)
 
 
 def make_showcase(
-    run_dir: str | Path, images_dir: str | Path, out_dir: str | Path, config: Config, name: str = ""
+    run_dir: str | Path,
+    images_dir: str | Path,
+    out_dir: str | Path,
+    config: Config,
+    name: str = "",
+    up_axis: int | None = None,
 ) -> Path:
     """Write the showcase of the finished web run ``run_dir`` (photos in ``images_dir``)."""
     run_dir, out = Path(run_dir), Path(out_dir)
@@ -64,7 +71,13 @@ def make_showcase(
     size = (width, round(width * 5 / 8))
     result = run_pipeline(images_dir, config, until="verify")
     points, colours = _read_cloud(out / "cloud.ply")
-    ring = display_ring(cameras["cameras"], points)
+    up = None  # the scene's true "up" in the model's frame, when ground truth tells it
+    truth_file = Path(images_dir) / GT_CAMERAS_FILE
+    if up_axis is not None and truth_file.is_file():
+        truth = {n: -cam.R.T @ cam.t for n, cam in load_cameras_json(truth_file).items()}
+        found = ground_truth_up(cameras["cameras"], truth, up_axis)
+        up = None if found is None else found.tolist()
+    ring = display_ring(cameras["cameras"], points, up=up)
     write_json(out / "cameras.json", {**cameras, "cameras": ring, "of": len(cameras["cameras"])})
     centres = np.array([c["centre"] for c in ring], dtype=np.float64)
 
@@ -80,7 +93,8 @@ def make_showcase(
     ]
     photos = _save_photos(out, result, config)
     write_json(
-        out / "showcase.json", {"name": name, "report": report, "frames": frames, "photos": photos}
+        out / "showcase.json",
+        {"name": name, "report": report, "frames": frames, "photos": photos, "up": up},
     )
     return out
 
@@ -280,19 +294,21 @@ def _render(
     return canvas
 
 
-def display_ring(cameras: list[dict[str, Any]], points: np.ndarray) -> list[dict[str, Any]]:
+def display_ring(
+    cameras: list[dict[str, Any]], points: np.ndarray, up: np.ndarray | None = None
+) -> list[dict[str, Any]]:
     """An even ring of cameras for display: a dome of hundreds of frustums reads as
     clutter, a ring round the object reads as "photographed from all round".
 
-    "Up" starts as the normal of the cameras' best-fit plane (the axis of a ring or a
-    dome), pointing from the object (median of ``points``) towards the cameras, and is
-    refined from the chosen band (up to ``RING_REFINEMENTS`` times). A band
-    ``RING_BAND_DEG`` tall slides over the cameras' elevations; the band that covers the
-    circle best (camera count times one minus its largest azimuth gap over 360°) is
-    resampled evenly: in each of ``RING_SECTORS`` equal sectors, the camera nearest the
-    sector's centre. Cameras on an arc rather than round the object (the best band still
-    leaves a gap over ``RING_MAX_GAP_DEG``) are all kept. Cameras keep their order
-    (registration).
+    "Up" is the given ``up`` (e.g. from ground truth) if known; otherwise it starts as
+    the normal of the cameras' best-fit plane (the axis of a ring or a dome), pointing
+    from the object (median of ``points``) towards the cameras, and is refined from the
+    chosen band (up to ``RING_REFINEMENTS`` times). A band ``RING_BAND_DEG`` tall slides
+    over the cameras' elevations; the band that covers the circle best (camera count
+    times one minus its largest azimuth gap over 360°) is resampled evenly: in each of
+    ``RING_SECTORS`` equal sectors, the camera nearest the sector's centre. Cameras on an
+    arc rather than round the object (the best band still leaves a gap over
+    ``RING_MAX_GAP_DEG``) are all kept. Cameras keep their order (registration).
     """
     centres = np.array([c["centre"] for c in cameras], dtype=np.float64)
     if len(centres) < 3:
@@ -305,10 +321,14 @@ def display_ring(cameras: list[dict[str, Any]], points: np.ndarray) -> list[dict
     # towards the cameras. A lopsided layout tilts it, so it is refined from the chosen
     # band itself (one ring is planar: its normal is the true axis), and the band is
     # chosen again.
-    up = vt[2] if np.dot(vt[2], lift) >= 0 else -vt[2]
+    known = up is not None  # the true axis (e.g. from ground truth): no estimate needed
+    if known:
+        up = np.asarray(up, dtype=np.float64) / np.linalg.norm(up)
+    else:
+        up = vt[2] if np.dot(vt[2], lift) >= 0 else -vt[2]
     distance = np.linalg.norm(offsets, axis=1)
     best = None
-    for _ in range(RING_REFINEMENTS):
+    for _ in range(1 if known else RING_REFINEMENTS):
         across = vt[0] - np.dot(vt[0], up) * up
         if np.linalg.norm(across) < 1e-9:
             across = np.cross(up, [1.0, 0.0, 0.0])
@@ -355,3 +375,21 @@ def _best_band(elevation: np.ndarray, azimuth: np.ndarray) -> np.ndarray | None:
         if score > best_score:
             best, best_score = band, score
     return best
+
+
+def ground_truth_up(
+    cameras: list[dict[str, Any]], truth: dict[str, np.ndarray], axis: int
+) -> np.ndarray | None:
+    """The ground-truth frame's ``axis`` (0, 1, 2 for x, y, z) as a unit vector in the
+    reconstruction's frame: the similarity mapping the reconstructed camera centres onto
+    the true ones (``truth``: centre by image name) is inverted for that direction. None
+    with fewer than three matching cameras."""
+    names = [c["name"] for c in cameras if c["name"] in truth]
+    if len(names) < 3:
+        return None
+    rebuilt = {c["name"]: np.asarray(c["centre"], dtype=np.float64) for c in cameras}
+    similarity = align_similarity(
+        np.array([rebuilt[n] for n in names]), np.array([truth[n] for n in names])
+    )
+    up = similarity.R.T @ np.eye(3)[axis]  # true = scale R rebuilt + t, so rebuilt dir = R^T
+    return up / np.linalg.norm(up)

@@ -154,3 +154,59 @@ def test_a_dense_band_is_thinned_to_an_even_ring():
     gaps = np.diff(np.concatenate([angles, [angles[0] + 360]]))
     assert len(ring) == RING_SECTORS
     assert gaps.max() < 2 * 360 / RING_SECTORS  # even: no sector skipped
+
+
+def test_up_comes_from_the_ground_truth_frame():
+    """The reconstruction's own frame is arbitrary; with ground-truth cameras the true
+    'up' axis maps back into it through the similarity between the two."""
+    import numpy as np
+    from scipy.spatial.transform import Rotation
+
+    from src.web.showcase import ground_truth_up
+
+    rng = np.random.default_rng(1)
+    truth = [_camera_at(rng.normal(size=3) + [0, 3, 0], target=(0, 0, 0)) for _ in range(12)]
+    for k, cam in enumerate(truth):
+        cam["name"] = f"c{k}"
+    turn = Rotation.from_euler("xyz", [30, -50, 70], degrees=True).as_matrix()
+    rebuilt = []
+    for cam in truth:  # the same cameras in another frame: X' = 0.4 turn X + offset
+        c = 0.4 * turn @ np.array(cam["centre"]) + [1.0, -2.0, 0.5]
+        rebuilt.append({**cam, "centre": c.tolist()})
+    up = ground_truth_up(rebuilt, {c["name"]: np.array(c["centre"]) for c in truth}, axis=1)
+    np.testing.assert_allclose(up, turn @ [0.0, 1.0, 0.0], atol=1e-9)
+
+
+def test_showcase_records_the_true_up_when_asked(run, tmp_path):
+    """The rendered scene's ground truth has y down (OpenCV world): asking for its y axis
+    gives a unit vector in the model's frame; without the option nothing is stored."""
+    import numpy as np
+
+    run_dir, images, config = run
+    with_up = json.loads(
+        (
+            make_showcase(run_dir, images, tmp_path / "a", config, up_axis=1) / "showcase.json"
+        ).read_text()
+    )
+    assert np.linalg.norm(with_up["up"]) == pytest.approx(1)
+    without = json.loads(
+        (make_showcase(run_dir, images, tmp_path / "b", config) / "showcase.json").read_text()
+    )
+    assert without["up"] is None
+
+
+def test_a_known_up_picks_a_level_ring():
+    """With the true 'up' given, the ring is a band level with it, not tilted."""
+    import numpy as np
+
+    from src.web.showcase import display_ring
+
+    rng = np.random.default_rng(2)
+    cameras = []
+    for k in range(3000):
+        a, e = rng.uniform(0, 2 * np.pi), rng.uniform(0.0, 1.4)
+        cameras.append(_camera_at([np.cos(a) * np.cos(e), np.sin(a) * np.cos(e), np.sin(e)]))
+        cameras[-1]["name"] = f"c{k}"
+    ring = display_ring(cameras, points=np.zeros((10, 3)), up=np.array([0.0, 0.0, 1.0]))
+    heights = np.degrees(np.arcsin([c["centre"][2] for c in ring]))
+    assert np.ptp(heights) <= 14.0 + 1e-9  # one band of RING_BAND_DEG about the true axis

@@ -21,20 +21,22 @@ html { scroll-padding-top: 80px; scroll-behavior: smooth; } /* headings and focu
 /* Hero --------------------------------------------------------------------------------- */
 .hero {
   position: relative; min-height: calc(100svh - 64px); display: grid;
-  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); grid-template-rows: 1fr auto;
-  grid-template-areas: "text orbit" "strip strip"; align-items: center;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto;
+  grid-template-areas: "text" "strip"; align-items: center;
   background: radial-gradient(ellipse 55% 65% at 72% 46%, var(--glow) 0%, var(--viewer) 72%);
   overflow: hidden; border-bottom: 1px solid var(--rule);
 }
 
-/* The turning model: a picture, not a control. Nothing a visitor does changes it;
-   only a request for reduced motion holds it still. */
-.orbit { grid-area: orbit; justify-self: center; margin: var(--s6) var(--margin) var(--s6) 0; width: min(100%, 620px); pointer-events: none; user-select: none; -webkit-user-select: none; }
-.orbit-frame { position: relative; aspect-ratio: 1; }
-.orbit-frame .fiducials { --fid-inset: 0; z-index: 1; }
+/* The turning model fills the hero behind the text: a picture, not a control. Nothing
+   a visitor does changes it; only a request for reduced motion holds it still. */
+.orbit { position: absolute; inset: 0 0 76px 26%; margin: 0; z-index: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.orbit-frame { position: absolute; inset: 0; }
+.orbit-frame .fiducials { --fid-inset: 22px var(--margin) 22px 22px; z-index: 1; }
 .orbit-model { position: absolute; inset: 0; }
 .orbit-model canvas { display: block; }
-.orbit figcaption { margin-top: var(--s3); text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 48ch; margin-inline: auto; }
+.orbit figcaption { position: absolute; right: var(--margin); bottom: 34px; z-index: 1; max-width: 40ch; text-align: right; color: var(--muted); font-size: 13px; line-height: 1.5; }
+/* a neutral scrim from the left, so the title reads over the model */
+.hero::after { content: ""; position: absolute; inset: 0 0 76px 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgb(7 10 12 / 0.92) 0%, rgb(7 10 12 / 0.7) 30%, rgb(7 10 12 / 0) 58%); }
 
 /* The live reconstruction, further down */
 .live { border-top: 1px solid var(--rule); }
@@ -56,7 +58,7 @@ html { scroll-padding-top: 80px; scroll-behavior: smooth; } /* headings and focu
 .cam-label.flip { transform: translate(calc(-100% - 14px), -50%); }
 .cam-label b { color: var(--accent); font-weight: 600; }
 
-.hero-text { grid-area: text; position: relative; z-index: 2; padding: var(--s7) var(--margin); max-width: 780px; }
+.hero-text { grid-area: text; position: relative; z-index: 2; padding: var(--s7) var(--margin); max-width: 720px; }
 .hero h1 { max-width: 11ch; font: 800 var(--step-4)/0.95 var(--display); font-stretch: 112%; letter-spacing: -0.03em; text-wrap: balance; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero h1 .num { font-family: inherit; letter-spacing: inherit; }
@@ -205,9 +207,10 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
 /* Responsive ---------------------------------------------------------------------------- */
 @media (max-width: 1000px) {
   .nav nav { display: none; }
-  .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "orbit" "text" "strip"; min-height: 0; }
-  .orbit { margin: var(--s6) auto 0; width: min(72vw, 460px); }
-  .hero-text { padding-top: var(--s5); }
+  .orbit { inset: 0 0 auto 0; height: 58svh; }
+  .orbit figcaption { display: none; }
+  .hero::after { inset: 0; background: linear-gradient(180deg, rgb(7 10 12 / 0) 30%, rgb(7 10 12 / 0.85) 62%); }
+  .hero-text { padding-top: 46svh; }
   .strip { flex-wrap: wrap; }
   .strip-numbers { flex: 1 1 100%; flex-wrap: wrap; }
   .strip-numbers > div { flex: 1 1 25%; border-bottom: 1px solid var(--rule); }
@@ -235,7 +238,6 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
   .strip-numbers > div { flex: 1 1 50%; padding: var(--s3) var(--margin); }
   .strip-numbers > div:nth-child(2n) { border-right: 0; }
   .hero-caption { display: none; }
-  .orbit { width: min(80vw, 360px); }
   .live-frame { height: 64svh; }
   .flow { grid-template-columns: minmax(0, 1fr); }
   .flow li::after { display: none !important; }

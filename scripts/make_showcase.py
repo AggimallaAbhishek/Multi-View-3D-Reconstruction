@@ -30,11 +30,23 @@ def main(argv: list[str] | None = None) -> int:
         "--name", default="", help="name shown on the page (default: the photo folder)"
     )
     parser.add_argument("--out", type=Path, default=ROOT / "src" / "web" / "static" / "showcase")
+    parser.add_argument(
+        "--up-axis",
+        choices=["x", "y", "z"],
+        help="the ground-truth frame's up axis (gt_cameras.json next to the photos); "
+        "stands the model upright on the page (Middlebury: y)",
+    )
     args = parser.parse_args(argv)
     run_config = args.run_dir / "config.yaml"
     config = load_config(run_config if run_config.is_file() else None)
+    up_axis = None if args.up_axis is None else "xyz".index(args.up_axis)
     out = make_showcase(
-        args.run_dir, args.images, args.out, config, name=args.name or args.images.name
+        args.run_dir,
+        args.images,
+        args.out,
+        config,
+        name=args.name or args.images.name,
+        up_axis=up_axis,
     )
     total = sum(p.stat().st_size for p in out.iterdir())
     print(f"Wrote {out} ({total / 2**20:.2f} MB)")
