@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -387,6 +388,42 @@ def test_only_web_run_folders_inside_the_output_root_are_deleted(tmp_path):
     client = client_for(manager, output={"root": str(tmp_path / "outputs")})
     assert client.delete("/api/jobs/j").status_code == 409
     assert elsewhere.exists()
+
+
+def test_failed_run_of_an_earlier_server_is_listed_and_can_be_deleted(tmp_path):
+    run_dir = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    run_dir.mkdir(parents=True)
+    failure = {
+        "error": "too few matches",
+        "stage": "pose",
+        "stages_done": ["dataset"],
+        "timings": {"dataset": 1.0},
+    }
+    (run_dir / "failure.json").write_text(json.dumps(failure))
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    [listed] = client.get("/api/jobs").json()
+    assert (listed["id"], listed["status"]) == (run_dir.name, "failed")
+    assert (listed["stage"], listed["error"]) == ("pose", "too few matches")
+    assert listed["stages_done"] == ["dataset"]
+    assert client.get(f"/api/jobs/{run_dir.name}/report").status_code == 409
+    assert client.delete(f"/api/jobs/{run_dir.name}").status_code == 204
+    assert not run_dir.exists()
+
+
+@pytest.mark.parametrize("bad", ["{not json", "[1, 2]", '{"timings": 3}'])
+def test_unreadable_report_lists_the_run_as_failed_instead_of_breaking_the_list(tmp_path, bad):
+    good = web_run(tmp_path, "20261031-110000_web_reconstruct")
+    broken = tmp_path / "outputs" / "20261031-120000_web_reconstruct"
+    broken.mkdir()
+    (broken / "report.json").write_text(bad)
+    client = client_for(output={"root": str(tmp_path / "outputs")})
+    response = client.get("/api/jobs")
+    assert response.status_code == 200
+    jobs = {j["id"]: j for j in response.json()}
+    assert jobs[good.name]["status"] == "done"
+    assert jobs[broken.name]["status"] == "failed"
+    assert "report.json" in jobs[broken.name]["error"]
+    assert client.delete(f"/api/jobs/{broken.name}").status_code == 204  # can be cleared
 
 
 def test_failed_job_serves_the_outputs_written_before_it_failed(tmp_path):

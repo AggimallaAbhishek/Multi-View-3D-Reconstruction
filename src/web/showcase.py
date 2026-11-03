@@ -59,17 +59,21 @@ def make_showcase(
     name: str = "",
     up_axis: int | None = None,
 ) -> Path:
-    """Write the showcase of the finished web run ``run_dir`` (photos in ``images_dir``)."""
+    """Write the showcase of the finished web run ``run_dir`` (photos in ``images_dir``).
+    Raises ``ValueError`` before writing anything if no pair of the photos verifies (the
+    matches frame shows one)."""
     run_dir, out = Path(run_dir), Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     report = read_json(run_dir / REPORT_NAME)
+    result = run_pipeline(images_dir, config, until="verify")
+    if not any(s.success for s in result.verification_stats):
+        raise ValueError(f"no verified pair of photos in {images_dir} for the matches frame")
+    out.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(run_dir / "point_clouds" / "filtered.ply", out / "cloud.ply")
     cameras = read_json(run_dir / "camera_poses" / "cameras.json")
     write_json(out / "cameras-all.json", cameras)
 
     width = config.web.showcase_frame_px
     size = (width, round(width * 5 / 8))
-    result = run_pipeline(images_dir, config, until="verify")
     points, colours = _read_cloud(out / "cloud.ply")
     up = None  # the scene's true "up" in the model's frame, when ground truth tells it
     truth_file = Path(images_dir) / GT_CAMERAS_FILE

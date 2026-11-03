@@ -15,6 +15,7 @@ job function is injected, so tests can replace it.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import multiprocessing
 import queue
@@ -35,8 +36,8 @@ from src.data.preprocessing import resize_max_side
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import CORE_STAGES, STAGES, PipelineResult, Stage, run_pipeline
-from src.run import read_json, run_stamp, run_stamp_of
-from src.web.report import REPORT_NAME, build_report, write_report
+from src.run import read_json, run_stamp, run_stamp_of, write_json
+from src.web.report import FAILURE_NAME, REPORT_NAME, build_report, write_report
 
 log = logging.getLogger(__name__)
 
@@ -102,21 +103,55 @@ class Job:
         }
 
     @classmethod
-    def finished_run(cls, run_dir: Path) -> Job:
-        """A finished web run of an earlier server, from its ``report.json``."""
-        report = read_json(run_dir / REPORT_NAME)
-        timings = report.get("timings", {})
-        photos, registered = image_counts(report)
-        return cls(
-            id=run_dir.name,
-            status="done",
-            stages_done=[*timings, "outputs"],
-            timings=timings,
-            run_dir=run_dir,
-            photos=photos,
-            registered=registered,
-            started=run_stamp_of(run_dir.name) or run_stamp(),
+    def from_run_dir(cls, run_dir: Path) -> Job | None:
+        """The web run of an earlier server in ``run_dir``: finished (its ``report.json``),
+        failed (its ``failure.json``), or None if it holds neither. A file that cannot be
+        read makes it a failed run naming the file, so it can still be listed and deleted."""
+        found = next(
+            (run_dir / n for n in (REPORT_NAME, FAILURE_NAME) if (run_dir / n).is_file()), None
         )
+        if found is None:
+            return None
+        run = cls(
+            id=run_dir.name, run_dir=run_dir, started=run_stamp_of(run_dir.name) or run_stamp()
+        )
+        try:
+            data = read_json(found)
+            if found.name == REPORT_NAME:
+                timings = dict(data.get("timings", {}))
+                photos, registered = image_counts(data)
+                changes = dict(
+                    status="done",
+                    stages_done=[*timings, "outputs"],
+                    timings=timings,
+                    photos=photos,
+                    registered=registered,
+                )
+            else:
+                changes = dict(
+                    status="failed",
+                    error=str(data["error"]),
+                    stage=data.get("stage"),
+                    stages_done=list(data.get("stages_done", [])),
+                    timings=dict(data.get("timings", {})),
+                )
+        except Exception as exc:  # any malformed content: report it on the run, not as a 500
+            log.warning("cannot read %s: %s", found, exc)
+            return dataclasses.replace(
+                run, status="failed", error=f"{found.name} cannot be read: {exc}"
+            )
+        return dataclasses.replace(run, **changes)
+
+
+def _record_failure(job: Job) -> None:
+    """Best effort: the failed job's error, stage and timings as ``failure.json``."""
+    failure = {
+        k: v for k, v in job.to_dict().items() if k in ("error", "stage", "stages_done", "timings")
+    }
+    try:
+        write_json(job.run_dir / FAILURE_NAME, failure)
+    except OSError:
+        log.exception("could not record the failure of job %s", job.id)
 
 
 def image_counts(report: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -217,9 +252,17 @@ def reconstruct_in_subprocess(
                 return Path(payload[0])
             else:
                 raise RuntimeError(f"unexpected message from the reconstruction: {kind!r}")
+    except JobFailed:  # the child reported it and is exiting on its own
+        raise
+    except BaseException:  # left early (a relay error, an interrupt): stop the work too
+        child.terminate()
+        raise
     finally:
         _children.discard(child)
         child.join(timeout=5)
+        if child.is_alive():  # ignored the request to stop
+            child.kill()
+            child.join()
         events.close()
 
 
@@ -329,6 +372,8 @@ class JobManager:
             log.exception("job %s failed at stage %s", job.id, job.stage)
             run_dir = exc.run_dir if isinstance(exc, JobFailed) else None
             self._update(job, status="failed", error=str(exc), run_dir=run_dir)
+            if run_dir is not None:  # a later server finds the failed run by this file
+                _record_failure(job)
             return
         finally:  # the run folder has the results; the upload was only their input
             shutil.rmtree(upload_dir, ignore_errors=True)

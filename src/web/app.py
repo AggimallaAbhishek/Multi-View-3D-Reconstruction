@@ -65,12 +65,13 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     previous: dict[str, Job] = {}  # finished runs never change: read each report once
 
     def previous_run(run_id: str) -> Job | None:
-        """A finished web run of an earlier server, from its run folder."""
+        """A finished or failed web run of an earlier server, from its run folder."""
         if run_id not in previous:
-            run_dir = output_root / run_id
-            if not is_run_dir_name(run_id, RUN_LABEL) or not (run_dir / REPORT_NAME).is_file():
+            if not is_run_dir_name(run_id, RUN_LABEL):
                 return None
-            previous[run_id] = Job.finished_run(run_dir)
+            if (run := Job.from_run_dir(output_root / run_id)) is None:
+                return None
+            previous[run_id] = run
         return previous[run_id]
 
     def find_job(job_id: str) -> Job:
@@ -115,11 +116,12 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
 
     @app.get("/api/jobs")
     def list_jobs() -> list[dict[str, Any]]:
-        """This server's jobs (newest first), then earlier finished web runs."""
+        """This server's jobs (newest first), then earlier finished or failed web runs."""
         jobs = manager.list()
         live = {job.run_dir.name for job in jobs if job.run_dir is not None}
-        reports = output_root.glob(f"*_{RUN_LABEL}*/{REPORT_NAME}")
-        names = sorted((p.parent.name for p in reports), reverse=True)
+        names = sorted(
+            (p.name for p in output_root.glob(f"*_{RUN_LABEL}*") if p.is_dir()), reverse=True
+        )
         jobs += [run for n in names if n not in live and (run := previous_run(n))]
         return [job.to_dict() for job in jobs]
 

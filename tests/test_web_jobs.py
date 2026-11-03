@@ -363,3 +363,34 @@ def test_thumbnail_failure_on_a_failed_job_keeps_the_original_error(tmp_path, mo
     monkeypatch.setattr(jobs.cv2, "imwrite", disk_full)
     with pytest.raises(JobFailed, match="stage broke"):
         reconstruct(images, config, lambda s, t: None)
+
+
+def test_failed_job_records_its_failure_in_its_run_folder(tmp_path):
+    """So a later server can list the failed run (and delete it): job ids live in memory."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    manager = JobManager(job=fake_job(fail_at="b", exc=JobFailed("boom", run_dir)))
+    job = manager.submit(tmp_path / "up", CONFIG)
+    manager.wait(job.id)
+    failure = json.loads((run_dir / "failure.json").read_text())
+    assert (failure["error"], failure["stage"]) == ("boom", "b")
+    assert failure["stages_done"] == ["dataset", "a"]
+
+
+def test_worker_is_stopped_when_relaying_its_progress_fails(tmp_path):
+    """Leaving the relay loop early (here: the progress callback raises) must not leave the
+    reconstruction running on in the background."""
+    import multiprocessing
+    import time
+
+    _, images, config = rendered_upload(tmp_path)
+
+    def progress(stage, timings):
+        raise RuntimeError("relay broke")
+
+    with pytest.raises(RuntimeError, match="relay broke"):
+        reconstruct_in_subprocess(images, config, progress)
+    assert multiprocessing.active_children() == []
+    time.sleep(1)  # a child left running would finish and write its run folder by now
+    outputs = tmp_path / "outputs"
+    assert not outputs.exists() or not any(outputs.glob("*_web_reconstruct*"))

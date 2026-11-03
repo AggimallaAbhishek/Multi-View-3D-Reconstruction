@@ -40,14 +40,18 @@ def main(argv: list[str] | None = None) -> int:
     run_config = args.run_dir / "config.yaml"
     config = load_config(run_config if run_config.is_file() else None)
     up_axis = None if args.up_axis is None else "xyz".index(args.up_axis)
-    out = make_showcase(
-        args.run_dir,
-        args.images,
-        args.out,
-        config,
-        name=args.name or args.images.name,
-        up_axis=up_axis,
-    )
+    try:
+        out = make_showcase(
+            args.run_dir,
+            args.images,
+            args.out,
+            config,
+            name=args.name or args.images.name,
+            up_axis=up_axis,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     total = sum(p.stat().st_size for p in out.iterdir())
     print(f"Wrote {out} ({total / 2**20:.2f} MB)")
     return 0
