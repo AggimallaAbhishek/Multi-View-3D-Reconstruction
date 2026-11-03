@@ -173,15 +173,17 @@ function openJobInUrl(id) {
 }
 
 async function openJob(id, { quiet = false } = {}) {
-  pollToken++;
+  const token = ++pollToken;
   openJobInUrl(id);
   try {
     const job = await api(jobUrl(id));
+    if (token !== pollToken) return "superseded"; // another run opened meanwhile
     showUploadMessage(null);
     if (job.status === "done") await showResults(job);
     else follow(job);
     return "opened";
   } catch (error) {
+    if (token !== pollToken) return "superseded"; // don't clear the run now on screen
     // Only a run the server does not know is forgotten (deleted, or a job id from
     // before a restart). Anything else (the server unreachable, a page error) keeps
     // the run remembered for the next reload and says what went wrong.
@@ -530,6 +532,8 @@ async function deleteShownRun(control) {
 
 // --- Results ----------------------------------------------------------------------------
 
+/** Callers bump ``pollToken`` before fetching ``job``, so a run opened or cleared since
+ * then has already changed it and this stops at the next check. */
 async function showResults(job, { replay = false } = {}) {
   const token = pollToken; // another run opened meanwhile, or the run cleared: stop
   const [report, files] = await Promise.all([api(jobUrl(job.id, "/report")), api(jobUrl(job.id, "/files"))]);
