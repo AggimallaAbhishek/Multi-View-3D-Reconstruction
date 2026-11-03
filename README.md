@@ -364,6 +364,7 @@ Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence 
 
 ```bash
 uv pip install -e ".[web]"     # FastAPI, uvicorn, python-multipart (external)
+uv pip install -e ".[learned]" # optional: DISK + LightGlue via torch and kornia (external, E9)
 python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--port to change)
 ```
 
@@ -580,7 +581,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-387 tests run in ~40 s (`pytest -q`; the web tests are skipped without the `[web]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+474 tests run in ~2.5 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
@@ -602,7 +603,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 
 ## 15. Limitations
 
-1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered.
+1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); with SIFT, pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered. The optional learned features (DISK + LightGlue, external, `configs/learned.yaml`) register all of dinoSparseRing, but are slower and fail on views rolled ~180° (E9).
 2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error costs a quarter to a third of the completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); radial lens distortion is estimated from the reconstruction when the view is wide enough (E8; two coefficients approximate a real lens: 0.17° where ETH3D's own undistortion gives 0.06° on pipes); the principal point is not refined (the guess keeps a 0.76° rotation offset; refining it was measured: it only partly removes that offset and makes calibrated runs worse, because on a ring it trades off against rotation — E3b), and one shared focal length and distortion assume one camera at one zoom — photos whose starting `K` differ keep `K` fixed and are not self-calibrated.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~1400 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
@@ -622,7 +623,7 @@ Directly suggested by the results:
 
 - **Better dense stereo:** several partners per view or plane-sweep / PatchMatch stereo, an outlier filter fast enough for millions of points; COLMAP's dense stereo as a comparison on a CUDA machine.
 - **Lens models beyond two radial terms** (fisheye, tangential) and distortion inside every bundle adjustment instead of the undistort-and-reconstruct passes (E8), and per-camera intrinsics for mixed-camera photo sets.
-- **Sparser rings:** a relative-pose registration fallback (now default) and optional affine simulation are in; dinoSparseRing still registers 6/16 because its weak neighbour pairs do not determine a relative pose ([`data/sample/README.md`](data/sample/README.md)). Learned matchers (SuperPoint/LightGlue) or more views are the remaining options.
+- **Learned features on rotated views:** DISK + LightGlue (E9) register every view of dinoSparseRing (16/16 instead of 6/16) but none of templeRing's upside-down views; detecting on upright-rotated copies, or a rotation-equivariant learned detector, would combine both.
 - More datasets with ground truth (the other ETH3D scenes, Tanks & Temples) and own captures; dinoRing (48/48) and three ETH3D scenes (E7) are done.
 
 Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refinement · desktop UI.

@@ -1,6 +1,7 @@
 import pytest
 
 from src.config import (
+    DEFAULT_CONFIG_PATH,
     Config,
     ConfigError,
     FeatureConfig,
@@ -122,3 +123,17 @@ def test_with_overrides_validates(overrides):
 def test_cache_path():
     assert str(Config().cache_path("features")) == "outputs/cache/features"
     assert config_from_dict({"output": {"cache_dir": None}}).cache_path("features") is None
+
+
+def test_lightglue_requires_disk_in_the_config():
+    config = load_config()
+    with pytest.raises(ConfigError, match="lightglue"):
+        config.with_overrides({"matching.method": "lightglue"})
+    ok = config.with_overrides({"matching.method": "lightglue", "features.detector": "disk"})
+    assert ok.matching.method == "lightglue"
+
+
+def test_learned_config_file_selects_disk_and_lightglue():
+    cfg = load_config(DEFAULT_CONFIG_PATH.with_name("learned.yaml"))
+    assert (cfg.features.detector, cfg.matching.method) == ("disk", "lightglue")
+    assert cfg.verification == load_config().verification  # nothing else changes

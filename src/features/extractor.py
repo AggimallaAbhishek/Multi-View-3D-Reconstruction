@@ -226,7 +226,8 @@ class ORBExtractor(FeatureExtractor):
         return f"orb-n{self.max_features}-cv{cv2.__version__}"
 
 
-def create_extractor(config: FeatureConfig) -> FeatureExtractor:
+def create_extractor(config: FeatureConfig, device: str = "auto") -> FeatureExtractor:
+    """``device`` is used by the learned detector (DISK, external) only, imported only then."""
     if config.detector == "sift":
         return SIFTExtractor(
             max_features=config.max_features,
@@ -241,6 +242,10 @@ def create_extractor(config: FeatureConfig) -> FeatureExtractor:
         )
     if config.detector == "orb":
         return ORBExtractor(max_features=config.max_features)
+    if config.detector == "disk":
+        from src.features.learned import DISKExtractor
+
+        return DISKExtractor(max_features=config.max_features, device=device)
     raise ValueError(f"unknown detector {config.detector!r}")
 
 

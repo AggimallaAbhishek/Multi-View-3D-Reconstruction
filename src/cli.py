@@ -36,7 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     # Options that override config keys use the dotted key as their argparse ``dest``;
     # config_from_args applies all of them through the validated Config.with_overrides.
     detector.add_argument(
-        "--detector", dest="features.detector", choices=["sift", "orb"], help="features.detector"
+        "--detector",
+        dest="features.detector",
+        choices=["sift", "orb", "disk"],
+        help="features.detector",
     )
     draw = argparse.ArgumentParser(add_help=False)
     draw.add_argument("--draw", type=int, default=3, help="diagnostic images to save (3)")

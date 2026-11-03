@@ -30,7 +30,8 @@ calibration:                   # checkerboard calibration (python -m src.cli cal
   subpix_eps: 0.001
 
 features:
-  detector: sift               # sift | orb (detection always runs on the grayscale image)
+  detector: sift               # sift | orb | disk (disk: learned, external, needs the
+                               # "learned" extra; detection always runs on the grayscale image)
   max_features: 8000           # strict cap; the strongest responses are kept
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
   sift_contrast_threshold: 0.02  # OpenCV's default 0.04 left ETH3D pipes 7/14, terrains 30/42
@@ -53,8 +54,11 @@ matching:
   ratio: 0.75                  # Lowe ratio test: keep if d1 < ratio * d2
   mutual: true                 # keep only mutual nearest neighbours (one-to-one)
   method: bruteforce           # bruteforce (exact, deterministic) | flann (approximate, seeded)
+                               # | lightglue (learned, external, needs features.detector: disk)
   flann_trees: 5               # flann: randomised k-d trees per index
   flann_checks: 64             # flann: leaves visited per query (accuracy vs speed)
+  lightglue_filter_threshold: 0.7  # lightglue: minimum match confidence. LightGlue's own 0.1
+                               # verified 266 wrong pairs on templeRing (0.7: 1; 24 vs 31 of 47 views)
   pair_mode: auto              # auto | exhaustive (all pairs) | sequential (j - i <= window)
   exhaustive_max_images: 50    # auto: exhaustive up to this many images, sequential above
   sequential_window: 5
@@ -183,6 +187,7 @@ output:
 
 performance:
   workers: 0                   # threads for geometric verification and dense stereo; 0 = all cores
+  torch_device: auto           # learned features/matching: auto (cuda, then mps, then cpu) | cpu | cuda | mps
 
 web:                           # local web interface (python -m src.web); one job at a time
   host: 127.0.0.1              # localhost only: no authentication

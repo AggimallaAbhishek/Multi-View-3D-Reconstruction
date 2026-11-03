@@ -61,7 +61,7 @@ class CalibrationConfig:
 
 @dataclass(frozen=True)
 class FeatureConfig:
-    detector: Literal["sift", "orb"] = "sift"
+    detector: Literal["sift", "orb", "disk"] = "sift"
     max_features: int = 8000
     root_sift: bool = False
     sift_contrast_threshold: float = 0.02
@@ -80,9 +80,10 @@ class FeatureConfig:
 class MatchConfig:
     ratio: float = 0.75
     mutual: bool = True
-    method: Literal["bruteforce", "flann"] = "bruteforce"
+    method: Literal["bruteforce", "flann", "lightglue"] = "bruteforce"
     flann_trees: int = 5
     flann_checks: int = 64
+    lightglue_filter_threshold: float = 0.7
     pair_mode: Literal["auto", "exhaustive", "sequential"] = "auto"
     exhaustive_max_images: int = 50
     sequential_window: int = 5
@@ -205,6 +206,7 @@ class OutputConfig:
 @dataclass(frozen=True)
 class PerformanceConfig:
     workers: int = 0
+    torch_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -280,7 +282,13 @@ def config_from_args(args: Any) -> Config:
 def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: top level must be a mapping")
-    return _build(Config, raw, source)
+    config = _build(Config, raw, source)
+    if config.matching.method == "lightglue" and config.features.detector != "disk":
+        raise ConfigError(
+            f"{source}: matching.method lightglue needs features.detector disk "
+            f"(got {config.features.detector!r})"
+        )
+    return config
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:

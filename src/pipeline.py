@@ -32,10 +32,10 @@ from src.features.extractor import (
     extract_features,
 )
 from src.features.matcher import (
-    DescriptorMatcher,
     MatchCache,
     Matches,
     MatchStats,
+    create_matcher,
     match_pairs,
     select_pairs,
 )
@@ -118,7 +118,7 @@ class PipelineResult:
 
 def extract(result: PipelineResult) -> PipelineResult:
     config = result.config
-    result.extractor = create_extractor(config.features)
+    result.extractor = create_extractor(config.features, config.performance.torch_device)
     cache_dir = config.cache_path("features")
     result.features, result.feature_stats = extract_features(
         result.images,
@@ -136,7 +136,11 @@ def match(result: PipelineResult) -> PipelineResult:
     result.matches, result.match_stats = match_pairs(
         result.features,
         pairs,
-        DescriptorMatcher(config.matching),
+        create_matcher(
+            config.matching,
+            [(im.width, im.height) for im in result.images],
+            config.performance.torch_device,
+        ),
         MatchCache(cache_dir) if cache_dir else None,
     )
     return result

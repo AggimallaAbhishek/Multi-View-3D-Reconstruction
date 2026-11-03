@@ -190,6 +190,29 @@ Without self-calibration a pinhole model on distorted images loses 4 and 12 imag
 
 Where it does nothing: on Middlebury and on ETH3D's undistorted images every result is unchanged — the Middlebury views are too narrow to estimate distortion (skipped), the undistorted ETH3D scenes estimate ≤ 0.4 px at the corners (no second pass).
 
+### E9 — learned features and matching: DISK + LightGlue (external)
+
+The remaining open problem of E1/E6 was dinoSparseRing: 16 views around the object, of which SIFT with the ratio test registers 6 — the neighbour pairs of the other ten have too few correct matches to determine a pose, with or without the relative-pose fallback. Learned matchers were the option left in the future work. `configs/learned.yaml` swaps two stages and nothing else: **DISK** keypoints and descriptors (Tyszkiewicz et al. 2020, `depth` checkpoint) and **LightGlue** matching (Lindenberger et al. 2023), both pretrained networks run through kornia (**external**, the optional `learned` extra: torch, kornia). They return the same `Features` and `Matches` arrays as SIFT, so verification, tracks, registration and bundle adjustment run unchanged. LightGlue's own confidence threshold (0.1) let 266 wrong pairs through verification on templeRing; `matching.lightglue_filter_threshold` defaults to 0.7.
+
+`python scripts/evaluate_against_ground_truth.py data/raw/<scene> [--config configs/learned.yaml]`:
+
+| scene | SIFT + ratio test (default) | **DISK + LightGlue** |
+|---|---|---|
+| dinoSparseRing: registered, rotation error median / max | 6/16, 0.19° / 0.37° | **16/16, 0.21° / 0.34°** (centre error 0.31 % median) |
+| verified pairs (of 120) | 20 | 38 |
+| templeRing | **47/47, 0.15° / 0.32°** | 31/47, 0.13° / 0.28° — views 32–47 (upside down) not registered |
+| ETH3D pipes | 14/14, 0.06° / 0.12°, 2661 landmarks | **14/14, 0.04° / 0.11°, 17793 landmarks** |
+
+**Sparse rings: solved.** With LightGlue twice as many dinoSparseRing pairs verify, and every view registers with the same pose accuracy as the 6 SIFT reaches. The initial pair is worse (4.6° rotation error before bundle adjustment against SIFT's 0.5°: DISK keypoints sit on whole pixels, ~0.3 px precision, against SIFT's sub-pixel refinement, which shows on a narrow pair), but the global adjustment over 16 views and 14 k observations removes it.
+
+**Rotated views: a known failure.** templeRing's views 32–47 are photographed with the camera rolled by ~180°. SIFT is rotation invariant; DISK and LightGlue are trained on upright images and match none of them (`tests/test_learned.py` pins the same behaviour on a rendered view rotated by 180°). The other 31 views are slightly more accurate than with SIFT. Rotating each image upright before detection would remove this, but needs the roll, which is unknown before registration.
+
+**Denser tracks on real texture.** On pipes the learned pipeline gives the same registration, a slightly lower rotation error and 6.7× the landmarks (a median relative-pose error of 0.06° against 0.17° before bundle adjustment).
+
+**Cost.** Both networks run on torch (here Apple's MPS; `performance.torch_device`). The three learned runs took 99 s, 504 s and 723 s (dinoSparseRing, templeRing, pipes), against seconds to a minute for SIFT. Those times are upper bounds: the three ran at the same time and shared the GPU, and LightGlue's per-pair cost dominates exhaustive matching (templeRing: 1081 pairs). Features and matches are cached like SIFT's; the cache keys include the kornia and torch versions and the device type.
+
+**Verdict.** SIFT stays the default: it is rotation invariant, far faster and as accurate where it registers everything. DISK + LightGlue is the option for wide baselines, where it turns 6/16 into 16/16. It is labelled external everywhere it appears.
+
 ## Failure cases
 
 | Case | What happens | Why | Evidence |
@@ -200,6 +223,7 @@ Where it does nothing: on Middlebury and on ETH3D's undistorted images every res
 | **Dark, low-texture images** (fixed SIFT threshold) | dinoRing: 19/48 cameras registered — the brightly lit side only | SIFT's absolute contrast threshold left the dark side 74–160 features; PnP ran out of 2D–3D links at both edges. **Fixed:** the threshold is lowered per image below 500 features (48/48, rotation error median 0.15°) | `data/sample/README.md`, `tests/test_features.py` |
 | **ORB on low texture** | 2× the points but 6× the pose error, short tracks | less distinctive binary descriptors and less precise keypoints | E4 |
 | **No bundle adjustment** | pose errors 5.5× larger, completeness 0.90 instead of 0.94 (with or without refinement) | small PnP errors accumulate around the ring; refinement cleans observations but cannot move cameras | E5 |
+| **Learned features on rotated views** | templeRing with DISK + LightGlue: 31/47, views 32–47 unregistered | the networks are trained on upright images; those views are rolled ~180° (SIFT is rotation invariant) | E9, `tests/test_learned.py` |
 | **Undetectable wrong matches** | ~1 % of deliberately shifted keypoints survive in the final model | a shift along the epipolar line of a 2–3-view track leaves no reprojection error | `tests/test_incremental.py` |
 
 ![E3 failure case](images/e3_calibration_failure.png)
@@ -212,4 +236,5 @@ The −20 % cloud (middle) looks like the calibrated one (left) to the eye — t
 - The reference shares our SIFT features and matches; it measures geometry given the tracks, not against an independent surface scan.
 - E3b refines the focal length only and the principal point stays fixed; distortion is zero on templeRing. E8 covers lens distortion on two ETH3D scenes only.
 - E6 runs COLMAP with its default parameters (besides the camera model, `K` and the feature cap); tuned, it may register more of dinoRing. The dense cloud is scored by silhouette consistency only (no public ground-truth surface for the Middlebury sets), which catches points off the object but not errors along the viewing ray inside it; the rendered-scene tests cover depth accuracy.
+- E9 compares learned and classical features on three scenes; its run times were measured with the three runs sharing one GPU.
 - Each setting runs once. The pipeline is deterministic (seeded RANSAC), so repeats give identical numbers; variation across datasets is not measured.

@@ -22,6 +22,7 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 | Contrast threshold | 0.02 (half OpenCV's default; COLMAP's is about the same): at 0.04 ETH3D views shared too few landmarks to register (E7) | ours (setting) |
 | Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, down to 0.005 | ours |
 | Nearest neighbours | exact brute force, 2-NN | OpenCV `batchDistance` (**external**) |
+| Learned alternative (optional, E9) | DISK keypoints + descriptors, matched by LightGlue (attention over both images, confidence ≥ 0.7); same `Features` / `Matches` arrays, so later stages are unchanged; `configs/learned.yaml` | DISK, LightGlue, pretrained weights: kornia on torch (**external**); the adapter, strongest-N order and caching ours |
 | Ratio test | keep `d₁ < r·d₂` (Lowe 2004), default `r` = 0.75 | ours |
 | Mutual check | keep only matches that are each other's nearest neighbour | ours |
 | Pair selection | exhaustive up to 50 images, sequential window above | ours |
@@ -153,6 +154,7 @@ Tested against rendered depth with exact cameras (`tests/test_dense.py`): median
 | Checkerboard calibration | wrapper | `findChessboardCorners`, `cornerSubPix`, `calibrateCamera`: OpenCV |
 | Feature detection / description | strict cap, adaptive SIFT threshold, RootSIFT, cache | SIFT, ORB, affine simulation (`AffineFeature`, ASIFT; optional): OpenCV |
 | Matching | ratio test, mutual check, pair selection, cache | `batchDistance` (2-NN), optional FLANN: OpenCV |
+| Learned features and matching (optional) | adapter to our `Features` / `Matches`, confidence threshold, device choice, cache keys | DISK, LightGlue and their pretrained weights: kornia on torch |
 | Robust E / F / H estimation | model selection, Sampson inliers, H/F ratio, E refinement residuals | USAC / RANSAC estimators, `findHomography`: OpenCV; `least_squares`: SciPy |
 | Normalised 8-point algorithm | ✔ (reference implementation) | — |
 | E decomposition, cheirality, parallax, initial pair | ✔ | `recoverPose` only as test oracle |
