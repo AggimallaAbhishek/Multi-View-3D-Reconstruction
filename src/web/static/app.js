@@ -136,11 +136,42 @@ function setStatus(title, text = "") {
   $("status-text").textContent = text;
 }
 
-function openJobInUrl(id) {
-  history.replaceState(null, "", id ? `#job=${encodeURIComponent(id)}` : location.pathname);
+// The run on screen survives a reload: it is kept in the address (#job=) and in this
+// browser's storage until the user clears it or deletes the run. Storage can be missing
+// (private windows, blocked site data): then only the address remembers it.
+const OPEN_RUN_KEY = "mv3d.openRun";
+
+/** Remember the run on screen: its job id (live this server session) and, once known,
+ * its run folder, which also reopens it after the server restarts. */
+function rememberOpenRun(id, folder = null) {
+  try {
+    if (id) localStorage.setItem(OPEN_RUN_KEY, JSON.stringify({ id, folder }));
+    else localStorage.removeItem(OPEN_RUN_KEY);
+  } catch { /* storage unavailable */ }
 }
 
-async function openJob(id) {
+/** Ids to try, in order, for the run that was on screen before the reload. */
+function rememberedOpenRun() {
+  const ids = [];
+  const match = location.hash.match(/^#job=(.+)$/);
+  if (match) ids.push(decodeURIComponent(match[1]));
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPEN_RUN_KEY) ?? "null");
+    if (saved?.id) ids.push(saved.id);
+    if (saved?.folder) ids.push(saved.folder);
+  } catch { /* storage unavailable or old format */ }
+  return [...new Set(ids)];
+}
+
+function openJobInUrl(id) {
+  history.replaceState(null, "", id ? `#job=${encodeURIComponent(id)}` : location.pathname);
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(OPEN_RUN_KEY) ?? "null"); } catch { /* none */ }
+  if (!id) rememberOpenRun(null);
+  else if (saved?.id !== id) rememberOpenRun(id); // its folder is added once it has finished
+}
+
+async function openJob(id, { quiet = false } = {}) {
   pollToken++;
   openJobInUrl(id);
   try {
@@ -148,11 +179,26 @@ async function openJob(id) {
     showUploadMessage(null);
     if (job.status === "done") await showResults(job);
     else follow(job);
+    return true;
   } catch (error) {
     openJobInUrl(null);
     clearRun();
-    showUploadMessage(`Could not open run ${id}: ${error.message}`);
+    // a remembered run that was deleted elsewhere: start empty without an error
+    if (!quiet) showUploadMessage(`Could not open run ${id}: ${error.message}`);
+    return false;
   }
+}
+
+/** After a reload: the run that was on screen, by job id, else by its run folder (the
+ * server forgets job ids when it restarts); empty if neither exists any more. */
+async function reopenRememberedRun() {
+  const ids = rememberedOpenRun();
+  const folder = ids.at(-1);
+  for (const id of ids) {
+    if (await openJob(id, { quiet: true })) return;
+    if (id !== folder) rememberOpenRun(folder, folder); // keep the folder for the next try
+  }
+  clearRun();
 }
 
 /** Nothing open: the empty workstation, ready for photos. */
@@ -479,6 +525,7 @@ async function deleteShownRun(control) {
 
 async function showResults(job, { replay = false } = {}) {
   const [report, files] = await Promise.all([api(jobUrl(job.id, "/report")), api(jobUrl(job.id, "/files"))]);
+  if (job.run_dir) rememberOpenRun(job.id, job.run_dir.split(/[\\/]/).pop()); // survives a restart
   shownReport = report;
   show("results");
   setStatus("");
@@ -896,9 +943,10 @@ async function init() {
     "Walk round the subject so neighbouring photos overlap by about two thirds.";
   renderPipeline(null);
   await refreshPreviousRuns();
-  // The workstation always opens empty: nothing is loaded or run until the user picks a
-  // previous run from the list or starts a reconstruction.
-  clearRun();
+  // Empty on a first visit; after a reload, the run that was on screen (until the user
+  // clears it or deletes it). Nothing is run here: a running job is only followed.
+  if (rememberedOpenRun().length) await reopenRememberedRun();
+  else clearRun();
 }
 
 init().catch((error) => showUploadMessage(`The page could not start: ${error.message}`));
