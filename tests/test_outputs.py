@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from src.config import config_from_dict
@@ -89,3 +90,44 @@ def test_cli_reconstruct_writes_what_save_stage_outputs_writes(scene_dir, filter
     save_stage_outputs(filtered, library_dir, "filter")  # `reconstruct` runs to "filter"
     metadata = {"config.yaml", "environment.json", "dataset.json"}
     assert [f for f in _files(cli_dir) if f not in metadata] == _files(library_dir)
+
+
+def test_dense_stage_writes_a_dense_cloud_and_mesh(filtered, tmp_path):
+    """`dense` adds dense.ply (far denser than the sparse cloud, on the true surface),
+    the Poisson mesh and a summary in reconstruction.json."""
+    import json
+
+    from src.pipeline import dense_scene
+    from src.pointcloud.export import read_ply
+    from tests.render import box_scene_distance
+
+    dense = dense_scene(filtered)
+    written, status = save_stage_outputs(dense, tmp_path, "dense")
+    assert (written, status) == (tmp_path / "point_clouds" / "dense.ply", 0)
+    assert (tmp_path / "meshes" / "reconstructed_mesh.ply").is_file()
+    points, colors = read_ply(written)
+    sparse, _ = read_ply(tmp_path / "point_clouds" / "filtered.ply")
+    assert len(points) > 10 * len(sparse) and colors is not None
+    summary = json.loads((tmp_path / "reconstruction" / "reconstruction.json").read_text())
+    assert summary["dense"]["points"] == len(points)
+    assert summary["dense"]["mesh"]["triangles"] > 0
+    # 4 views: fewer than distortion_min_images, so no distortion was estimated.
+    assert summary["self_calibration"] is None
+    # In the ground-truth frame the dense points lie on the box scene's surface.
+    to_truth = _similarity_to_truth(dense)
+    distance = box_scene_distance(to_truth.apply(points))
+    assert np.median(distance) < 0.01
+
+
+def _similarity_to_truth(result):
+    """Similarity taking the reconstruction's frame to the rendered scene's, from the
+    camera centres (the fixture's scene, rendered again)."""
+    from src.evaluation.metrics import align_similarity
+    from tests.render import scene_cameras
+
+    truth = scene_cameras(render_box_scene(n_cameras=4, arc_deg=30.0))
+    rec = result.reconstruction
+    m = rec.registry.images
+    est = [rec.registry.camera(k).centre for k in m]
+    true = [truth[result.names[k]].centre for k in m]
+    return align_similarity(np.array(est), np.array(true))

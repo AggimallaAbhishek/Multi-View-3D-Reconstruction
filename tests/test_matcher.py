@@ -340,3 +340,11 @@ def test_isolated_images(sift_features):
         features, select_pairs(4, MatchConfig()), DescriptorMatcher(MatchConfig())
     )
     assert isolated_images(stats, 4, min_matches=30) == [3]
+
+
+@pytest.mark.parametrize("method", ["bruteforce", "flann"])
+def test_create_matcher_gives_the_descriptor_matcher_for_classical_methods(method):
+    from src.features.matcher import create_matcher
+
+    m = create_matcher(MatchConfig(method=method), image_sizes=[])
+    assert type(m) is DescriptorMatcher and m.config.method == method

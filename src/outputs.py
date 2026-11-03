@@ -346,16 +346,29 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         "observations": len(errors),
         "mean_track_length": float(track_lengths.mean()) if len(lm) else None,
         "reprojection": stats.to_dict(),
-        "intrinsics": {"initial_K": r.images[images[0]].K.tolist(), "K": cameras[0].K.tolist()},
+        "intrinsics": {
+            "initial_K": r.images[images[0]].K.tolist(),
+            "K": cameras[0].K.tolist(),
+            "focal_scale": rec.focal_scale,
+        },
+        "self_calibration": None if r.distortion is None else r.distortion.summary(),
         "settings": {k: cfg.to_dict()[k] for k in ("registration", "bundle_adjustment")},
         "frame": MULTI_VIEW_FRAME,
     }
     json_path = write_json(out / "reconstruction.json", summary)
     write_csv(
         out / "registration.csv",
-        ["attempt", "image", "success", "reason", "correspondences", "inliers"],
+        ["attempt", "image", "method", "success", "reason", "correspondences", "inliers"],
         (
-            [k, names[a.image], a.success, a.reason or "", a.n_correspondences, a.n_inliers]
+            [
+                k,
+                names[a.image],
+                a.method,
+                a.success,
+                a.reason or "",
+                a.n_correspondences,
+                a.n_inliers,
+            ]  # fmt: skip
             for k, a in enumerate(rec.attempts)
         ),
     )
@@ -373,9 +386,12 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
     files = save_cloud(run_dir, X, colors, cameras, [names[m] for m in images], sizes,
                        MULTI_VIEW_FRAME)  # fmt: skip
 
+    # A PnP failure the relative-pose fallback then rescued is not a failed attempt.
+    rescued = sum(a.success and a.method == "relative_pose" for a in rec.attempts)
+    failed = sum(not a.success for a in rec.attempts) - rescued
     print(
         f"Registered {len(images)} of {len(names)} images "
-        f"({sum(not a.success for a in rec.attempts)} failed attempts)"
+        f"({rescued} from a relative pose, {failed} failed attempts)"
     )
     print(
         f"Landmarks: {len(lm)}, observations {len(errors)} "
@@ -385,9 +401,20 @@ def _save_reconstruction(r: PipelineResult, run_dir: Path, draw: int) -> tuple[P
         f"Reprojection error: mean {stats.mean:.2f} px, median {stats.median:.2f} px, "
         f"90th percentile {stats.p90:.2f} px, max {stats.max:.2f} px"
     )
-    f0, f = r.images[images[0]].K[0, 0], cameras[0].K[0, 0]
-    if f != f0:
-        print(f"Focal length refined: {f:.1f} px (started at {f0:.1f} px, {f / f0 - 1:+.1%})")
+    if rec.focal_scale != 1.0:
+        f0 = r.images[images[0]].K[0, 0]
+        print(
+            f"Focal length refined: {f0 * rec.focal_scale:.1f} px "
+            f"(started at {f0:.1f} px, {rec.focal_scale - 1:+.1%})"
+        )
+    d = r.distortion
+    if d is not None:
+        last = d.estimates[-1]
+        print(
+            f"Lens distortion: k1 {d.distortion.k1:+.4f}, k2 {d.distortion.k2:+.4f} applied "
+            f"({d.passes} more reconstruction(s)); remaining estimate moves a corner "
+            f"{last.shift_px:.1f} px"
+        )
     if unregistered:
         print(f"[WARNING] not registered: {', '.join(unregistered)}")
     print(f"Sparse cloud: {len(X)} coloured points -> {files.ply}")
@@ -431,6 +458,49 @@ def _save_filtered(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | 
     return ply, 0
 
 
+def _save_dense(r: PipelineResult, run_dir: Path, draw: int) -> tuple[Path | None, int]:
+    """dense.ply, the Poisson mesh (Open3D, external), a summary (added to
+    reconstruction.json) and a render."""
+    from src.dense.meshing import poisson_mesh, write_mesh
+    from src.visualization.viewer import RenderUnavailable, render_scene
+
+    d = r.dense
+    if d is None:
+        return None, 0
+    cloud = d.cloud
+    ply = write_ply(run_dir / "point_clouds" / "dense.ply", cloud.points, cloud.colors / 255.0)
+    images = r.reconstruction.registry.images
+    names = [r.names[m] for m in images]
+    summary = {
+        "points": len(cloud.points),
+        "voxel_size": d.voxel_size,
+        "partners": {names[i]: None if j is None else names[j]
+                     for i, j in enumerate(d.plan.partner)},
+        "coverage": dict(zip(names, d.coverage, strict=True)),
+        "settings": r.config.to_dict()["dense"],
+    }  # fmt: skip
+    print(f"Dense cloud: {len(cloud.points)} points from "
+          f"{sum(j is not None for j in d.plan.partner)} depth maps -> {ply}")  # fmt: skip
+    if len(cloud.points):
+        mesh = poisson_mesh(cloud, r.config.dense)
+        mesh_path = write_mesh(run_dir / "meshes" / "reconstructed_mesh.ply", mesh)
+        summary["mesh"] = {"vertices": len(mesh.vertices), "triangles": len(mesh.triangles)}
+        print(f"Mesh (Open3D Poisson, external): {len(mesh.triangles)} triangles -> {mesh_path}")
+    json_path = run_dir / "reconstruction" / "reconstruction.json"
+    write_json(json_path, {**read_json(json_path), "dense": summary})
+
+    rec = r.reconstruction
+    cameras = [rec.registry.camera(m) for m in images]
+    sizes = [(r.images[m].width, r.images[m].height) for m in images]
+    try:
+        render = render_scene(cloud.points, cloud.colors / 255.0, cameras, sizes,
+                              run_dir / "figures" / "dense.png", focus="points")  # fmt: skip
+        print(f"Render: {render}")
+    except RenderUnavailable as exc:
+        print(f"[WARNING] no offscreen rendering here ({exc}); view with: python -m src.cli view")
+    return ply, 0
+
+
 _SAVERS = {
     "features": _save_features,
     "matches": _save_matches,
@@ -440,4 +510,5 @@ _SAVERS = {
     "cloud": _save_cloud,
     "reconstruct": _save_reconstruction,
     "filter": _save_filtered,
+    "dense": _save_dense,
 }

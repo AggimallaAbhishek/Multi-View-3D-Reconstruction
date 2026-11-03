@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from src.config import config_from_dict
-from src.pipeline import STAGES, run_pipeline
+from src.pipeline import CORE_STAGES, run_pipeline
+from src.reconstruction.bundle_adjustment import scale_focal
 from src.web.report import build_report, write_report
 from tests.images import make_natural_texture, write_image
 from tests.render import render_box_scene, scene_cameras, write_scene
@@ -44,12 +45,16 @@ def test_report_summarises_a_full_reconstruction(result):
         "filtered": int(result.filtering.keep.sum()),
     }
     assert report["calibration"]["sources"] == ["file"]
-    first = rec.registry.images[0]  # K before and after bundle adjustment, of one image
-    np.testing.assert_allclose(report["calibration"]["K"], result.images[first].K)
-    np.testing.assert_allclose(report["calibration"]["refined_K"], rec.registry.camera(first).K)
+    calibration = report["calibration"]
+    first = rec.registry.images[0]  # the image reconstruction.json reports K of
+    np.testing.assert_allclose(calibration["K"], result.images[first].K)  # before adjustment
+    assert calibration["focal_scale"] == rec.focal_scale  # refined by bundle adjustment
+    np.testing.assert_allclose(
+        rec.registry.camera(first).K, scale_focal(result.images[first].K, rec.focal_scale)
+    )
     max_px = result.config.triangulation.max_reprojection_error_px
     assert report["reprojection"]["median_px"] < max_px
-    assert list(report["timings"]) == ["dataset", *STAGES]
+    assert list(report["timings"]) == ["dataset", *CORE_STAGES]
     assert report["total_s"] == pytest.approx(sum(result.timings.values()))
     assert report["warnings"] == []
     assert "ground_truth" not in report
@@ -119,7 +124,41 @@ def test_partial_run_with_fallback_intrinsics_warns(scene_dir):
         "unregistered": [im.name for im in partial.images],
     }
     assert report["points"] is None and report["reprojection"] is None
-    assert report["calibration"]["refined_K"] is None
+    assert report["calibration"]["focal_scale"] is None
     assert any("fallback" in w for w in report["warnings"])
     assert any("no reconstruction" in w for w in report["warnings"])
     json.dumps(report)
+
+
+def test_report_names_the_feature_method(result):
+    """The page shows which detector and matcher made the run (classical or learned)."""
+    assert build_report(result)["features"] == {"detector": "sift", "matcher": "bruteforce"}
+
+
+def test_report_gives_each_stage_its_numbers(result):
+    """The pipeline column shows what each stage produced: features, matches, verified
+    pairs and inliers, the initial pair, registered cameras, points kept."""
+    stages = build_report(result)["stages"]
+    counts = [len(f) for f in result.features]
+
+    assert stages["features"]["per_image_median"] == pytest.approx(np.median(counts))
+    assert stages["features"]["total"] == sum(counts)
+    assert stages["features"]["cached"] is False  # first run of this scene
+    assert stages["matches"]["pairs"] == N_VIEWS * (N_VIEWS - 1) // 2  # exhaustive
+    assert stages["matches"]["matches"] > 0
+    verified = stages["verification"]
+    assert 0 < verified["pairs"] <= stages["matches"]["pairs"]
+    assert 0 < verified["inliers"] <= stages["matches"]["matches"]
+    assert 0.5 < verified["inlier_ratio"] <= 1
+    assert set(stages["initial_pair"]) <= set(result.names) and len(stages["initial_pair"]) == 2
+    assert stages["reconstruction"]["registered"] == N_VIEWS
+    assert stages["filter"]["kept"] <= stages["filter"]["total"]
+
+
+def test_stages_that_did_not_run_are_null(scene_dir):
+    images, camera, raw, _ = scene_dir
+    config = config_from_dict({**raw, "camera": {"calibration_file": str(camera)}})
+    stages = build_report(run_pipeline(images, config, until="verify"))["stages"]
+    assert stages["verification"]["pairs"] > 0
+    assert stages["initial_pair"] is None
+    assert stages["reconstruction"] is None and stages["filter"] is None

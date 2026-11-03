@@ -30,12 +30,22 @@ calibration:                   # checkerboard calibration (python -m src.cli cal
   subpix_eps: 0.001
 
 features:
-  detector: sift               # sift | orb (detection always runs on the grayscale image)
+  detector: sift               # sift | orb | disk (disk: learned, external, needs the
+                               # "learned" extra; detection always runs on the grayscale image)
   max_features: 8000           # strict cap; the strongest responses are kept
   root_sift: false             # Hellinger-normalised SIFT descriptors (Arandjelovic & Zisserman 2012)
-  sift_contrast_threshold: 0.04  # lower it for low-texture objects (more, weaker features)
+  sift_contrast_threshold: 0.02  # OpenCV's default 0.04 left ETH3D pipes 7/14, terrains 30/42
+                               # registered (too few shared points); 0.02: all, on every set
   sift_adaptive_min_features: 500  # images with fewer: detect again, threshold halved... (0 = off)
   sift_min_contrast_threshold: 0.005  # ...down to this (dark or low-texture images)
+  affine_simulation: false     # SIFT on affine-warped copies of each image (ASIFT, OpenCV's
+                               # AffineFeature): matches views up to ~65 deg off-axis, but ~20x
+                               # slower and less precise (templeRing: 1.2 deg vs 0.15 deg).
+                               # Raise max_features with it: simulated views share the cap
+  affine_max_tilt: 5           # tilt levels simulated, as powers of tilt_step (OpenCV's
+                               # defaults, from the ASIFT paper)
+  affine_tilt_step: 1.4142135623730951
+  affine_rotate_step_base: 72.0  # rotation step at tilt t is this / t degrees
   warn_min_features: 100       # warn about images with fewer features...
   warn_min_coverage: 0.25      # ...or keypoints on less than this share of the coverage grid
   coverage_grid: 8             # coverage is measured on a grid x grid partition of the image
@@ -44,8 +54,11 @@ matching:
   ratio: 0.75                  # Lowe ratio test: keep if d1 < ratio * d2
   mutual: true                 # keep only mutual nearest neighbours (one-to-one)
   method: bruteforce           # bruteforce (exact, deterministic) | flann (approximate, seeded)
+                               # | lightglue (learned, external, needs features.detector: disk)
   flann_trees: 5               # flann: randomised k-d trees per index
   flann_checks: 64             # flann: leaves visited per query (accuracy vs speed)
+  lightglue_filter_threshold: 0.7  # lightglue: minimum match confidence. LightGlue's own 0.1
+                               # verified 266 wrong pairs on templeRing (0.7: 1; 24 vs 31 of 47 views)
   pair_mode: auto              # auto | exhaustive (all pairs) | sequential (j - i <= window)
   exhaustive_max_images: 50    # auto: exhaustive up to this many images, sequential above
   sequential_window: 5
@@ -80,6 +93,14 @@ registration:                  # adding an image to the reconstruction from 2D-3
   min_inliers: 30              # links that must agree with the pose to register the image
   min_inlier_ratio: 0.25       # ...and at least this share of its links
   refine: true                 # Levenberg-Marquardt refinement of the pose on the inliers
+  relative_pose_fallback: true # when PnP lacks links: pose from the essential matrix with the
+                               # registered image sharing most tracks, scale from shared landmarks
+  fallback_estimator: usac_accurate  # of that essential matrix (plain ransac was 1-3 deg off)
+  fallback_epipolar_threshold_px: 1.5  # and its inlier threshold; the pose is refined by the
+                               # bundle adjustment that follows (refine: applies to PnP)
+  fallback_min_links: 6        # landmarks that must agree with the scale (vs min_inliers for PnP)
+  fallback_min_pair_inliers: 50  # tracks shared with the neighbour and essential-matrix inliers
+                               # (ETH3D pipes: a 40-inlier pair over 42 deg gave a 5 deg error)
 
 bundle_adjustment:             # joint refinement of camera poses, points and the focal length
   enabled: true
@@ -95,10 +116,20 @@ bundle_adjustment:             # joint refinement of camera poses, points and th
                                # stopping early once a round changes no observation
   refine_focal: true           # global adjustments also refine one focal scale shared by all
                                # images (one physical camera): undoes a +-20 % focal error (E3b);
-                               # on a calibrated K it moves f by < 0.2 %. Assumes one camera at
-                               # one zoom; turn off for photos from several cameras
+                               # on a calibrated K it moves f by < 0.2 %. Only when every image
+                               # starts with the same K (one camera, zoom and working resolution)
   max_focal_change: 3.0        # a refined focal length more than this factor from the starting
                                # one is not trusted (ill-conditioned): that adjustment keeps K
+  estimate_distortion: true    # with refine_focal and no distortion in the camera file: after
+                               # reconstructing, estimate radial distortion (k1, k2) in one more
+  distortion_min_shift_px: 2.0 # global adjustment; if it moves an image corner more than this,
+  distortion_passes: 2         # undistort the images and reconstruct again (at most this often);
+  distortion_min_images: 5     # only from this many registered images (2 gave a spurious
+                               # distortion); a pass is kept if it registers more images, or
+                               # as many without a higher mean reprojection error
+  distortion_min_field_radius: 0.3  # and only over a wide enough view: the farthest image
+                               # corner this far from the axis (normalised; ETH3D 0.88,
+                               # templeRing 0.26, dino 0.12 — there k1, k2 fit noise)
   refine_structure: true       # after each registration (and adjustment): re-attach track
                                # keypoints that fit, drop observations > max reprojection
                                # error, re-triangulate; works with or without BA
@@ -112,16 +143,51 @@ filtering:                     # cleaning the multi-view cloud before export (fi
   radius_scale: 5.0            # this within radius_scale * median distance to the
                                # radius_nb_points-th neighbour (relative: SfM has no scale)
 
+dense:                         # dense stereo on the recovered cameras (python -m src.cli dense)
+  min_angle_deg: 3.0           # stereo partner: the view whose angle to this one (seen from
+  target_angle_deg: 8.0        # the scene centre) is nearest the target, within
+  max_angle_deg: 20.0          # [min, max]; views without one get no depth map
+  rectify_alpha: 1.0           # cv2.stereoRectify: 1 keeps every pixel, 0 crops to valid ones
+  depth_quantile: 0.01         # disparity search range: these quantiles of the sparse points'
+  disparity_margin_px: 16      # disparities, widened by this margin
+  max_disparities: 384         # cap on the search range (multiple of 16)
+  block_size: 3                # StereoSGBM (OpenCV) matching window and filters (5 and 7
+                               # fatten object edges: more points off the silhouettes)
+  uniqueness_ratio: 10
+  speckle_window: 100
+  speckle_range: 2
+  disp12_max_diff: 1
+  min_texture: 2.0             # no depth where the grey levels' std in the block window is
+                               # lower (uniform background: templeRing's is ~0.5)
+  edge_erosion_px: 1           # no depth within this many px of a pixel without one: stereo
+                               # fattens edges (templeRing: points > 2 px off a silhouette
+                               # 2.5 % -> 1.1 %, 19 % fewer points)
+  fusion_views: 4              # a depth is kept if, of its this many angularly nearest views,
+  min_consistent_views: 2      # at least this many have a depth within depth_tolerance
+  depth_tolerance: 0.01        # (relative) at its projection
+  voxel_fraction: 0.001        # fused cloud averaged on voxels of this fraction of the sparse
+                               # cloud's extent (bbox diagonal)
+  normal_neighbours: 30        # mesh normals: estimated from this many neighbours
+  poisson_depth: 9             # Poisson mesh (Open3D, external): octree depth, and the fraction
+  mesh_density_quantile: 0.02  # of lowest-density (extrapolated) vertices removed
+  poisson_threads: 1           # Open3D 0.20's multithreaded Poisson (-1: all cores) aborted
+                               # (libc++abi) on a finite, voxel-deduplicated 600k-point cloud;
+                               # single-threaded: ~2 s at depth 9
+
 evaluation:                    # experiments against a reference cloud (src/evaluation)
   completeness_tolerance: 0.01 # a reference point is recovered if a reconstructed point lies
                                # within this fraction of the reference's extent (bbox diagonal)
+  silhouette_threshold: 15     # scripts/evaluate_dense.py, dark-background sets: object pixels
+  silhouette_close_px: 7       # are brighter than this grey level; the mask is closed with
+  silhouette_margin_px: 2      # this kernel and dilated by this margin (edges, pose errors)
 
 output:
   root: outputs
   cache_dir: outputs/cache     # features, matches and prepared images; null disables caching
 
 performance:
-  workers: 0                   # threads for geometric verification (RANSAC is single-threaded); 0 = all cores
+  workers: 0                   # threads for geometric verification and dense stereo; 0 = all cores
+  torch_device: auto           # learned features/matching: auto (cuda, then mps, then cpu) | cpu | cuda | mps
 
 web:                           # local web interface (python -m src.web); one job at a time
   host: 127.0.0.1              # localhost only: no authentication
@@ -132,3 +198,9 @@ web:                           # local web interface (python -m src.web); one jo
                                # count come from dataset.extensions / dataset.min_images
   poll_interval_ms: 1000       # how often the page asks for job progress
   open_browser: true           # open the page when the server starts
+  thumbnails: 12               # photos kept per run as thumbnails (uploads are deleted)
+  thumbnail_px: 240            # longest side of a thumbnail
+  thumbnail_quality: 82        # JPEG quality of the thumbnails (0-100)
+  showcase_frame_px: 960       # width of the intro page's "how it works" frames (16:10)
+  showcase_quality: 80         # their JPEG quality (scripts/make_showcase.py)
+  showcase_photos: 6           # photos of the subject kept for the intro page

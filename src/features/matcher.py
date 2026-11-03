@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from typing import Protocol
 
 import cv2
 import numpy as np
@@ -23,7 +24,7 @@ from src.config import MatchConfig
 from src.features.extractor import Features
 from src.run import atomic_savez, write_csv
 
-_FLOAT_DETECTORS = {"sift", "rootsift"}
+_FLOAT_DETECTORS = {"sift", "rootsift", "disk"}
 _BINARY_DETECTORS = {"orb"}
 # MatchConfig fields that choose or judge pairs rather than change how a pair is matched;
 # every other field is part of the match cache key.
@@ -64,6 +65,16 @@ class MatchStats:
     final: int  # after the mutual check (equal to after_ratio when it is disabled)
     time_ms: float
     cached: bool = False
+
+
+class Matcher(Protocol):
+    """What ``match_pairs`` needs: ``DescriptorMatcher`` or the learned ``LightGlueMatcher``."""
+
+    config: MatchConfig
+
+    def match(
+        self, features_i: Features, features_j: Features, i: int = 0, j: int = 1
+    ) -> tuple[Matches, MatchStats]: ...
 
 
 class DescriptorMatcher:
@@ -184,6 +195,20 @@ class DescriptorMatcher:
         return idx, dist
 
 
+def _learned_version() -> str:
+    """kornia's and torch's versions, read without importing them: LightGlue's weights ship
+    with kornia and run on torch, so either can change its matches."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    def get(package: str) -> str:
+        try:
+            return version(package)
+        except PackageNotFoundError:
+            return "none"
+
+    return f"kornia-{get('kornia')}-torch-{get('torch')}"
+
+
 class MatchCache:
     """Matches on disk, keyed by both images' descriptors and the matching settings.
 
@@ -205,6 +230,8 @@ class MatchCache:
             k: v for k, v in dataclasses.asdict(config).items() if k not in PAIR_SELECTION_FIELDS
         }
         settings = f"{sorted(settings.items())}|cv{cv2.__version__}"
+        if config.method == "lightglue":  # its weights ship with kornia
+            settings += f"|{_learned_version()}"
         key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
         return self.directory / f"{key[:24]}.npz"
 
@@ -251,7 +278,7 @@ def select_pairs(n_images: int, config: MatchConfig) -> list[tuple[int, int]]:
 def match_pairs(
     features: Sequence[Features],
     pairs: Sequence[tuple[int, int]],
-    matcher: DescriptorMatcher,
+    matcher: Matcher,
     cache: MatchCache | None = None,
 ) -> tuple[list[Matches], list[MatchStats]]:
     """Match every pair, in the given order.
@@ -280,6 +307,18 @@ def match_pairs(
 
     results = [one(pair) for pair in pairs]
     return [m for m, _ in results], [s for _, s in results]
+
+
+def create_matcher(
+    config: MatchConfig, image_sizes: Sequence[tuple[int, int]], device: str = "auto"
+) -> Matcher:
+    """The matcher ``config.method`` names; ``image_sizes`` (width, height) per image are
+    needed by LightGlue only. LightGlue (external) is imported only when chosen."""
+    if config.method == "lightglue":
+        from src.features.learned import LightGlueMatcher
+
+        return LightGlueMatcher(config, image_sizes, device)
+    return DescriptorMatcher(config)
 
 
 def connectivity(stats: Sequence[MatchStats], n_images: int) -> np.ndarray:

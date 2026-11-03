@@ -36,7 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     # Options that override config keys use the dotted key as their argparse ``dest``;
     # config_from_args applies all of them through the validated Config.with_overrides.
     detector.add_argument(
-        "--detector", dest="features.detector", choices=["sift", "orb"], help="features.detector"
+        "--detector",
+        dest="features.detector",
+        choices=["sift", "orb", "disk"],
+        help="features.detector",
     )
     draw = argparse.ArgumentParser(add_help=False)
     draw.add_argument("--draw", type=int, default=3, help="diagnostic images to save (3)")
@@ -122,6 +125,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.set_defaults(func=_stage_command, stage="filter", draw=0)
 
+    p = sub.add_parser(
+        "dense",
+        parents=[common, detector, verification],
+        help="reconstruct, then stereo depth maps on the recovered cameras -> dense cloud "
+        "and a Poisson mesh",
+    )
+    p.set_defaults(func=_stage_command, stage="dense", draw=0)
+
     p = sub.add_parser("view", help="open a point cloud (PLY) with its cameras in a 3-D viewer")
     p.add_argument("ply", type=Path, help="point cloud, e.g. .../point_clouds/sparse.ply")
     p.add_argument("--cameras", type=Path, help="cameras.json written next to it")
@@ -182,7 +193,7 @@ def _validate(args: argparse.Namespace) -> int:
 
 
 def _stage_command(args: argparse.Namespace) -> int:
-    """features, matches, verify, pose, triangulate, two-view and reconstruct: run the
+    """features, matches, verify, pose, triangulate, two-view, reconstruct and dense: run the
     pipeline up to ``args.stage`` and write the outputs of every stage that ran (see
     ``src.outputs``)."""
     config = config_from_args(args)

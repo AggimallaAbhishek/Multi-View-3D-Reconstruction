@@ -116,12 +116,26 @@ class ImageCache:
     parameters, OpenCV version), so a change in any of them recomputes.
     """
 
-    def __init__(self, directory: str | Path, config: Config, calibration: Path | None):
+    def __init__(
+        self,
+        directory: str | Path,
+        config: Config,
+        calibration: Path | None,
+        intrinsics: Intrinsics | None = None,
+    ):
         self.directory = Path(directory)
         settings = {
             "preprocessing": config.to_dict()["preprocessing"],
             "camera": config.to_dict()["camera"],
             "calibration": Path(calibration).read_text("utf-8") if calibration else None,
+            "intrinsics": None
+            if intrinsics is None
+            else [
+                intrinsics.K.tolist(),
+                intrinsics.dist.tolist(),
+                intrinsics.width,
+                intrinsics.height,
+            ],  # fmt: skip
             "blur_working_side": config.dataset.blur_working_side,
             "dhash_size": config.dataset.dhash_size,
             "opencv": cv2.__version__,
@@ -196,8 +210,13 @@ def find_calibration_file(directory: str | Path, config: Config) -> Path | None:
     return beside if beside.is_file() else None
 
 
-def prepare_dataset(directory: str | Path, config: Config | None = None) -> Dataset:
+def prepare_dataset(
+    directory: str | Path, config: Config | None = None, intrinsics: Intrinsics | None = None
+) -> Dataset:
     """Discover, decode, validate and preprocess every image in ``directory``.
+
+    ``intrinsics`` (at the original resolution) replace the calibration file, EXIF and
+    the fallback for every image — the pipeline passes the self-calibrated camera here.
 
     Raises ``DatasetError`` when no images are found or validation reports an
     error; the exception carries the report when one was produced.
@@ -213,10 +232,13 @@ def prepare_dataset(directory: str | Path, config: Config | None = None) -> Data
     if n is not None and n < len(paths):  # evenly spaced, first and last included
         paths = [paths[k] for k in np.round(np.linspace(0, len(paths) - 1, n)).astype(int)]
 
-    calibration_file = find_calibration_file(directory, config)
-    calibration = load_camera_file(calibration_file) if calibration_file else None
+    if intrinsics is not None:
+        calibration_file, calibration = None, intrinsics
+    else:
+        calibration_file = find_calibration_file(directory, config)
+        calibration = load_camera_file(calibration_file) if calibration_file else None
     cache_dir = config.cache_path("images")
-    cache = ImageCache(cache_dir, config, calibration_file) if cache_dir else None
+    cache = ImageCache(cache_dir, config, calibration_file, intrinsics) if cache_dir else None
 
     prepared, stats, skipped = [], [], []
     for path in paths:

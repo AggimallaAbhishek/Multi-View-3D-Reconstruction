@@ -24,3 +24,6 @@ outputs/*
 .DS_Store
 .vscode/
 .idea/
+.superpowers/
+!src/web/static/showcase/cloud.ply
+.taste-skill/

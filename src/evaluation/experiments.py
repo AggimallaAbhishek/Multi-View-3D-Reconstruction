@@ -40,14 +40,14 @@ from src.evaluation.metrics import camera_pose_errors, cloud_errors, metric_scal
 from src.geometry.camera import Camera
 from src.geometry.reprojection import ReprojectionStats
 from src.geometry.triangulation import Observations, triangulate_and_filter
-from src.pipeline import STAGES, PipelineResult, run_pipeline
+from src.pipeline import CORE_STAGES, PipelineResult, run_pipeline
 from src.pointcloud.export import write_ply
 from src.pointcloud.filtering import filter_cloud
 from src.reconstruction.landmarks import keypoint_pixels
 from src.reconstruction.tracks import ViewGraph, build_tracks
 from src.run import write_csv, write_json, write_run_metadata
 
-TIMED = ("dataset", *STAGES)
+TIMED = ("dataset", *CORE_STAGES)
 METRICS = (
     "images", "features_mean", "pairs", "raw_matches_mean", "matches_mean", "verified_pairs",
     "inlier_ratio_mean",
@@ -176,7 +176,9 @@ def collect_metrics(
     one = metric_scale(cameras[0].centre, cameras[1].centre,
                        np.linalg.norm(truth[1].centre - truth[0].centre))  # fmt: skip
     # Ground-truth K is at the original resolution, ours at the working one.
-    true_fx = [t.K[0, 0] * result.images[m].scale[0] for t, m in zip(truth, images, strict=True)]
+    true_fx = [
+        at_working_resolution(gt[result.names[m]], result.images[m].scale).K[0, 0] for m in images
+    ]
     row.update(
         rotation_error_median_deg=float(np.median(errors.rotation_deg)),
         rotation_error_max_deg=float(errors.rotation_deg.max()),

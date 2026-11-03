@@ -1,0 +1,7 @@
+# Learned features and matching (external: kornia's DISK + LightGlue; needs the "learned"
+# extra, uv pip install -e ".[learned]"). Every other setting is the default.
+#   python scripts/evaluate_against_ground_truth.py data/raw/dinoSparseRing --config configs/learned.yaml
+features:
+  detector: disk
+matching:
+  method: lightglue

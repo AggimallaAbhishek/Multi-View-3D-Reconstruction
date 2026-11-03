@@ -9,34 +9,25 @@ focal error.
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 
 import matplotlib
+import pandas as pd
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 
-def _rows(directory: Path) -> dict[str, dict[str, float]]:
-    """Metrics (percent / degrees) of every successful setting, by setting label."""
-    rows = {}
-    with (directory / "experiment_results.csv").open() as f:
-        for r in csv.DictReader(f):
-            if r["status"] == "ok":
-                rows[r["setting"]] = {
-                    "rotation": float(r["rotation_error_median_deg"]),
-                    "completeness": float(r["completeness"]),
-                    "final": 100 * float(r["focal_error"]),
-                }
-    return rows
-
-
-def _with_start(rows: dict[str, dict[str, float]], start: dict[str, float]) -> list[dict]:
-    """Rows of the settings both experiments ran, with their starting focal error,
-    sorted by it."""
-    out = [{**row, "start": start[label]} for label, row in rows.items() if label in start]
-    return sorted(out, key=lambda r: r["start"])
+def _table(directory: Path) -> pd.DataFrame:
+    """Rotation error (deg), completeness and final focal error (%) of every successful
+    setting, indexed by setting label."""
+    t = pd.read_csv(directory / "experiment_results.csv")
+    t = t[t["status"] == "ok"].set_index("setting")
+    return pd.DataFrame({
+        "rotation": t["rotation_error_median_deg"],
+        "completeness": t["completeness"],
+        "final": 100 * t["focal_error"],
+    })  # fmt: skip
 
 
 def main() -> None:
@@ -46,11 +37,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("e3b_focal_refinement.png"))
     args = parser.parse_args()
 
-    fixed, refined = _rows(args.fixed), _rows(args.refined)
-    start = {label: row["final"] for label, row in fixed.items()}  # K fixed: final = start
+    fixed = _table(args.fixed)
+    start = fixed["final"].rename("start")  # K fixed: the final focal error is the start
     runs = {
-        "K fixed (E3)": _with_start(fixed, start),
-        "focal refined (E3b)": _with_start(refined, start),
+        name: table.join(start, how="inner").sort_values("start")
+        for name, table in [("K fixed (E3)", fixed), ("focal refined (E3b)", _table(args.refined))]
     }
     style = {"K fixed (E3)": ("#b5523b", "o", "--"), "focal refined (E3b)": ("#2f6b9a", "s", "-")}
     panels = [
@@ -60,10 +51,10 @@ def main() -> None:
     ]
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), layout="constrained")
     for ax, (key, label, log) in zip(axes, panels, strict=True):
-        for name, rows in runs.items():
+        for name, table in runs.items():
             color, marker, line = style[name]
-            ax.plot([r["start"] for r in rows], [r[key] for r in rows], color=color,
-                    marker=marker, linestyle=line, label=name)  # fmt: skip
+            ax.plot(table["start"], table[key], color=color, marker=marker, linestyle=line,
+                    label=name)  # fmt: skip
         if log:
             ax.set_yscale("log")
         ax.set_xlabel("starting focal error (%)")

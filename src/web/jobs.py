@@ -27,11 +27,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from src.config import Config
+import cv2
+
+from src.config import Config, WebConfig
 from src.data.loader import discover_images
+from src.data.preprocessing import resize_max_side
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
-from src.pipeline import STAGES, PipelineResult, Stage, run_pipeline
+from src.pipeline import CORE_STAGES, STAGES, PipelineResult, Stage, run_pipeline
 from src.run import read_json, run_stamp, run_stamp_of
 from src.web.report import REPORT_NAME, build_report, write_report
 
@@ -40,7 +43,8 @@ log = logging.getLogger(__name__)
 _children: set[multiprocessing.process.BaseProcess] = set()  # running reconstructions
 
 RUN_LABEL = "web_reconstruct"
-JOB_STAGES = ("dataset", *STAGES, "outputs")  # what a job reports, in order
+THUMBNAILS_DIR = "thumbnails"
+JOB_STAGES = ("dataset", *CORE_STAGES, "outputs")  # what a job reports, in order
 
 Status = Literal["queued", "running", "done", "failed"]
 # progress(stage, timings): ``stage`` starts now; ``timings`` holds the finished ones
@@ -152,7 +156,29 @@ def reconstruct(
         if run_dir is None and result is not None:
             run_dir = _save_partial(result, stamp)
         raise JobFailed(str(exc), run_dir) from exc
+    finally:  # whatever happened, a run folder keeps its photos (uploads get deleted)
+        if run_dir is not None and result is not None:
+            write_thumbnails(result, run_dir, config.web)
     return run_dir
+
+
+def write_thumbnails(result: PipelineResult, run_dir: Path, web: WebConfig) -> None:
+    """Small JPEGs of the first ``web.thumbnails`` photos in ``run_dir/thumbnails``, as the
+    pipeline saw them (upright, undistorted). Best effort: a failure here is logged, never
+    raised, so it cannot hide how the job ended."""
+    try:
+        folder = run_dir / THUMBNAILS_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        used: set[str] = set()
+        for im in result.images[: web.thumbnails]:
+            small, _, _ = resize_max_side(im.image, im.K, web.thumbnail_px)
+            stem = Path(im.name).stem
+            name = stem if stem not in used else f"{stem}_{im.index}"  # a.jpg and a.png
+            used.add(name)
+            quality = [cv2.IMWRITE_JPEG_QUALITY, web.thumbnail_quality]
+            cv2.imwrite(str(folder / f"{name}.jpg"), small, quality)
+    except Exception:
+        log.exception("could not write thumbnails in %s", run_dir)
 
 
 def reconstruct_in_subprocess(

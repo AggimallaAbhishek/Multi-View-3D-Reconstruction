@@ -1,0 +1,1725 @@
+{
+  "name": "Middlebury Temple",
+  "report": {
+    "images": {
+      "total": 312,
+      "registered": 312,
+      "unregistered": []
+    },
+    "points": {
+      "sparse": 24835,
+      "filtered": 24121
+    },
+    "features": {
+      "detector": "sift",
+      "matcher": "bruteforce"
+    },
+    "calibration": {
+      "sources": [
+        "file"
+      ],
+      "K": [
+        [
+          1520.4,
+          0.0,
+          302.32
+        ],
+        [
+          0.0,
+          1525.9,
+          246.87
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "focal_scale": 0.9968299834792866
+    },
+    "reprojection": {
+      "n": 183443,
+      "mean_px": 0.30581323177858516,
+      "median_px": 0.21073203822171524,
+      "p90_px": 0.6801900034686633,
+      "max_px": 1.9973651985170184
+    },
+    "stages": {
+      "features": {
+        "per_image_median": 1266.0,
+        "total": 393664,
+        "cached": false
+      },
+      "matches": {
+        "pairs": 48516,
+        "matches": 2431884,
+        "cached": false
+      },
+      "verification": {
+        "pairs": 8851,
+        "inliers": 1569186,
+        "inlier_ratio": 0.9209383889538053
+      },
+      "initial_pair": [
+        "temple0040.png",
+        "temple0301.png"
+      ],
+      "reconstruction": {
+        "registered": 312,
+        "landmarks": 24835
+      },
+      "filter": {
+        "kept": 24121,
+        "total": 24835
+      }
+    },
+    "timings": {
+      "dataset": 2.6547421669965843,
+      "features": 4.0123548330011545,
+      "matches": 168.6630664579934,
+      "verify": 60.9393159579995,
+      "pose": 8.613742542002,
+      "triangulate": 0.005483000000822358,
+      "cloud": 0.008405624997976702,
+      "reconstruct": 183.78397091599618,
+      "filter": 0.5667808330035768
+    },
+    "total_s": 429.2478623319912,
+    "warnings": [],
+    "ground_truth": {
+      "cameras": 312,
+      "rotation_deg": {
+        "median": 0.08180136037397168,
+        "p90": 0.12330924396267617,
+        "max": 0.19574663761180514
+      },
+      "centre": {
+        "median": 0.0011643973935801816,
+        "p90": 0.0019399130905606566,
+        "max": 0.004109433611759481
+      },
+      "per_camera": [
+        {
+          "image": "temple0040.png",
+          "rotation_deg": 0.0843184863675249,
+          "centre": 0.0005665843150482297
+        },
+        {
+          "image": "temple0301.png",
+          "rotation_deg": 0.11747315456302099,
+          "centre": 0.0015621076565856163
+        },
+        {
+          "image": "temple0302.png",
+          "rotation_deg": 0.14691058603347892,
+          "centre": 0.0020321968988441957
+        },
+        {
+          "image": "temple0041.png",
+          "rotation_deg": 0.09143868927007404,
+          "centre": 0.0006175206807736605
+        },
+        {
+          "image": "temple0307.png",
+          "rotation_deg": 0.1468360885794309,
+          "centre": 0.0021417892431036473
+        },
+        {
+          "image": "temple0012.png",
+          "rotation_deg": 0.11005477480669063,
+          "centre": 0.0014525865423747665
+        },
+        {
+          "image": "temple0011.png",
+          "rotation_deg": 0.1276395100851731,
+          "centre": 0.001573090316538022
+        },
+        {
+          "image": "temple0042.png",
+          "rotation_deg": 0.12217329345945484,
+          "centre": 0.0012490693406209078
+        },
+        {
+          "image": "temple0043.png",
+          "rotation_deg": 0.13924883682506062,
+          "centre": 0.0016426370180329993
+        },
+        {
+          "image": "temple0010.png",
+          "rotation_deg": 0.1352097849444939,
+          "centre": 0.0017457353741982247
+        },
+        {
+          "image": "temple0075.png",
+          "rotation_deg": 0.07644743500959414,
+          "centre": 0.0007681783847114374
+        },
+        {
+          "image": "temple0303.png",
+          "rotation_deg": 0.11983134802440917,
+          "centre": 0.0014600829028724315
+        },
+        {
+          "image": "temple0282.png",
+          "rotation_deg": 0.11498957366673639,
+          "centre": 0.0016125562659729336
+        },
+        {
+          "image": "temple0281.png",
+          "rotation_deg": 0.09817471072093321,
+          "centre": 0.0016476709681462211
+        },
+        {
+          "image": "temple0304.png",
+          "rotation_deg": 0.12700528282412185,
+          "centre": 0.0016219355921420736
+        },
+        {
+          "image": "temple0280.png",
+          "rotation_deg": 0.12177249147153545,
+          "centre": 0.0014082007894607679
+        },
+        {
+          "image": "temple0305.png",
+          "rotation_deg": 0.1296311704911583,
+          "centre": 0.0014972108014858832
+        },
+        {
+          "image": "temple0279.png",
+          "rotation_deg": 0.09180530960633144,
+          "centre": 0.0008049620940093663
+        },
+        {
+          "image": "temple0278.png",
+          "rotation_deg": 0.13791590102937976,
+          "centre": 0.00160378341141048
+        },
+        {
+          "image": "temple0306.png",
+          "rotation_deg": 0.07835777602052393,
+          "centre": 0.0005756990722729563
+        },
+        {
+          "image": "temple0291.png",
+          "rotation_deg": 0.11963538607351877,
+          "centre": 0.0013694213534183155
+        },
+        {
+          "image": "temple0292.png",
+          "rotation_deg": 0.13974398132778373,
+          "centre": 0.0018621375792619802
+        },
+        {
+          "image": "temple0277.png",
+          "rotation_deg": 0.07575884526536981,
+          "centre": 0.001789054661846744
+        },
+        {
+          "image": "temple0293.png",
+          "rotation_deg": 0.10880311794741714,
+          "centre": 0.001214324301107465
+        },
+        {
+          "image": "temple0014.png",
+          "rotation_deg": 0.03524659953524725,
+          "centre": 0.0012910591293617294
+        },
+        {
+          "image": "temple0013.png",
+          "rotation_deg": 0.049893343367011185,
+          "centre": 0.0008917917346600322
+        },
+        {
+          "image": "temple0015.png",
+          "rotation_deg": 0.04056904100385164,
+          "centre": 0.0013381398168373314
+        },
+        {
+          "image": "temple0294.png",
+          "rotation_deg": 0.06539493971385757,
+          "centre": 0.00093820399075016
+        },
+        {
+          "image": "temple0016.png",
+          "rotation_deg": 0.053239546520292766,
+          "centre": 0.001461051107359999
+        },
+        {
+          "image": "temple0312.png",
+          "rotation_deg": 0.06816160737125833,
+          "centre": 0.0017082326849108553
+        },
+        {
+          "image": "temple0295.png",
+          "rotation_deg": 0.05269710553409283,
+          "centre": 0.0013417109255062453
+        },
+        {
+          "image": "temple0311.png",
+          "rotation_deg": 0.056998731784153545,
+          "centre": 0.0016320695957574094
+        },
+        {
+          "image": "temple0296.png",
+          "rotation_deg": 0.06222098339762774,
+          "centre": 0.0011634928453639198
+        },
+        {
+          "image": "temple0276.png",
+          "rotation_deg": 0.08259820423820041,
+          "centre": 0.002181289150087396
+        },
+        {
+          "image": "temple0258.png",
+          "rotation_deg": 0.0982772991803422,
+          "centre": 0.0017306619777762214
+        },
+        {
+          "image": "temple0257.png",
+          "rotation_deg": 0.07769330245624831,
+          "centre": 0.0015658055868492016
+        },
+        {
+          "image": "temple0259.png",
+          "rotation_deg": 0.10989471124585364,
+          "centre": 0.0014410297382901754
+        },
+        {
+          "image": "temple0275.png",
+          "rotation_deg": 0.07859111730839996,
+          "centre": 0.0017747582743495595
+        },
+        {
+          "image": "temple0260.png",
+          "rotation_deg": 0.09136295469264581,
+          "centre": 0.001013088203680262
+        },
+        {
+          "image": "temple0274.png",
+          "rotation_deg": 0.06300067369782648,
+          "centre": 0.001214693943233598
+        },
+        {
+          "image": "temple0310.png",
+          "rotation_deg": 0.05589025587451661,
+          "centre": 0.0017897806671353816
+        },
+        {
+          "image": "temple0297.png",
+          "rotation_deg": 0.05506390083833331,
+          "centre": 0.0010498396454388006
+        },
+        {
+          "image": "temple0261.png",
+          "rotation_deg": 0.11435246745764158,
+          "centre": 0.001449970246641359
+        },
+        {
+          "image": "temple0250.png",
+          "rotation_deg": 0.07793650064975602,
+          "centre": 0.002184286696795551
+        },
+        {
+          "image": "temple0273.png",
+          "rotation_deg": 0.07070705684120882,
+          "centre": 0.0014982925202543964
+        },
+        {
+          "image": "temple0120.png",
+          "rotation_deg": 0.045928317420018884,
+          "centre": 0.001260281389869519
+        },
+        {
+          "image": "temple0119.png",
+          "rotation_deg": 0.04373748483257739,
+          "centre": 0.0013901111087233915
+        },
+        {
+          "image": "temple0272.png",
+          "rotation_deg": 0.08392346442862464,
+          "centre": 0.0020107708259950396
+        },
+        {
+          "image": "temple0298.png",
+          "rotation_deg": 0.07784355646179039,
+          "centre": 0.0011042033600917529
+        },
+        {
+          "image": "temple0309.png",
+          "rotation_deg": 0.08022229962234072,
+          "centre": 0.0011444296270175576
+        },
+        {
+          "image": "temple0262.png",
+          "rotation_deg": 0.1242959306412624,
+          "centre": 0.001682287803829522
+        },
+        {
+          "image": "temple0123.png",
+          "rotation_deg": 0.09734082058501393,
+          "centre": 0.001928260991279776
+        },
+        {
+          "image": "temple0122.png",
+          "rotation_deg": 0.09035616041039077,
+          "centre": 0.0013800556796344323
+        },
+        {
+          "image": "temple0118.png",
+          "rotation_deg": 0.053641462310593475,
+          "centre": 0.0014451154622390217
+        },
+        {
+          "image": "temple0090.png",
+          "rotation_deg": 0.06798773326540733,
+          "centre": 0.0015649610429123294
+        },
+        {
+          "image": "temple0121.png",
+          "rotation_deg": 0.08696977138815809,
+          "centre": 0.0011544514211977509
+        },
+        {
+          "image": "temple0074.png",
+          "rotation_deg": 0.1103542225249375,
+          "centre": 0.001266336686611803
+        },
+        {
+          "image": "temple0091.png",
+          "rotation_deg": 0.08414421741650141,
+          "centre": 0.0013149992083414544
+        },
+        {
+          "image": "temple0117.png",
+          "rotation_deg": 0.07273161299068566,
+          "centre": 0.001738798417632418
+        },
+        {
+          "image": "temple0124.png",
+          "rotation_deg": 0.06652370922522706,
+          "centre": 0.0022328168344662373
+        },
+        {
+          "image": "temple0116.png",
+          "rotation_deg": 0.04998454611381338,
+          "centre": 0.0010199638526064022
+        },
+        {
+          "image": "temple0092.png",
+          "rotation_deg": 0.11869425501588211,
+          "centre": 0.0011915886005474774
+        },
+        {
+          "image": "temple0125.png",
+          "rotation_deg": 0.06443674057092495,
+          "centre": 0.0011705697414131039
+        },
+        {
+          "image": "temple0073.png",
+          "rotation_deg": 0.10750530348805598,
+          "centre": 0.0010315386643717753
+        },
+        {
+          "image": "temple0142.png",
+          "rotation_deg": 0.08501720920618738,
+          "centre": 0.0019692157776412793
+        },
+        {
+          "image": "temple0143.png",
+          "rotation_deg": 0.06813730755249015,
+          "centre": 0.0015777646705368484
+        },
+        {
+          "image": "temple0144.png",
+          "rotation_deg": 0.08765501370580402,
+          "centre": 0.001493364815106182
+        },
+        {
+          "image": "temple0141.png",
+          "rotation_deg": 0.06156947821300648,
+          "centre": 0.0018816198312832768
+        },
+        {
+          "image": "temple0126.png",
+          "rotation_deg": 0.06512575804165498,
+          "centre": 0.0012116038893977242
+        },
+        {
+          "image": "temple0115.png",
+          "rotation_deg": 0.0663171053612597,
+          "centre": 0.0007555136485187457
+        },
+        {
+          "image": "temple0044.png",
+          "rotation_deg": 0.17086126060423323,
+          "centre": 0.0021160203866479052
+        },
+        {
+          "image": "temple0009.png",
+          "rotation_deg": 0.1579268283785262,
+          "centre": 0.002390609865453648
+        },
+        {
+          "image": "temple0093.png",
+          "rotation_deg": 0.07433139812866676,
+          "centre": 0.0006770847246882489
+        },
+        {
+          "image": "temple0072.png",
+          "rotation_deg": 0.19574663761180514,
+          "centre": 0.00285365770257805
+        },
+        {
+          "image": "temple0045.png",
+          "rotation_deg": 0.17433235693650165,
+          "centre": 0.0023205144895834637
+        },
+        {
+          "image": "temple0008.png",
+          "rotation_deg": 0.1781448520082442,
+          "centre": 0.004109433611759481
+        },
+        {
+          "image": "temple0094.png",
+          "rotation_deg": 0.09415557499079111,
+          "centre": 0.0008634093552242339
+        },
+        {
+          "image": "temple0071.png",
+          "rotation_deg": 0.11789604204365918,
+          "centre": 0.001109644295797389
+        },
+        {
+          "image": "temple0046.png",
+          "rotation_deg": 0.09529293448076881,
+          "centre": 0.0006008458940613095
+        },
+        {
+          "image": "temple0007.png",
+          "rotation_deg": 0.17677639466043568,
+          "centre": 0.003992905673886383
+        },
+        {
+          "image": "temple0070.png",
+          "rotation_deg": 0.09117242348579074,
+          "centre": 0.00033084456049546954
+        },
+        {
+          "image": "temple0095.png",
+          "rotation_deg": 0.08870143344689893,
+          "centre": 0.00047317021496141843
+        },
+        {
+          "image": "temple0047.png",
+          "rotation_deg": 0.1011417109964734,
+          "centre": 0.00041853802011783295
+        },
+        {
+          "image": "temple0127.png",
+          "rotation_deg": 0.09681885028121626,
+          "centre": 0.0014419773315470777
+        },
+        {
+          "image": "temple0114.png",
+          "rotation_deg": 0.09880529904328718,
+          "centre": 0.0005812884866905582
+        },
+        {
+          "image": "temple0113.png",
+          "rotation_deg": 0.12760250922756455,
+          "centre": 0.0011014182136219206
+        },
+        {
+          "image": "temple0112.png",
+          "rotation_deg": 0.08028820254275355,
+          "centre": 0.0005340402838154122
+        },
+        {
+          "image": "temple0096.png",
+          "rotation_deg": 0.10309942598099776,
+          "centre": 0.0007710485456933248
+        },
+        {
+          "image": "temple0069.png",
+          "rotation_deg": 0.12721591199761778,
+          "centre": 0.001562601483074445
+        },
+        {
+          "image": "temple0048.png",
+          "rotation_deg": 0.15643860413149374,
+          "centre": 0.003110534706517497
+        },
+        {
+          "image": "temple0111.png",
+          "rotation_deg": 0.09682229969018824,
+          "centre": 0.0013004073812862423
+        },
+        {
+          "image": "temple0097.png",
+          "rotation_deg": 0.10005102986707962,
+          "centre": 0.0007343302065918702
+        },
+        {
+          "image": "temple0068.png",
+          "rotation_deg": 0.11824402558490822,
+          "centre": 0.0012806520560037422
+        },
+        {
+          "image": "temple0049.png",
+          "rotation_deg": 0.11752076655842328,
+          "centre": 0.0022878735654637368
+        },
+        {
+          "image": "temple0140.png",
+          "rotation_deg": 0.0927170273963518,
+          "centre": 0.001492584085558557
+        },
+        {
+          "image": "temple0128.png",
+          "rotation_deg": 0.10196394806404711,
+          "centre": 0.0008810681667304099
+        },
+        {
+          "image": "temple0110.png",
+          "rotation_deg": 0.11594568709699458,
+          "centre": 0.0018685058098019936
+        },
+        {
+          "image": "temple0130.png",
+          "rotation_deg": 0.09279556974925804,
+          "centre": 0.0013206950128208865
+        },
+        {
+          "image": "temple0129.png",
+          "rotation_deg": 0.09880368787183616,
+          "centre": 0.0008952533282547572
+        },
+        {
+          "image": "temple0098.png",
+          "rotation_deg": 0.09984026712265372,
+          "centre": 0.0009370192051860004
+        },
+        {
+          "image": "temple0067.png",
+          "rotation_deg": 0.10414303291297816,
+          "centre": 0.001067755451725443
+        },
+        {
+          "image": "temple0050.png",
+          "rotation_deg": 0.11885443423735649,
+          "centre": 0.001902452589978978
+        },
+        {
+          "image": "temple0131.png",
+          "rotation_deg": 0.08528899957613496,
+          "centre": 0.0015568457688428271
+        },
+        {
+          "image": "temple0139.png",
+          "rotation_deg": 0.09238509020851796,
+          "centre": 0.0016967660738223557
+        },
+        {
+          "image": "temple0162.png",
+          "rotation_deg": 0.08020888798805643,
+          "centre": 0.0023652363995866664
+        },
+        {
+          "image": "temple0099.png",
+          "rotation_deg": 0.125819829341455,
+          "centre": 0.0015706202488179608
+        },
+        {
+          "image": "temple0066.png",
+          "rotation_deg": 0.1217845156420646,
+          "centre": 0.0011373281620914832
+        },
+        {
+          "image": "temple0051.png",
+          "rotation_deg": 0.10358406079281807,
+          "centre": 0.0005652993194600991
+        },
+        {
+          "image": "temple0065.png",
+          "rotation_deg": 0.1226461789183838,
+          "centre": 0.0012568337347329506
+        },
+        {
+          "image": "temple0100.png",
+          "rotation_deg": 0.10337349816341745,
+          "centre": 0.0009412623937655497
+        },
+        {
+          "image": "temple0052.png",
+          "rotation_deg": 0.10089158535282236,
+          "centre": 0.0010568246058295463
+        },
+        {
+          "image": "temple0108.png",
+          "rotation_deg": 0.1001927313861607,
+          "centre": 0.0012859365012700787
+        },
+        {
+          "image": "temple0109.png",
+          "rotation_deg": 0.12684689683315553,
+          "centre": 0.0017783570749134634
+        },
+        {
+          "image": "temple0101.png",
+          "rotation_deg": 0.10019441476184077,
+          "centre": 0.0005769139856637975
+        },
+        {
+          "image": "temple0064.png",
+          "rotation_deg": 0.09934446077886054,
+          "centre": 0.0009583811022595557
+        },
+        {
+          "image": "temple0053.png",
+          "rotation_deg": 0.10630375040348468,
+          "centre": 0.0009894565036991704
+        },
+        {
+          "image": "temple0006.png",
+          "rotation_deg": 0.11887364258184502,
+          "centre": 0.0017352741740213973
+        },
+        {
+          "image": "temple0054.png",
+          "rotation_deg": 0.10218734395697511,
+          "centre": 0.000649148238032292
+        },
+        {
+          "image": "temple0063.png",
+          "rotation_deg": 0.11063738988773487,
+          "centre": 0.001106552598870481
+        },
+        {
+          "image": "temple0005.png",
+          "rotation_deg": 0.11888906559046314,
+          "centre": 0.0015269292227526453
+        },
+        {
+          "image": "temple0055.png",
+          "rotation_deg": 0.09944311174024416,
+          "centre": 0.000762716762819865
+        },
+        {
+          "image": "temple0004.png",
+          "rotation_deg": 0.09761773621277223,
+          "centre": 0.001342524088359258
+        },
+        {
+          "image": "temple0062.png",
+          "rotation_deg": 0.08160337306833361,
+          "centre": 0.0004431694994987351
+        },
+        {
+          "image": "temple0103.png",
+          "rotation_deg": 0.09238240271452339,
+          "centre": 0.0005547282546066672
+        },
+        {
+          "image": "temple0102.png",
+          "rotation_deg": 0.10088349402732745,
+          "centre": 0.0008441294344217275
+        },
+        {
+          "image": "temple0003.png",
+          "rotation_deg": 0.1081262351825568,
+          "centre": 0.0013899184471466801
+        },
+        {
+          "image": "temple0056.png",
+          "rotation_deg": 0.0875901686476417,
+          "centre": 0.0005172355733280065
+        },
+        {
+          "image": "temple0061.png",
+          "rotation_deg": 0.08683268546829799,
+          "centre": 0.0006652328502655044
+        },
+        {
+          "image": "temple0028.png",
+          "rotation_deg": 0.08094895815519978,
+          "centre": 0.0003616411128959475
+        },
+        {
+          "image": "temple0057.png",
+          "rotation_deg": 0.07412193858673669,
+          "centre": 0.0006695115521902307
+        },
+        {
+          "image": "temple0027.png",
+          "rotation_deg": 0.0863134704262016,
+          "centre": 0.0003044197183392541
+        },
+        {
+          "image": "temple0002.png",
+          "rotation_deg": 0.08697102780343222,
+          "centre": 0.0008806983468423914
+        },
+        {
+          "image": "temple0058.png",
+          "rotation_deg": 0.08921559817516554,
+          "centre": 0.0009626662188696516
+        },
+        {
+          "image": "temple0029.png",
+          "rotation_deg": 0.07915898914275427,
+          "centre": 0.0006940294711833927
+        },
+        {
+          "image": "temple0001.png",
+          "rotation_deg": 0.1008125090449455,
+          "centre": 0.0013571962091888186
+        },
+        {
+          "image": "temple0026.png",
+          "rotation_deg": 0.09830889960068352,
+          "centre": 0.0007431811748278454
+        },
+        {
+          "image": "temple0059.png",
+          "rotation_deg": 0.07710355064101522,
+          "centre": 0.00034957420256991604
+        },
+        {
+          "image": "temple0082.png",
+          "rotation_deg": 0.07875869745890665,
+          "centre": 0.0007121620063304084
+        },
+        {
+          "image": "temple0083.png",
+          "rotation_deg": 0.0857533500272265,
+          "centre": 0.0005690313553063891
+        },
+        {
+          "image": "temple0060.png",
+          "rotation_deg": 0.07992246876730195,
+          "centre": 0.0004112281907507414
+        },
+        {
+          "image": "temple0030.png",
+          "rotation_deg": 0.06729776643030123,
+          "centre": 0.000986199332335384
+        },
+        {
+          "image": "temple0025.png",
+          "rotation_deg": 0.07455320415148092,
+          "centre": 0.0009160505127099247
+        },
+        {
+          "image": "temple0081.png",
+          "rotation_deg": 0.08623879338257427,
+          "centre": 0.0013572849981859257
+        },
+        {
+          "image": "temple0024.png",
+          "rotation_deg": 0.0526932317137597,
+          "centre": 0.0008389443494335325
+        },
+        {
+          "image": "temple0031.png",
+          "rotation_deg": 0.10278728360186168,
+          "centre": 0.0006843168136733985
+        },
+        {
+          "image": "temple0080.png",
+          "rotation_deg": 0.0850272572494051,
+          "centre": 0.0009448748560003641
+        },
+        {
+          "image": "temple0032.png",
+          "rotation_deg": 0.11832652636712236,
+          "centre": 0.0010730143755127701
+        },
+        {
+          "image": "temple0079.png",
+          "rotation_deg": 0.08063715416063609,
+          "centre": 0.001305664085368116
+        },
+        {
+          "image": "temple0086.png",
+          "rotation_deg": 0.08208143052187236,
+          "centre": 0.0014897775862561255
+        },
+        {
+          "image": "temple0087.png",
+          "rotation_deg": 0.06379830834789281,
+          "centre": 0.0008210272334138485
+        },
+        {
+          "image": "temple0085.png",
+          "rotation_deg": 0.08241217817217555,
+          "centre": 0.000960307062109513
+        },
+        {
+          "image": "temple0106.png",
+          "rotation_deg": 0.06870299755023299,
+          "centre": 0.0006195502762190007
+        },
+        {
+          "image": "temple0105.png",
+          "rotation_deg": 0.07951807408780519,
+          "centre": 0.0006036481381493851
+        },
+        {
+          "image": "temple0084.png",
+          "rotation_deg": 0.08106943678536455,
+          "centre": 0.00048693860265762635
+        },
+        {
+          "image": "temple0104.png",
+          "rotation_deg": 0.08962337004937494,
+          "centre": 0.000587719861907199
+        },
+        {
+          "image": "temple0088.png",
+          "rotation_deg": 0.053260610554479206,
+          "centre": 0.0010061010628986755
+        },
+        {
+          "image": "temple0078.png",
+          "rotation_deg": 0.08195996974348103,
+          "centre": 0.0013739937212601415
+        },
+        {
+          "image": "temple0089.png",
+          "rotation_deg": 0.15637476864642016,
+          "centre": 0.0025736015836357526
+        },
+        {
+          "image": "temple0077.png",
+          "rotation_deg": 0.12264619127462185,
+          "centre": 0.00189143534698766
+        },
+        {
+          "image": "temple0271.png",
+          "rotation_deg": 0.10267127718660303,
+          "centre": 0.002195658764432219
+        },
+        {
+          "image": "temple0076.png",
+          "rotation_deg": 0.12950278309236274,
+          "centre": 0.00191298516228993
+        },
+        {
+          "image": "temple0270.png",
+          "rotation_deg": 0.12417985669000997,
+          "centre": 0.0026012731915288512
+        },
+        {
+          "image": "temple0283.png",
+          "rotation_deg": 0.13614454884096058,
+          "centre": 0.0025725648071242536
+        },
+        {
+          "image": "temple0269.png",
+          "rotation_deg": 0.10463152001432266,
+          "centre": 0.0020162424685318875
+        },
+        {
+          "image": "temple0300.png",
+          "rotation_deg": 0.11671578965988783,
+          "centre": 0.002218086357292284
+        },
+        {
+          "image": "temple0284.png",
+          "rotation_deg": 0.15208360399689785,
+          "centre": 0.0026875478331259157
+        },
+        {
+          "image": "temple0268.png",
+          "rotation_deg": 0.11406112125704765,
+          "centre": 0.0018990041247990452
+        },
+        {
+          "image": "temple0299.png",
+          "rotation_deg": 0.14693714778146477,
+          "centre": 0.002670569724795663
+        },
+        {
+          "image": "temple0033.png",
+          "rotation_deg": 0.13077405194701613,
+          "centre": 0.0010691189409419246
+        },
+        {
+          "image": "temple0308.png",
+          "rotation_deg": 0.12885410160948688,
+          "centre": 0.002229712064199293
+        },
+        {
+          "image": "temple0285.png",
+          "rotation_deg": 0.12338291648357107,
+          "centre": 0.0019925753684629944
+        },
+        {
+          "image": "temple0023.png",
+          "rotation_deg": 0.14408390261687212,
+          "centre": 0.001261104474015229
+        },
+        {
+          "image": "temple0267.png",
+          "rotation_deg": 0.09581273087198784,
+          "centre": 0.0014849029889414248
+        },
+        {
+          "image": "temple0254.png",
+          "rotation_deg": 0.0414719246430574,
+          "centre": 0.0010074016949803192
+        },
+        {
+          "image": "temple0034.png",
+          "rotation_deg": 0.12591091765318219,
+          "centre": 0.0012745990353059892
+        },
+        {
+          "image": "temple0253.png",
+          "rotation_deg": 0.019236493685938286,
+          "centre": 0.0010731775434047568
+        },
+        {
+          "image": "temple0286.png",
+          "rotation_deg": 0.1098965959457286,
+          "centre": 0.0016701756733282624
+        },
+        {
+          "image": "temple0022.png",
+          "rotation_deg": 0.11674496678320849,
+          "centre": 0.0007563117897654005
+        },
+        {
+          "image": "temple0107.png",
+          "rotation_deg": 0.08927355958089228,
+          "centre": 0.0005240104015053744
+        },
+        {
+          "image": "temple0251.png",
+          "rotation_deg": 0.0415497777573242,
+          "centre": 0.0008213840512056537
+        },
+        {
+          "image": "temple0252.png",
+          "rotation_deg": 0.019154787237000006,
+          "centre": 0.0011471848086824108
+        },
+        {
+          "image": "temple0245.png",
+          "rotation_deg": 0.04690900542154519,
+          "centre": 0.0009738800690236755
+        },
+        {
+          "image": "temple0246.png",
+          "rotation_deg": 0.01764130152981576,
+          "centre": 0.001028910793986564
+        },
+        {
+          "image": "temple0266.png",
+          "rotation_deg": 0.0904978077342605,
+          "centre": 0.001226484697436167
+        },
+        {
+          "image": "temple0247.png",
+          "rotation_deg": 0.028864855158044538,
+          "centre": 0.0009291648962184956
+        },
+        {
+          "image": "temple0248.png",
+          "rotation_deg": 0.02872994374489819,
+          "centre": 0.0008475985154774825
+        },
+        {
+          "image": "temple0150.png",
+          "rotation_deg": 0.06869637078563581,
+          "centre": 0.0009261563342616961
+        },
+        {
+          "image": "temple0234.png",
+          "rotation_deg": 0.03725319638556889,
+          "centre": 0.0010453553265790776
+        },
+        {
+          "image": "temple0287.png",
+          "rotation_deg": 0.10563076091975632,
+          "centre": 0.001543062071869874
+        },
+        {
+          "image": "temple0035.png",
+          "rotation_deg": 0.10031089249566295,
+          "centre": 0.0011643906310853695
+        },
+        {
+          "image": "temple0249.png",
+          "rotation_deg": 0.037806963368689085,
+          "centre": 0.0009016369394434704
+        },
+        {
+          "image": "temple0233.png",
+          "rotation_deg": 0.04734806533386778,
+          "centre": 0.0011369877406977621
+        },
+        {
+          "image": "temple0169.png",
+          "rotation_deg": 0.07553475952360343,
+          "centre": 0.0011115358212242892
+        },
+        {
+          "image": "temple0151.png",
+          "rotation_deg": 0.0818001412905336,
+          "centre": 0.001605124771111292
+        },
+        {
+          "image": "temple0168.png",
+          "rotation_deg": 0.07677118157795926,
+          "centre": 0.0014698140597502946
+        },
+        {
+          "image": "temple0152.png",
+          "rotation_deg": 0.0693373689891023,
+          "centre": 0.0007948785704613526
+        },
+        {
+          "image": "temple0231.png",
+          "rotation_deg": 0.06640492996968805,
+          "centre": 0.0013538478179594055
+        },
+        {
+          "image": "temple0149.png",
+          "rotation_deg": 0.054334746687041295,
+          "centre": 0.0006220136756521521
+        },
+        {
+          "image": "temple0170.png",
+          "rotation_deg": 0.0654473574334781,
+          "centre": 0.0008644555077031629
+        },
+        {
+          "image": "temple0171.png",
+          "rotation_deg": 0.06990322985431674,
+          "centre": 0.0010200081790796977
+        },
+        {
+          "image": "temple0188.png",
+          "rotation_deg": 0.07254784152343516,
+          "centre": 0.0010655171120183531
+        },
+        {
+          "image": "temple0187.png",
+          "rotation_deg": 0.05497414032350378,
+          "centre": 0.0007718260543192505
+        },
+        {
+          "image": "temple0153.png",
+          "rotation_deg": 0.06257384897793714,
+          "centre": 0.0008930721828932536
+        },
+        {
+          "image": "temple0148.png",
+          "rotation_deg": 0.0702802451328175,
+          "centre": 0.0006530388282938517
+        },
+        {
+          "image": "temple0265.png",
+          "rotation_deg": 0.09168735657460231,
+          "centre": 0.001197992488847831
+        },
+        {
+          "image": "temple0039.png",
+          "rotation_deg": 0.07763647720037388,
+          "centre": 0.0016666023875841131
+        },
+        {
+          "image": "temple0235.png",
+          "rotation_deg": 0.02831629462368524,
+          "centre": 0.0010117776240993782
+        },
+        {
+          "image": "temple0154.png",
+          "rotation_deg": 0.06998834522973989,
+          "centre": 0.000540556717612899
+        },
+        {
+          "image": "temple0186.png",
+          "rotation_deg": 0.08106446342223309,
+          "centre": 0.0009264517432789705
+        },
+        {
+          "image": "temple0224.png",
+          "rotation_deg": 0.04319330165786913,
+          "centre": 0.0009375396804298331
+        },
+        {
+          "image": "temple0230.png",
+          "rotation_deg": 0.06994339354826248,
+          "centre": 0.0014550728684304957
+        },
+        {
+          "image": "temple0288.png",
+          "rotation_deg": 0.10257172929763803,
+          "centre": 0.0012219074960847748
+        },
+        {
+          "image": "temple0264.png",
+          "rotation_deg": 0.09765458375644044,
+          "centre": 0.0011559864910904967
+        },
+        {
+          "image": "temple0255.png",
+          "rotation_deg": 0.08397750698994638,
+          "centre": 0.000915111470787501
+        },
+        {
+          "image": "temple0289.png",
+          "rotation_deg": 0.11278702471085288,
+          "centre": 0.0014367263505162841
+        },
+        {
+          "image": "temple0256.png",
+          "rotation_deg": 0.08626265905038934,
+          "centre": 0.0011116645377073668
+        },
+        {
+          "image": "temple0244.png",
+          "rotation_deg": 0.06016129541390268,
+          "centre": 0.0009045714656060974
+        },
+        {
+          "image": "temple0243.png",
+          "rotation_deg": 0.05427953749517173,
+          "centre": 0.0007415883662306818
+        },
+        {
+          "image": "temple0263.png",
+          "rotation_deg": 0.08279265478532967,
+          "centre": 0.000945882551933959
+        },
+        {
+          "image": "temple0146.png",
+          "rotation_deg": 0.04542099926907623,
+          "centre": 0.0002975168543972108
+        },
+        {
+          "image": "temple0145.png",
+          "rotation_deg": 0.04583092836319773,
+          "centre": 0.00039108817202437385
+        },
+        {
+          "image": "temple0290.png",
+          "rotation_deg": 0.07394373475062639,
+          "centre": 0.0011731704784349142
+        },
+        {
+          "image": "temple0038.png",
+          "rotation_deg": 0.06843325562933651,
+          "centre": 0.0013162858770871724
+        },
+        {
+          "image": "temple0017.png",
+          "rotation_deg": 0.05728150480208324,
+          "centre": 0.0019215139423145974
+        },
+        {
+          "image": "temple0037.png",
+          "rotation_deg": 0.09002384739364508,
+          "centre": 0.00138774247060586
+        },
+        {
+          "image": "temple0018.png",
+          "rotation_deg": 0.060917856585690544,
+          "centre": 0.0020640179671513595
+        },
+        {
+          "image": "temple0147.png",
+          "rotation_deg": 0.0658308449616105,
+          "centre": 0.0006391470933018552
+        },
+        {
+          "image": "temple0157.png",
+          "rotation_deg": 0.04011563010053966,
+          "centre": 0.0004831030418825635
+        },
+        {
+          "image": "temple0156.png",
+          "rotation_deg": 0.06292454942233505,
+          "centre": 0.0008580349576498151
+        },
+        {
+          "image": "temple0155.png",
+          "rotation_deg": 0.08105756575291637,
+          "centre": 0.0009717853389573492
+        },
+        {
+          "image": "temple0185.png",
+          "rotation_deg": 0.08782691954406192,
+          "centre": 0.0010990239589589645
+        },
+        {
+          "image": "temple0036.png",
+          "rotation_deg": 0.07851738529789902,
+          "centre": 0.0009945885058571242
+        },
+        {
+          "image": "temple0184.png",
+          "rotation_deg": 0.08754530654640491,
+          "centre": 0.0014712311451513373
+        },
+        {
+          "image": "temple0021.png",
+          "rotation_deg": 0.08965880189115473,
+          "centre": 0.001349782182446625
+        },
+        {
+          "image": "temple0242.png",
+          "rotation_deg": 0.06482916054021876,
+          "centre": 0.0005553685246811347
+        },
+        {
+          "image": "temple0236.png",
+          "rotation_deg": 0.05347003625495787,
+          "centre": 0.0004933108380219238
+        },
+        {
+          "image": "temple0158.png",
+          "rotation_deg": 0.0363520406501846,
+          "centre": 0.000731449061213609
+        },
+        {
+          "image": "temple0183.png",
+          "rotation_deg": 0.037256516231479166,
+          "centre": 0.001335128093917513
+        },
+        {
+          "image": "temple0241.png",
+          "rotation_deg": 0.06292796002657379,
+          "centre": 0.0004930300684023944
+        },
+        {
+          "image": "temple0240.png",
+          "rotation_deg": 0.07820949349767421,
+          "centre": 0.0007182464870536181
+        },
+        {
+          "image": "temple0237.png",
+          "rotation_deg": 0.04596199768760933,
+          "centre": 0.0007141311838927933
+        },
+        {
+          "image": "temple0238.png",
+          "rotation_deg": 0.0823267388562344,
+          "centre": 0.0008213777052479837
+        },
+        {
+          "image": "temple0191.png",
+          "rotation_deg": 0.11449706545270961,
+          "centre": 0.001433544112063118
+        },
+        {
+          "image": "temple0223.png",
+          "rotation_deg": 0.059794139900654054,
+          "centre": 0.0012154812232251233
+        },
+        {
+          "image": "temple0239.png",
+          "rotation_deg": 0.0835049388530326,
+          "centre": 0.0006995370161358959
+        },
+        {
+          "image": "temple0229.png",
+          "rotation_deg": 0.022167735209333336,
+          "centre": 0.0008886010393638383
+        },
+        {
+          "image": "temple0190.png",
+          "rotation_deg": 0.05034638280225166,
+          "centre": 0.0007868443444770961
+        },
+        {
+          "image": "temple0202.png",
+          "rotation_deg": 0.050945591185049856,
+          "centre": 0.0007359133382112491
+        },
+        {
+          "image": "temple0189.png",
+          "rotation_deg": 0.06306275086074492,
+          "centre": 0.001004818076436598
+        },
+        {
+          "image": "temple0201.png",
+          "rotation_deg": 0.05141781923072284,
+          "centre": 0.0008561704931074512
+        },
+        {
+          "image": "temple0228.png",
+          "rotation_deg": 0.03209784133195039,
+          "centre": 0.0008091546049724935
+        },
+        {
+          "image": "temple0159.png",
+          "rotation_deg": 0.0693974457738716,
+          "centre": 0.0014442432183458377
+        },
+        {
+          "image": "temple0182.png",
+          "rotation_deg": 0.041010490944265884,
+          "centre": 0.0013130021043897527
+        },
+        {
+          "image": "temple0019.png",
+          "rotation_deg": 0.05926721721833022,
+          "centre": 0.0018352706593551293
+        },
+        {
+          "image": "temple0133.png",
+          "rotation_deg": 0.09137712500258464,
+          "centre": 0.0013336050672978197
+        },
+        {
+          "image": "temple0227.png",
+          "rotation_deg": 0.02815992636393749,
+          "centre": 0.0009614931074026977
+        },
+        {
+          "image": "temple0225.png",
+          "rotation_deg": 0.013378987266839296,
+          "centre": 0.0011297305348480693
+        },
+        {
+          "image": "temple0172.png",
+          "rotation_deg": 0.08684361327594942,
+          "centre": 0.000913771208781942
+        },
+        {
+          "image": "temple0232.png",
+          "rotation_deg": 0.07216378417331787,
+          "centre": 0.0013407550696665296
+        },
+        {
+          "image": "temple0020.png",
+          "rotation_deg": 0.10747294176232211,
+          "centre": 0.0018186175588627404
+        },
+        {
+          "image": "temple0132.png",
+          "rotation_deg": 0.0837295797972586,
+          "centre": 0.0013680633359784574
+        },
+        {
+          "image": "temple0160.png",
+          "rotation_deg": 0.06794653389991587,
+          "centre": 0.0013184834817340128
+        },
+        {
+          "image": "temple0226.png",
+          "rotation_deg": 0.026793757039848817,
+          "centre": 0.0009142554530944715
+        },
+        {
+          "image": "temple0161.png",
+          "rotation_deg": 0.09284695030676891,
+          "centre": 0.0022605801931290274
+        },
+        {
+          "image": "temple0192.png",
+          "rotation_deg": 0.0812076821195782,
+          "centre": 0.0017153692600925979
+        },
+        {
+          "image": "temple0163.png",
+          "rotation_deg": 0.07702399404840321,
+          "centre": 0.0013499939774610841
+        },
+        {
+          "image": "temple0180.png",
+          "rotation_deg": 0.06160532759139449,
+          "centre": 0.0008354840546054928
+        },
+        {
+          "image": "temple0136.png",
+          "rotation_deg": 0.07638842655624377,
+          "centre": 0.00044675341528557
+        },
+        {
+          "image": "temple0138.png",
+          "rotation_deg": 0.08180257945740975,
+          "centre": 0.0008851923571715384
+        },
+        {
+          "image": "temple0137.png",
+          "rotation_deg": 0.0790382674583663,
+          "centre": 0.0006093626552049937
+        },
+        {
+          "image": "temple0135.png",
+          "rotation_deg": 0.09917926354833279,
+          "centre": 0.0016552296159742246
+        },
+        {
+          "image": "temple0179.png",
+          "rotation_deg": 0.0677256764363729,
+          "centre": 0.001436420652845213
+        },
+        {
+          "image": "temple0193.png",
+          "rotation_deg": 0.05225421752893369,
+          "centre": 0.0016264604991107468
+        },
+        {
+          "image": "temple0177.png",
+          "rotation_deg": 0.07967502902478464,
+          "centre": 0.0014939114599787683
+        },
+        {
+          "image": "temple0178.png",
+          "rotation_deg": 0.08156051271085718,
+          "centre": 0.0018833096999639753
+        },
+        {
+          "image": "temple0204.png",
+          "rotation_deg": 0.0419969524422713,
+          "centre": 0.0007470762275413705
+        },
+        {
+          "image": "temple0213.png",
+          "rotation_deg": 0.044500258509741326,
+          "centre": 0.0007656871420172278
+        },
+        {
+          "image": "temple0200.png",
+          "rotation_deg": 0.050829218575899136,
+          "centre": 0.0005504670612891827
+        },
+        {
+          "image": "temple0203.png",
+          "rotation_deg": 0.03658772687036772,
+          "centre": 0.0006126802744621084
+        },
+        {
+          "image": "temple0194.png",
+          "rotation_deg": 0.05953958962145848,
+          "centre": 0.0008803897253621542
+        },
+        {
+          "image": "temple0221.png",
+          "rotation_deg": 0.020175364272048822,
+          "centre": 0.0010778275843986544
+        },
+        {
+          "image": "temple0181.png",
+          "rotation_deg": 0.03265540223619911,
+          "centre": 0.001189793918973637
+        },
+        {
+          "image": "temple0222.png",
+          "rotation_deg": 0.03760642307919324,
+          "centre": 0.002041848867395466
+        },
+        {
+          "image": "temple0134.png",
+          "rotation_deg": 0.09182360337040098,
+          "centre": 0.0015968458723281725
+        },
+        {
+          "image": "temple0211.png",
+          "rotation_deg": 0.09630102986667011,
+          "centre": 0.0018840830470199963
+        },
+        {
+          "image": "temple0164.png",
+          "rotation_deg": 0.09042965961294479,
+          "centre": 0.0007594147746904756
+        },
+        {
+          "image": "temple0195.png",
+          "rotation_deg": 0.09035675192667725,
+          "centre": 0.0010945542644946594
+        },
+        {
+          "image": "temple0165.png",
+          "rotation_deg": 0.07084381905332937,
+          "centre": 0.0004377518562511918
+        },
+        {
+          "image": "temple0166.png",
+          "rotation_deg": 0.08954558575086734,
+          "centre": 0.0005044293111015335
+        },
+        {
+          "image": "temple0167.png",
+          "rotation_deg": 0.07729030013203864,
+          "centre": 0.0011618153186445312
+        },
+        {
+          "image": "temple0176.png",
+          "rotation_deg": 0.08164708003534452,
+          "centre": 0.0011665682729298387
+        },
+        {
+          "image": "temple0175.png",
+          "rotation_deg": 0.0783636612736055,
+          "centre": 0.0006960482886074939
+        },
+        {
+          "image": "temple0174.png",
+          "rotation_deg": 0.06740317826325212,
+          "centre": 0.0007421293036574421
+        },
+        {
+          "image": "temple0173.png",
+          "rotation_deg": 0.07976808358464696,
+          "centre": 0.0009667313422449309
+        },
+        {
+          "image": "temple0197.png",
+          "rotation_deg": 0.03821857551139194,
+          "centre": 0.001229288670678836
+        },
+        {
+          "image": "temple0210.png",
+          "rotation_deg": 0.035026781098000385,
+          "centre": 0.001998941878562417
+        },
+        {
+          "image": "temple0209.png",
+          "rotation_deg": 0.0520667436375388,
+          "centre": 0.0012428659634061941
+        },
+        {
+          "image": "temple0220.png",
+          "rotation_deg": 0.06075855853127685,
+          "centre": 0.0009070891515252063
+        },
+        {
+          "image": "temple0217.png",
+          "rotation_deg": 0.03544040492731422,
+          "centre": 0.0010197404218977482
+        },
+        {
+          "image": "temple0214.png",
+          "rotation_deg": 0.04322020608691309,
+          "centre": 0.0011644041560749936
+        },
+        {
+          "image": "temple0218.png",
+          "rotation_deg": 0.03183518894181311,
+          "centre": 0.0010531139965172978
+        },
+        {
+          "image": "temple0212.png",
+          "rotation_deg": 0.08514627239467688,
+          "centre": 0.0015063275965553375
+        },
+        {
+          "image": "temple0208.png",
+          "rotation_deg": 0.07820341508948345,
+          "centre": 0.0019412077682585316
+        },
+        {
+          "image": "temple0196.png",
+          "rotation_deg": 0.07638207361418249,
+          "centre": 0.0016519465618766366
+        },
+        {
+          "image": "temple0199.png",
+          "rotation_deg": 0.04495904213482917,
+          "centre": 0.0005432362262156536
+        },
+        {
+          "image": "temple0198.png",
+          "rotation_deg": 0.0556477846548398,
+          "centre": 0.0001815637867845257
+        },
+        {
+          "image": "temple0215.png",
+          "rotation_deg": 0.07837990891041366,
+          "centre": 0.0027563066379992095
+        },
+        {
+          "image": "temple0219.png",
+          "rotation_deg": 0.06675682337172573,
+          "centre": 0.0016428218476652844
+        },
+        {
+          "image": "temple0205.png",
+          "rotation_deg": 0.04521872661979336,
+          "centre": 0.0010770125915794142
+        },
+        {
+          "image": "temple0216.png",
+          "rotation_deg": 0.08340878116352889,
+          "centre": 0.0013874347215309497
+        },
+        {
+          "image": "temple0207.png",
+          "rotation_deg": 0.06608735211863184,
+          "centre": 0.0019205820400818193
+        },
+        {
+          "image": "temple0206.png",
+          "rotation_deg": 0.04356376265551056,
+          "centre": 0.0015354162316876052
+        }
+      ]
+    }
+  },
+  "frames": [
+    {
+      "file": "photos.jpg",
+      "photos": 312
+    },
+    {
+      "file": "features.jpg",
+      "photo": "temple0001.png",
+      "keypoints": 1697
+    },
+    {
+      "file": "matches.jpg",
+      "photos": [
+        "temple0291.png",
+        "temple0292.png"
+      ],
+      "matches": 952,
+      "verified": 947
+    },
+    {
+      "file": "cameras.jpg",
+      "cameras": 312,
+      "ring": 36
+    },
+    {
+      "file": "cloud.jpg",
+      "points": 24121
+    }
+  ],
+  "photos": [
+    {
+      "file": "photo-01.jpg",
+      "name": "temple0001.png"
+    },
+    {
+      "file": "photo-02.jpg",
+      "name": "temple0063.png"
+    },
+    {
+      "file": "photo-03.jpg",
+      "name": "temple0125.png"
+    },
+    {
+      "file": "photo-04.jpg",
+      "name": "temple0188.png"
+    },
+    {
+      "file": "photo-05.jpg",
+      "name": "temple0250.png"
+    },
+    {
+      "file": "photo-06.jpg",
+      "name": "temple0312.png"
+    }
+  ],
+  "up": [
+    0.9915300126861184,
+    0.034516838812019175,
+    -0.125207115536982
+  ]
+}

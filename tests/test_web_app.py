@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from src.config import config_from_dict  # noqa: E402
-from src.pipeline import STAGES  # noqa: E402
+from src.pipeline import CORE_STAGES  # noqa: E402
 from src.web.app import UPLOAD_ROOT, create_app  # noqa: E402
 from src.web.jobs import Job, JobBusy, JobManager  # noqa: E402
 
@@ -403,13 +403,32 @@ def test_shutdown_stops_running_reconstructions(monkeypatch):
     assert calls == [1]
 
 
-def test_page_is_served():
+def test_intro_page_is_served_and_leads_to_the_workstation():
     response = client_for().get("/")
     assert response.status_code == 200
     assert "<html" in response.text.lower()
+    assert 'href="app.html"' in response.text  # the call to action
 
 
-@pytest.mark.parametrize("path", ["/", "/app.js", "/viewer.js", "/style.css"])
+def test_workstation_page_is_served_with_its_upload_form():
+    response = client_for().get("/app.html")
+    assert response.status_code == 200
+    assert 'id="images"' in response.text and 'id="run"' in response.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/app.html",
+        "/app.js",
+        "/intro.js",
+        "/viewer.js",
+        "/tokens.css",
+        "/app.css",
+        "/intro.css",
+    ],
+)
 def test_page_files_are_revalidated_on_every_load(path):
     """Without Cache-Control, browsers reuse a cached app.js after the page was updated."""
     client = client_for()
@@ -430,7 +449,7 @@ def test_config_for_the_page():
     assert data["max_upload_images"] == 200
     assert data["max_upload_mb"] == 500
     assert ".jpg" in data["extensions"]
-    assert data["stages"] == ["dataset", *STAGES, "outputs"]  # the page's checklist
+    assert data["stages"] == ["dataset", *CORE_STAGES, "outputs"]  # the page's checklist
 
 
 # --- end to end -------------------------------------------------------------------------

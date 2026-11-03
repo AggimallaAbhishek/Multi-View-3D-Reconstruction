@@ -18,14 +18,16 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 
 | Step | Method | Ours / external |
 |---|---|---|
-| Detection + description | SIFT (default; optional RootSIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` (**external**); cap and RootSIFT ours |
-| Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, from 0.04 down to 0.005 | ours |
+| Detection + description | SIFT (default; optional RootSIFT, optional affine simulation = ASIFT) or ORB on the grayscale image; strict strongest-N cap | OpenCV `SIFT_create` / `ORB_create` / `AffineFeature` (**external**); cap and RootSIFT ours |
+| Contrast threshold | 0.02 (half OpenCV's default; COLMAP's is about the same): at 0.04 ETH3D views shared too few landmarks to register (E7) | ours (setting) |
+| Adaptive contrast threshold | an image with fewer than 500 SIFT features is detected again with the contrast threshold halved, down to 0.005 | ours |
 | Nearest neighbours | exact brute force, 2-NN | OpenCV `batchDistance` (**external**) |
+| Learned alternative (optional, E9) | DISK keypoints + descriptors, matched by LightGlue (attention over both images, confidence ≥ 0.7); same `Features` / `Matches` arrays, so later stages are unchanged; `configs/learned.yaml` | DISK, LightGlue, pretrained weights: kornia on torch (**external**); the adapter, strongest-N order and caching ours |
 | Ratio test | keep `d₁ < r·d₂` (Lowe 2004), default `r` = 0.75 | ours |
 | Mutual check | keep only matches that are each other's nearest neighbour | ours |
 | Pair selection | exhaustive up to 50 images, sequential window above | ours |
 
-SIFT's contrast threshold is absolute, so one value cannot suit every image: on Middlebury dinoRing (smooth plaster, lit from one side) the dark half of the ring kept 74–160 features per image at 0.04 (correlation with brightness 0.9), and registration stopped at 19/48 cameras. Lowering the threshold globally to 0.005 registers all 48, but also makes templeRing 2.5× slower for no gain in coverage. Lowering it only for images below 500 features registers all 48 dinoRing cameras (rotation error median 0.15°, max 0.28°) and leaves templeRing untouched — its sparsest image already has 597.
+SIFT's contrast threshold is absolute, so one value cannot suit every image: on Middlebury dinoRing (smooth plaster, lit from one side) the dark half of the ring kept 74–160 features per image at 0.04 (correlation with brightness 0.9), and registration stopped at 19/48 cameras. Lowering the threshold globally to 0.005 registers all 48, but also makes templeRing 2.5× slower for no gain in coverage. Lowering it only for images below 500 features registers all 48 dinoRing cameras (rotation error median 0.15°, max 0.28°) and leaves templeRing untouched — its sparsest image already has 597. (Those measurements used 0.04 as the base threshold; the default is now 0.02, which ETH3D needed — E7 — and the adaptive step works the same from there.)
 
 Brute force is the default because, at 8000 SIFT features, it was as fast as FLANN and FLANN returned different matches on identical runs. E2 places the best ratio at 0.7–0.8; looser ratios verify more pairs but give fewer, worse points.
 
@@ -75,6 +77,7 @@ Starting from the initial pair's triangulated tracks, images are added one at a 
 
 1. **Next best view:** the unregistered image with the most 2D–3D links (keypoints whose track already has a landmark).
 2. **Pose by PnP:** `solvePnPRansac` with the SQPnP solver, seeded, then Levenberg–Marquardt refinement on the inliers (`solvePnPRefineLM`) — OpenCV, **external**. The pose is accepted if ≥ 30 links, and ≥ 25 % of them, reproject within 4 px.
+   **Fallback — pose from a relative pose (ours):** PnP needs links to landmarks, i.e. tracks the image shares with *two* registered images; on a sparse ring (views ~40° apart) most shared tracks are seen by one registered image only. When PnP fails, the image is registered from the registered image it shares most tracks with: the essential matrix of their shared keypoints (`findEssentialMat` with USAC, `recoverPose` — OpenCV, **external**; plain RANSAC was 1–3° off) gives `R = R_rel R_n` and the baseline direction, `t = R_rel t_n + s t_rel`, and each landmark the image sees fixes `s` linearly (`x̂ × (R X + R_rel t_n + s t_rel) = 0`): median, then a least-squares refit on the links within 4 px. The scale must be positive, and the final pose must fit ≥ 6 links (`registration.fallback_min_links`) and ≥ 25 % of them; registered images are tried in order of shared tracks (≥ 50 shared tracks and essential-matrix inliers, `registration.fallback_min_pair_inliers`, more than PnP's 30 links: on ETH3D pipes a 40-inlier pair over 42° gave a pose 5° off whose few landmark links still fitted, and the global adjustment tilted every camera by 1° towards it — E7). The pose is refined by the bundle adjustment that follows, not by LM on a handful of links. On rendered views 40° apart, PnP alone registers 2 of 6, the fallback all 6 (pose errors ≤ 0.22°). The landmark check also guards against a degenerate pair: on dinoSparseRing it refused a relative pose that fit 103 of 104 matches but was 18° off.
 3. **Grow the structure:** triangulate every track without a landmark that is now seen by ≥ 2 registered images (§5).
 4. **Bundle adjustment** (§8) and **structure refinement** (§9).
 
@@ -86,18 +89,29 @@ Camera poses and points are refined jointly by minimising the robustified reproj
 
 $$\min_{\{R_c, t_c\}, \{X_p\}} \sum_{(c,p)} \rho\!\left(\left\lVert \pi\!\left(K_c (R_c X_p + t_c)\right) - \mathbf{x}_{cp} \right\rVert^2\right)$$
 
-- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; in global adjustments also one **focal scale** `s` shared by every camera (`bundle_adjustment.refine_focal`, default on): `K_c → K_c · diag(s, s, 1)`, so the focal lengths (and skew) scale and the principal point stays. One `s` for all images assumes one physical camera at one zoom. Local adjustments (5 cameras) keep `K`: too few views to constrain it. A refined `s` is applied to every registered camera and to the intrinsics of images not yet registered.
+- **Parameters:** 6 per camera (Rodrigues rotation vector, translation) and 3 per point; in global adjustments also one **focal scale** `s` shared by every camera (`bundle_adjustment.refine_focal`, default on): `K_c → K_c · diag(s, s, 1)`, so the focal lengths (and skew) scale and the principal point stays. One `s` for all images assumes one physical camera at one zoom, so it is refined only when every image starts with the same `K`. Local adjustments (5 cameras) keep `K`: too few views to constrain it. A refined `s` is applied to every registered camera and to the intrinsics of images not yet registered. A scale beyond `bundle_adjustment.max_focal_change` (3×) means the focal length was not constrained (too few views, a planar scene): that adjustment is repeated with `K` fixed.
 - **Robust loss** `ρ` = soft-L1 with a 1 px scale: robust to wrong matches, and it converges in ~30 evaluations where SciPy's Huber crawls.
 - **Exact sparse Jacobian:** each residual depends on 6 camera and 3 point parameters (and `s`). The derivatives are analytic — the chain rule through the projection, with `∂R/∂rvec` from `cv2.Rodrigues`, and `∂(u, v)/∂s = ((u, v) − c)/s` — checked against finite differences in the tests. Cost scales with observations, not with cameras × points; replacing finite differences cut the templeRing run from 16.3 to 12.0 s with identical results.
 - **Gauge:** a reconstruction is defined up to a similarity (7 DoF). The first camera is held fixed (6 DoF). The scale is left free during optimisation — pinning one translation coordinate instead creates a curved valley the solver zig-zags along — and restored afterwards exactly, by scaling about the fixed camera so the next camera keeps its distance. That scaling changes no projection.
 - **Schedule:** a local adjustment after every registration (the newest 5 cameras and the points they see free), a global one every 5 registrations, and at the end. The cost tolerance is 1e-6 relative (as in Ceres); 1e-8 took ~15× longer for < 0.01°.
 
-E5: bundle adjustment cuts pose errors 4× and raises completeness from 0.38 to 0.92, at ~90 % of the runtime; the structure refinement of §9 (switchable separately, `bundle_adjustment.refine_structure`) removes every observation beyond 2 px and trims pose errors a further ~12 %.
+E5: bundle adjustment cuts pose errors 5× and raises completeness from 0.90 to 0.94, at ~75 % of the runtime; the structure refinement of §9 (switchable separately, `bundle_adjustment.refine_structure`) removes every observation beyond 2 px and trims pose errors a further ~10 %.
+
+### 8b. Lens distortion self-calibration (ours)
+
+When the camera file gives no distortion, the reconstruction itself estimates it (`bundle_adjustment.estimate_distortion`, default on; `src/reconstruction/distortion.py`):
+
+1. One more global adjustment with two radial coefficients shared by all images, OpenCV's model with the tangential terms zero: `x_d = x (1 + k1 r² + k2 r⁴)` in normalised coordinates, from zero, together with the poses, points and focal scale. The Jacobian is the bundle adjustment's sparsity pattern plus two dense columns, by finite differences (~2 s on templeRing).
+2. If the estimate moves the farthest image corner by more than `distortion_min_shift_px` (2 px), the images are undistorted with everything estimated so far (`prepare_dataset` with the refined `K` and `dist`; OpenCV `undistort`) and every stage up to `reconstruct` runs again; at most `distortion_passes` (2) times. Residual estimates compose to first order (the coefficients add). Every other stage keeps its pinhole model — no projection elsewhere had to learn about distortion.
+3. A pass is kept if it registers more images, or as many without a higher mean reprojection error; otherwise it is discarded and the loop stops. A wrong undistortion left every image registered but raised the error 4×, a right one lowered it 2×. An estimate whose focal scale leaves `max_focal_change` is not applied.
+4. It runs only where distortion is observable and can be removed: with focal refinement on (so E3's fixed-`K` runs stay fixed), `preprocessing.undistort` on, one shared starting `K`, ≥ 5 registered images, and a wide enough view — the farthest corner at ≥ 0.3 normalised radius (`distortion_min_field_radius`). Over Middlebury dino's narrow view (0.12) the two coefficients fitted noise (k2 = −156) and made the poses worse; templeRing (0.26) is skipped too, ETH3D (0.88) is not.
+
+Tested against synthetic observations with known distortion (the distortion curve recovered within 0.2 % of the radius over the observed field) and rendered views through a known lens (−0.15 / +0.05: the poses back from 0.58° to the distortion-free 0.05°). On ETH3D's original JPGs (a real DSLR lens, ~25 px at the corners) see experiments E8.
 
 ## 9. Structure refinement after each registration (ours)
 
 1. **Complete tracks:** attach keypoints of a landmark's track (in registered images) that now reproject within 2 px — mostly links PnP rejected at registration.
-2. **Filter observations, not points:** drop single observations that reproject farther than 2 px or lie behind their camera, then landmarks left with < 2 views or a triangulation angle < 1.5°. At triangulation one bad observation rejects a whole point, which grows stricter with track length; after adjustment a long track keeps its landmark.
+2. **Filter observations, not points:** drop single observations that reproject farther than 2 px or lie behind their camera, then landmarks left with < 2 views or a triangulation angle < 1.5°. At triangulation one bad observation rejects a whole point, which grows stricter with track length; after adjustment a long track keeps its landmark. Measured after the final round: of the tracks seen by ≥ 3 registered images, 8 of 6584 on templeRing and 16 of 2151 on dinoRing end without a landmark, and only one of those 24 has a single bad keypoint (the rest have 2–11, i.e. wrongly merged tracks) — so re-triangulating tracks observation by observation, once listed as future work, would recover almost nothing (`python scripts/track_coverage.py <images>`).
 3. **Re-triangulate** tracks left without a landmark.
 
 It runs after every registration (after its adjustment, when bundle adjustment is on), and the final global adjustment alternates with it until nothing changes (at most 3 rounds). It can be switched off independently (`bundle_adjustment.refine_structure`). Tested, with or without bundle adjustment: with 5 % of keypoints shifted 3.5 px (inside PnP's 4 px, outside triangulation's 2 px) every final observation is within 2 px; without refinement the shifted links stay in.
@@ -109,6 +123,20 @@ Before export (`filtered.ply`), in order, each step on the survivors of the last
 1. non-finite points; 2. mean reprojection error > 1 px; 3. track length below the minimum (off by default — 35 % of templeRing points are 2-view); 4. **statistical outlier removal** — mean distance to the 20 nearest neighbours more than 2 σ above average; 5. **radius outlier removal** — fewer than 4 neighbours within `5 ×` the median distance to the 4th neighbour.
 
 Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstruction has no scale, the radius is relative to the point spacing, and both run on a centred, unit-RMS copy, so the result is the same at any scale. Colours are the mean of bilinear samples at every observation (ours, via `cv2.remap`). Clouds are written as PLY with Open3D (**external**), cameras as JSON (ours).
+
+## 10b. Dense reconstruction (ours, optional stage)
+
+`python -m src.cli dense` runs everything up to `filter` and then, on the recovered cameras:
+
+1. **Stereo partner.** For every registered image, the view whose angle to it — seen from the scene centre, the median sparse point — is nearest 8° within [3°, 20°]. Its `fusion_views` (4) angularly nearest views check it later — except views whose own stereo partner it is: their depth maps come from the same pair and would repeat its matching errors.
+2. **Rectification** from the known relative pose, `R = R_j R_iᵀ`, `t = t_j − R t_i`, with `cv2.stereoRectify` (zero-disparity principal points, `alpha` 1 keeps every pixel). A mostly vertical baseline is matched on the transposed images.
+3. **Disparity search range** from the sparse points: project them into both rectified views, take the 1st–99th percentile of `d = x₁ − x₂` and widen by 16 px; either sign works, SGBM searches negative disparities too.
+4. **Matching:** `cv2.StereoSGBM` (**external**; 3 px block, uniqueness and speckle filters, left-right check).
+5. **Back to the image's own pixels.** Every original pixel is mapped into the rectified view (`cv2.undistortPoints` with `R₁`, `P₁`), its disparity sampled bilinearly (missing neighbours leave it empty), and converted to depth: `Z_rect = −P₂[axis, 3] / d`, then the camera's own `z` via `R₁ᵀ`. Pixels whose grey-level standard deviation in the block window is below 2 get no depth: uniform regions match anywhere. Then a 1 px band around every pixel without a depth is dropped too (`edge_erosion_px`): stereo fattens edges, giving background pixels next to the object its depth.
+6. **Fusion.** Each depth is back-projected to a world point and projected into its check views; it survives if at least 2 of their depth maps agree within 1 % (relative) at that pixel. Survivors are averaged on a voxel grid of 0.1 % of the sparse cloud's extent (position, colour, viewing direction).
+7. **Mesh:** normals from `normal_neighbours` (30), flipped towards the cameras that saw each point, screened Poisson reconstruction (Open3D, **external**; octree depth 9), and the 2 % lowest-density vertices (extrapolated surface) removed. Open3D 0.20's multithreaded Poisson aborted (libc++abi) on a finite, voxel-deduplicated cloud, so `poisson_threads` defaults to 1 (~2 s). The per-image stereo runs on `performance.workers` threads (OpenCV releases the GIL).
+
+Tested against rendered depth with exact cameras (`tests/test_dense.py`): median depth error < 0.3 %, > 80 % of true-surface pixels covered, for horizontal and vertical baselines and a partner on either side; fused points lie on the true surface (median distance < 0.005, 95th percentile < 0.03, for a box of side 2 on a 12 × 12 ground plane). Choices measured on templeRing are in [experiments.md](experiments.md#e6--colmap-baseline-and-dense-reconstruction-rq5).
 
 ## 11. Evaluation
 
@@ -124,20 +152,22 @@ Steps 4–5 use Open3D's tensor API (**external**). Because a monocular reconstr
 |---|---|---|
 | Dataset discovery, validation (blur, duplicates), intrinsics resolution, `K` rescaling | ✔ | decoding, resizing, undistortion: OpenCV |
 | Checkerboard calibration | wrapper | `findChessboardCorners`, `cornerSubPix`, `calibrateCamera`: OpenCV |
-| Feature detection / description | strict cap, RootSIFT, cache | SIFT, ORB: OpenCV |
+| Feature detection / description | strict cap, adaptive SIFT threshold, RootSIFT, cache | SIFT, ORB, affine simulation (`AffineFeature`, ASIFT; optional): OpenCV |
 | Matching | ratio test, mutual check, pair selection, cache | `batchDistance` (2-NN), optional FLANN: OpenCV |
+| Learned features and matching (optional) | adapter to our `Features` / `Matches`, confidence threshold, device choice, cache keys | DISK, LightGlue and their pretrained weights: kornia on torch |
 | Robust E / F / H estimation | model selection, Sampson inliers, H/F ratio, E refinement residuals | USAC / RANSAC estimators, `findHomography`: OpenCV; `least_squares`: SciPy |
 | Normalised 8-point algorithm | ✔ (reference implementation) | — |
 | E decomposition, cheirality, parallax, initial pair | ✔ | `recoverPose` only as test oracle |
 | N-view DLT, point refinement, triangulation filters | ✔ | — |
 | Tracks (union-find), camera registry, landmarks | ✔ | — |
-| PnP registration | next-best-view, acceptance, retry | `solvePnPRansac` (SQPnP), `solvePnPRefineLM`: OpenCV |
-| Bundle adjustment | residuals, rotation parametrisation, sparsity, gauge and scale, schedule | `least_squares` (TRF): SciPy |
+| PnP registration | next-best-view, acceptance, retry, relative-pose fallback with scale from landmarks | `solvePnPRansac` (SQPnP), `solvePnPRefineLM`, `findEssentialMat`, `recoverPose`: OpenCV |
+| Bundle adjustment | residuals, exact Jacobian, rotation parametrisation, shared focal scale, gauge and scale, schedule | `least_squares` (TRF): SciPy; `Rodrigues` derivatives: OpenCV |
 | Structure refinement after BA | ✔ | — |
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |
 | Export, viewer, renders | `cameras.json`, scene assembly | PLY IO, visualiser, offscreen renderer: Open3D |
 | Evaluation, experiments, reports | ✔ | k-d tree: SciPy; plots: Matplotlib; tables: pandas |
-| Web interface | endpoints, upload checks, jobs, `report.json`, page, PLY parsing, scene orientation | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
-| Dense reconstruction, COLMAP baseline | — | not used (future work) |
+| Web interface | endpoints, upload checks, jobs, `report.json`, run thumbnails, the overview and workstation pages, the showcase (frames drawn from measured features and matches), PLY parsing, scene orientation, camera picking | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
+| Dense reconstruction | partner selection, depth back in image pixels, texture mask, consistency fusion, voxel averaging, normal orientation | `stereoRectify`, `StereoSGBM`, `undistortPoints`, `remap`: OpenCV; Poisson meshing, normals: Open3D |
+| COLMAP baseline (E6) | running it, reading its text model into our conventions (pixel centres, poses) | **all of the reconstruction: COLMAP** (CLI, `scripts/run_colmap_baseline.py`) |
 
-No component of the pipeline is provided by COLMAP.
+No component of the pipeline is provided by COLMAP; it is only run as the E6 baseline.

@@ -138,8 +138,16 @@ class SIFTExtractor(FeatureExtractor):
         contrast_threshold: float = 0.04,
         min_features: int = 0,
         min_contrast_threshold: float = 0.005,
+        affine_simulation: bool = False,
+        affine_max_tilt: int = 5,
+        affine_tilt_step: float = 2**0.5,
+        affine_rotate_step_base: float = 72.0,
     ):
         super().__init__(max_features)
+        self.affine_simulation = affine_simulation
+        self.affine_max_tilt = affine_max_tilt
+        self.affine_tilt_step = affine_tilt_step
+        self.affine_rotate_step_base = affine_rotate_step_base
         self.root_sift = root_sift
         self.contrast_threshold = contrast_threshold
         self.min_features = min_features
@@ -154,6 +162,14 @@ class SIFTExtractor(FeatureExtractor):
             nfeatures=self.max_features + 64, contrastThreshold=contrast_threshold
         )
 
+    def _affine(self, sift: cv2.Feature2D) -> cv2.Feature2D:
+        """ASIFT (OpenCV's AffineFeature, external): ``sift`` on copies of the image warped
+        by simulated camera tilts and rotations, keypoints mapped back to the original."""
+        return cv2.AffineFeature_create(
+            sift, maxTilt=self.affine_max_tilt, minTilt=0, tiltStep=self.affine_tilt_step,
+            rotateStepBase=self.affine_rotate_step_base,
+        )  # fmt: skip
+
     def detect(self, image: np.ndarray) -> Features:
         """Detect and describe keypoints; while the image has fewer than ``min_features``,
         detect again with the contrast threshold halved, down to ``min_contrast_threshold``.
@@ -161,7 +177,8 @@ class SIFTExtractor(FeatureExtractor):
         SIFT's contrast threshold is absolute, so the dark side of an unevenly lit,
         low-texture object loses most of its features at a threshold that suits the rest.
         ``min_features=0`` (the constructor's default; the config's is 500) keeps the
-        configured threshold for every image.
+        configured threshold for every image. With affine simulation the threshold is
+        still chosen by plain SIFT counts; the (much slower) affine detector runs once.
         """
         threshold = self.contrast_threshold
         features = self._detect_with(self._detector(threshold), image)
@@ -169,6 +186,8 @@ class SIFTExtractor(FeatureExtractor):
         while len(features) < self.min_features and threshold / 2 >= floor:
             threshold /= 2
             features = self._detect_with(self._detector(threshold), image)
+        if self.affine_simulation:
+            features = self._detect_with(self._affine(self._detector(threshold)), image)
         return features
 
     def _postprocess(self, descriptors: np.ndarray) -> np.ndarray:
@@ -182,7 +201,14 @@ class SIFTExtractor(FeatureExtractor):
     def signature(self) -> str:
         return (
             f"{self.name}-n{self.max_features}-c{self.contrast_threshold:g}"
-            f"-a{self.min_features}-f{self.min_contrast_threshold:g}-cv{cv2.__version__}"
+            f"-a{self.min_features}-f{self.min_contrast_threshold:g}"
+            + (
+                f"-affine{self.affine_max_tilt:g}-{self.affine_tilt_step:g}"
+                f"-{self.affine_rotate_step_base:g}"
+                if self.affine_simulation
+                else ""
+            )
+            + f"-cv{cv2.__version__}"
         )
 
 
@@ -200,7 +226,8 @@ class ORBExtractor(FeatureExtractor):
         return f"orb-n{self.max_features}-cv{cv2.__version__}"
 
 
-def create_extractor(config: FeatureConfig) -> FeatureExtractor:
+def create_extractor(config: FeatureConfig, device: str = "auto") -> FeatureExtractor:
+    """``device`` is used by the learned detector (DISK, external) only, imported only then."""
     if config.detector == "sift":
         return SIFTExtractor(
             max_features=config.max_features,
@@ -208,9 +235,17 @@ def create_extractor(config: FeatureConfig) -> FeatureExtractor:
             contrast_threshold=config.sift_contrast_threshold,
             min_features=config.sift_adaptive_min_features,
             min_contrast_threshold=config.sift_min_contrast_threshold,
+            affine_simulation=config.affine_simulation,
+            affine_max_tilt=config.affine_max_tilt,
+            affine_tilt_step=config.affine_tilt_step,
+            affine_rotate_step_base=config.affine_rotate_step_base,
         )
     if config.detector == "orb":
         return ORBExtractor(max_features=config.max_features)
+    if config.detector == "disk":
+        from src.features.learned import DISKExtractor
+
+        return DISKExtractor(max_features=config.max_features, device=device)
     raise ValueError(f"unknown detector {config.detector!r}")
 
 

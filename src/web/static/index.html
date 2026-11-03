@@ -3,11 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Multi-view 3D reconstruction</title>
+  <meta name="theme-color" content="#090d10">
+  <title>Multi-View 3D Reconstruction</title>
+  <meta name="description" content="Classical structure from motion written from scratch: overlapping photos in, a 3-D point cloud and every camera position out, measured against ground truth and COLMAP (external).">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112..125,600..800&family=Atkinson+Hyperlegible+Next:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500..800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="intro.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10' fill='none' stroke='%233cc2b5' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script type="importmap">
     {
       "imports": {
@@ -16,147 +20,207 @@
       }
     }
   </script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="intro.js"></script>
 </head>
-<body data-state="upload">
-  <header class="masthead">
-    <div>
-      <h1>Multi-view 3D reconstruction</h1>
-      <p class="tagline">Structure from motion on your own photos, run on this machine.</p>
-    </div>
-    <label class="previous">
-      <span>Open previous run</span>
-      <select id="previous-runs">
-        <option value="">No runs yet</option>
-      </select>
-    </label>
+<body>
+  <a class="skip-link" href="#how">Skip to how it works</a>
+
+  <header class="nav">
+    <a class="wordmark" href="./" aria-label="Multi-View 3D Reconstruction, top of the page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <span>Multi-View 3D Reconstruction</span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#how">How it is made</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#results">Results</a>
+    </nav>
+    <a class="btn btn-primary btn-small" href="app.html">Open the workstation</a>
   </header>
 
   <main>
-    <!-- 1. Upload ------------------------------------------------------------------ -->
-    <section class="view view-upload" aria-labelledby="upload-title">
-      <h2 id="upload-title" class="visually-hidden">Choose photos</h2>
-      <div class="upload-grid">
-        <label class="dropzone fiducial" id="dropzone">
-          <input type="file" id="images" multiple class="visually-hidden">
-          <span class="dropzone-title">Drop overlapping photos of one object or scene</span>
-          <span class="dropzone-sub">or <u>choose files</u></span>
-          <span class="dropzone-hint" id="dropzone-hint">At least 2 photos. Walk around the subject so neighbouring photos overlap by about two thirds.</span>
-        </label>
-
-        <aside class="extras">
-          <h3>Optional files</h3>
-          <p class="extras-note">Choose them here, or drop them in with the photos.</p>
-          <div class="extra">
-            <label for="camera">Camera intrinsics <code>camera.yaml</code></label>
-            <input type="file" id="camera" accept=".yaml,.yml">
-            <p>Without it, the focal length comes from the photos' EXIF data or a default guess.</p>
-          </div>
-          <div class="extra">
-            <label for="ground-truth">Ground-truth poses <code>gt_cameras.json</code></label>
-            <input type="file" id="ground-truth" accept=".json">
-            <p>Scores the recovered camera poses against known ones.</p>
-          </div>
-          <button type="button" id="run" class="primary" disabled>Reconstruct</button>
-          <div class="message error" id="upload-message" role="alert" hidden></div>
-        </aside>
-      </div>
-
-      <div class="selection" id="selection" hidden>
-        <div class="selection-bar">
-          <span id="selection-count"></span>
-          <button type="button" class="quiet" id="clear">Clear photos</button>
+    <!-- Hero: the real reconstruction, live ------------------------------------------- -->
+    <section class="hero" aria-labelledby="hero-title">
+      <figure class="orbit" aria-labelledby="orbit-caption">
+        <div class="orbit-frame">
+          <div class="fiducials" aria-hidden="true"></div>
+          <div class="orbit-model" id="orbit-model" role="img" aria-label="The reconstructed temple, a 3-D point cloud, turning slowly inside the ring of cameras that photographed it"></div>
         </div>
-        <ol class="thumbs" id="thumbs"></ol>
-      </div>
-    </section>
-
-    <!-- 2. Running ----------------------------------------------------------------- -->
-    <section class="view view-running" aria-labelledby="running-title">
-      <h2 id="running-title">Reconstructing</h2>
-      <p class="run-id" id="running-id"></p>
-      <ol class="stages" id="stages" aria-live="polite"></ol>
-      <div class="message error" id="failure" role="alert" hidden></div>
-      <div id="partial" hidden>
-        <h3>Results written before the failure</h3>
-        <div class="gallery" id="partial-gallery"></div>
-        <ul class="file-list" id="partial-files"></ul>
-      </div>
-      <div class="run-actions">
-        <button type="button" class="quiet" id="restart-failed" hidden>Start a new reconstruction</button>
-        <div class="delete-run" id="delete-failed" hidden>
-          <button type="button" class="quiet" data-delete="ask">Delete this run</button>
-          <span class="delete-confirm" hidden><span class="delete-question"></span>
-            <button type="button" class="danger" data-delete="confirm">Delete</button>
-            <button type="button" class="quiet" data-delete="cancel">Cancel</button>
-          </span>
-        </div>
-      </div>
-    </section>
-
-    <!-- 3. Results ----------------------------------------------------------------- -->
-    <section class="view view-results" aria-labelledby="results-title">
-      <div class="results-head">
-        <div>
-          <h2 id="results-title">Reconstruction</h2>
-          <p class="run-id" id="results-id"></p>
-        </div>
-        <div class="run-actions">
-          <button type="button" class="quiet" id="restart">Start a new reconstruction</button>
-          <div class="delete-run">
-            <button type="button" class="quiet" data-delete="ask">Delete this run</button>
-            <span class="delete-confirm" hidden><span class="delete-question"></span>
-              <button type="button" class="danger" data-delete="confirm">Delete</button>
-              <button type="button" class="quiet" data-delete="cancel">Cancel</button>
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <ul class="warnings" id="warnings" hidden></ul>
-
-      <figure class="viewer-frame fiducial">
-        <div class="viewer" id="viewer" tabindex="0" aria-label="3-D point cloud with camera positions. Drag to orbit, scroll to zoom, right-drag to pan."></div>
-        <div class="viewer-controls">
-          <div class="segmented" role="group" aria-label="Point cloud">
-            <button type="button" data-cloud="filtered" aria-pressed="true">Filtered</button>
-            <button type="button" data-cloud="sparse" aria-pressed="false">Sparse</button>
-          </div>
-          <label class="slider">Point size
-            <input type="range" id="point-size" min="1" max="8" step="0.5" value="2">
-          </label>
-          <div class="control-group" role="group" aria-labelledby="fit-label">
-            <span id="fit-label">Fit to</span>
-            <div class="segmented">
-              <button type="button" data-fit="object" aria-pressed="true">Object</button>
-              <button type="button" data-fit="cameras" aria-pressed="false">Cameras</button>
-            </div>
-          </div>
-        </div>
-        <p class="viewer-status" id="viewer-status"></p>
-        <figcaption class="datastrip" id="datastrip"></figcaption>
+        <figcaption id="orbit-caption">The temple as this project reconstructed it from <span class="num" data-n="photos">312</span> photos: <span class="num" data-n="points">24 121</span> points, with one ring of <span class="num" data-n="ring">36</span> of its cameras, drawn closer than they stood.</figcaption>
       </figure>
+      <div class="hero-text">
+        <h1 id="hero-title">Multi-View <em>3D</em> Reconstruction</h1>
+        <p class="hero-lede">Walk round an object with an ordinary camera and this project rebuilds it in three dimensions. A classical structure-from-motion pipeline, written from scratch in Python, finds the same points in many overlapping photos, works out where every photo was taken from, and triangulates those points into a coloured 3-D point cloud.</p>
+        <p class="hero-lede hero-lede-2">No depth sensor and no learned shortcut: only multi-view geometry, checked against benchmark ground truth and the reference system COLMAP (external).</p>
+      </div>
+      <div class="strip">
+        <dl class="strip-numbers" id="strip" aria-label="The featured reconstruction in numbers">
+        <div><dt>Cameras recovered</dt><dd class="num" data-n="cameras">47 / 47</dd></div>
+        <div><dt>Points</dt><dd class="num" data-n="points">9 907</dd></div>
+        <div><dt>Rotation error, median</dt><dd class="num" data-n="rotation">0.15°</dd></div>
+        <div><dt>Reprojection, median</dt><dd class="num" data-n="reprojection">0.13 px</dd></div>
+      </dl>
+        <a class="strip-cta" href="app.html">Reconstruct your own photos
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </div>
+    </section>
 
-      <section class="panel" id="gt-panel" hidden aria-labelledby="gt-title">
-        <h3 id="gt-title">Against ground truth</h3>
-        <p class="panel-note">Camera positions are compared after aligning the two reconstructions (rotation, translation, scale). Position error is a percentage of the true cameras' spread.</p>
-        <div class="gt-summary" id="gt-summary"></div>
-        <table class="gt-table">
-          <thead><tr><th scope="col">Photo</th><th scope="col">Rotation error</th><th scope="col">Position error</th></tr></thead>
-          <tbody id="gt-rows"></tbody>
+    <!-- How it works: a pinned stage that changes with each step --------------------- -->
+    <section class="how" id="how" aria-labelledby="how-title">
+      <div class="how-steps">
+        <h2 id="how-title">How the temple is made</h2>
+        <p class="section-lede how-lede">Five steps turn overlapping photos into a 3-D model. Every picture here is from the reconstruction at the top of the page: Middlebury's temple, a plaster copy of the Temple of the Dioskouroi in Agrigento, photographed <span class="num" data-n="photos">312</span> times from all round.</p>
+        <ol class="steps" id="steps">
+          <li class="step is-active" data-frame="photos">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Photograph it from all round.</h3>
+            <img class="step-picture" src="showcase/photos.jpg" alt="Five of the temple photos" width="960" height="600" loading="lazy">
+            <p>Every part of the object has to appear in several photos taken from different places, each overlapping its neighbours. These <span class="num" data-n="photos">312</span> photos cover a dome over the temple, ring above ring.</p>
+            <ul class="photo-row" id="photo-row" aria-label="Six of the photos, spread over the set"></ul>
+          </li>
+          <li class="step" data-frame="features">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Find points worth following.</h3>
+            <img class="step-picture" src="showcase/features.jpg" alt="One photo with its SIFT keypoints" width="960" height="600" loading="lazy">
+            <p>SIFT finds distinctive corners and blobs, column edges, cornices, chips in the plaster, and describes the texture round each with 128 numbers: <span class="num" data-n="keypoints">1 697</span> in this photo.</p>
+          </li>
+          <li class="step" data-frame="matches">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Match them across photos.</h3>
+            <img class="step-picture" src="showcase/matches.jpg" alt="Verified matches between two neighbouring photos" width="960" height="600" loading="lazy">
+            <p>Each point is paired with its look-alike in other photos (Lowe's ratio test, both directions), then a robust fit of the essential matrix throws out pairs no single camera motion explains: <span class="num" data-n="verified">947</span> of <span class="num" data-n="matches">952</span> survive between these two neighbours.</p>
+          </li>
+          <li class="step" data-frame="cameras">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Solve where every camera stood.</h3>
+            <img class="step-picture" src="showcase/cameras.jpg" alt="A ring of the recovered cameras round the temple" width="960" height="600" loading="lazy">
+            <p>Two photos give the first relative pose and the first 3-D points. Every further camera is placed against the points it sees, and bundle adjustment refines all cameras and points together: <span class="num" data-n="cameras">312 / 312</span> placed, a median <span class="num" data-n="rotation">0.08°</span> from the true cameras. Shown: one complete ring of them.</p>
+          </li>
+          <li class="step" data-frame="cloud">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Build the point cloud.</h3>
+            <img class="step-picture" src="showcase/cloud.jpg" alt="The filtered point cloud of the temple" width="960" height="600" loading="lazy">
+            <p>Matched points are triangulated from the solved cameras; those seen in too few views or far from their neighbours are filtered out, leaving <span class="num" data-n="points">24 121</span> coloured points: the model at the top, and live below.</p>
+          </li>
+        </ol>
+      </div>
+      <div class="how-stage-wrap">
+        <figure class="how-stage">
+          <div class="fiducials" aria-hidden="true"></div>
+          <div class="stage-images">
+            <img class="stage-layer is-shown" id="stage-a" src="showcase/photos.jpg" alt="Five of the temple photos" width="960" height="600">
+            <img class="stage-layer" id="stage-b" alt="" width="960" height="600">
+          </div>
+          <figcaption class="num" id="stage-caption">312 photos</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- The reconstruction, live ------------------------------------------------------ -->
+    <section class="live" id="live" aria-labelledby="live-title">
+      <h2 id="live-title">The reconstruction, live</h2>
+      <p class="section-lede">The same model to explore: drag to turn it, scroll to zoom, hover a camera to see how far it is from the true one. The ring shows one complete circle of the cameras; switch on all of them to see the whole dome.</p>
+      <p class="hero-error" id="hero-error" role="alert" hidden></p>
+      <div class="live-frame">
+      <div class="hero-viewer" id="hero-viewer" tabindex="0" role="application" aria-roledescription="3-D view" aria-label="Live 3-D view of the temple reconstruction: the point cloud and a ring of its recovered cameras. Drag or arrow keys to move, scroll to zoom, ] and [ to step through the cameras.">
+        <div class="fiducials" aria-hidden="true"></div>
+        <p class="hero-caption num" id="hero-caption" aria-hidden="true">drag to orbit</p>
+        <div class="cam-label num" id="cam-label" aria-hidden="true" hidden></div>
+        <div class="live-tools">
+          <button type="button" class="pause" id="all-cameras" aria-pressed="false">Show all <span class="num" data-n="cameras-total">312</span> cameras</button>
+          <button type="button" class="pause" id="pause" aria-pressed="false" hidden>Pause rotation</button>
+        </div>
+        <p class="visually-hidden" id="hero-announce" aria-live="polite"></p>
+      </div>
+      </div>
+    </section>
+
+    <!-- Architecture --------------------------------------------------------------- -->
+    <section class="arch" id="architecture" aria-labelledby="arch-title">
+      <h2 id="arch-title">How it is built</h2>
+      <p class="section-lede">A pipeline of small stages, each tested against synthetic and rendered scenes with known cameras before it ever saw a real photo. The geometry is our own; OpenCV, SciPy and Open3D provide the numerical building blocks, labelled where they are used.</p>
+
+      <ol class="flow" aria-label="Pipeline stages, in order">
+        <li><b>Load and check</b><span>decode, reject blur and duplicates, resolve intrinsics</span><i>ours</i></li>
+        <li><b>Features</b><span>SIFT, strict strongest-N cap, adaptive threshold</span><i>SIFT: OpenCV</i></li>
+        <li><b>Matching</b><span>2-NN, ratio test, mutual check, pair selection</span><i>2-NN: OpenCV</i></li>
+        <li><b>Verification</b><span>essential or fundamental matrix, Sampson inliers, refinement</span><i>USAC: OpenCV</i></li>
+        <li><b>First pair</b><span>pose from E, cheirality, triangulation</span><i>ours</i></li>
+        <li><b>Incremental SfM</b><span>tracks, next-best view, PnP, relative-pose fallback</span><i>PnP: OpenCV</i></li>
+        <li><b>Bundle adjustment</b><span>exact sparse Jacobian, soft-L1, shared focal length</span><i>solver: SciPy</i></li>
+        <li><b>Filter and export</b><span>track, reprojection and outlier filters; PLY, cameras, report</span><i>outlier removal: Open3D</i></li>
+      </ol>
+
+      <div class="stack">
+        <h3>This page and the workstation</h3>
+        <div class="stack-row" role="list">
+          <div role="listitem"><b>Browser</b><span>these two pages; 3-D view in three.js</span><i>three.js: external</i></div>
+          <svg class="stack-arrow" viewBox="0 0 48 16" aria-hidden="true"><path d="M2 8h42M36 2l8 6-8 6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          <div role="listitem"><b>FastAPI</b><span>uploads, one job at a time, run folders, report.json</span><i>FastAPI: external</i></div>
+          <svg class="stack-arrow" viewBox="0 0 48 16" aria-hidden="true"><path d="M2 8h42M36 2l8 6-8 6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          <div role="listitem"><b>Worker process</b><span>the pipeline above, progress per stage</span><i>ours</i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -------------------------------------------------------------------- -->
+    <section class="results" id="results" aria-labelledby="results-title">
+      <h2 id="results-title">How well it works</h2>
+      <p class="section-lede">Camera positions recovered from the photos alone, aligned to each benchmark's ground-truth cameras by a similarity transform. COLMAP, the reference structure-from-motion system, ran on the same images with the same starting calibration.</p>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Results against ground truth">
+        <table class="results-table" role="table">
+          <thead>
+            <tr role="row"><th scope="col" role="columnheader">Scene</th><th scope="col" role="columnheader">Cameras</th><th scope="col" role="columnheader">Rotation error<br><small>median</small></th><th scope="col" role="columnheader">Points</th><th scope="col" role="columnheader">COLMAP <small>(external)</small></th></tr>
+          </thead>
+          <tbody>
+            <tr class="highlight" role="row"><th scope="row" role="rowheader">Temple <small>Middlebury, 312 photos (the model above)</small></th><td role="cell" class="num" data-label="Cameras">312 / 312</td><td role="cell" class="num" data-label="Rotation error">0.08°</td><td role="cell" class="num" data-label="Points">24 121</td><td role="cell" class="num" data-label="COLMAP (external)">not run</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">templeRing <small>Middlebury, 47 photos</small></th><td role="cell" class="num" data-label="Cameras">47 / 47</td><td role="cell" class="num" data-label="Rotation error">0.15°</td><td role="cell" class="num" data-label="Points">9 907</td><td role="cell" class="num" data-label="COLMAP (external)">47 / 47 · 0.26°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">dinoRing <small>Middlebury, dark, 48 photos</small></th><td role="cell" class="num" data-label="Cameras">48 / 48</td><td role="cell" class="num" data-label="Rotation error">0.15°</td><td role="cell" class="num" data-label="Points">3 462</td><td role="cell" class="num" data-label="COLMAP (external)">24 / 48 · 23.4°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">pipes <small>ETH3D, 14 DSLR photos</small></th><td role="cell" class="num" data-label="Cameras">14 / 14</td><td role="cell" class="num" data-label="Rotation error">0.06°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">11 / 14 · 0.08°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">office <small>ETH3D, 26 photos, low texture</small></th><td role="cell" class="num" data-label="Cameras">26 / 26</td><td role="cell" class="num" data-label="Rotation error">0.14°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">26 / 26 · 0.24°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td role="cell" class="num" data-label="Cameras">16 / 16</td><td role="cell" class="num" data-label="Rotation error">0.21°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">6 / 16 · 0.54° <small>K fixed</small></td></tr>
+          </tbody>
         </table>
-      </section>
+      </div>
+      <p class="results-note">From the experiments in <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/experiments.md">docs/experiments.md</a> (E6, E7, E9). The last row uses the optional DISK + LightGlue features (external, via kornia); with SIFT that scene registers 6 of 16.</p>
 
-      <section class="panel" aria-labelledby="diag-title">
-        <h3 id="diag-title">Diagnostics</h3>
-        <div class="gallery" id="gallery"></div>
-      </section>
+      <p class="credits">Measured on <span>Middlebury Temple</span><span>templeRing</span><span>dinoRing</span><span>dinoSparseRing</span><span>ETH3D pipes</span><span>office</span></p>
+    </section>
 
-      <section class="panel" aria-labelledby="dl-title">
-        <h3 id="dl-title">Downloads</h3>
-        <ul class="downloads" id="downloads"></ul>
-      </section>
+    <!-- Call to action --------------------------------------------------------------- -->
+    <section class="cta" aria-labelledby="cta-title">
+      <div class="cta-text">
+      <h2 id="cta-title">Bring your own photos.</h2>
+      <p>Walk round an object, take twenty or more overlapping photos and drop them into the workstation. It runs on this machine; nothing is uploaded anywhere else.</p>
+      <div class="cta-actions">
+        <a class="btn btn-primary" href="app.html">Open the workstation
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <code class="cli" translate="no">python -m src.cli reconstruct data/raw/templeRing</code>
+      </div>
+      </div>
+      <figure class="fragment" data-ui aria-labelledby="fragment-caption">
+        <div class="fragment-head"><span>Pipeline</span><span class="fragment-tag">done</span></div>
+        <ol class="fragment-pipeline" id="fragment-pipeline"></ol>
+        <figcaption id="fragment-caption">The workstation's pipeline column for the templeRing run above, with its real stage times.</figcaption>
+      </figure>
     </section>
   </main>
+
+  <footer class="footer">
+    <div class="tile tile-statement">
+      <p>A research and teaching project in multi-view geometry: OpenCV, NumPy, SciPy and Open3D underneath, the reconstruction logic on top written and tested from scratch.</p>
+      <p class="legal">Datasets: Middlebury Multi-View Stereo (Seitz et al., 2006), ETH3D (Schöps et al., 2017). 3-D view: three.js. Fonts: Fraunces, IBM Plex Sans, IBM Plex Mono (Google Fonts).</p>
+    </div>
+    <nav class="tile tile-nav" aria-label="Documentation">
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction">Source on GitHub</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/methodology.md">Methodology</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/architecture.md">Architecture</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/experiments.md">Experiments</a>
+    </nav>
+    <div class="tile tile-wordmark" aria-hidden="true">Multi-View 3D</div>
+    <a class="tile tile-accent" href="app.html"><span>Open the workstation</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  </footer>
 </body>
 </html>

@@ -148,3 +148,47 @@ def write_scene(scene: RenderedScene, root: Path) -> tuple[Path, Path]:
         f"fx: {K[0, 0]}\nfy: {K[1, 1]}\ncx: {K[0, 2]}\ncy: {K[1, 2]}\n"
     )
     return root / "scene", camera
+
+
+def render_depth(
+    faces: list[Face], K: np.ndarray, R: np.ndarray, t: np.ndarray, size: tuple[int, int]
+) -> np.ndarray:
+    """Ground-truth depth (camera z) per pixel centre, in ``render``'s painter's order;
+    NaN where no face is hit. (Face edges can differ from ``render`` by a pixel.)"""
+    width, height = size
+    u, v = np.meshgrid(np.arange(width, dtype=float), np.arange(height, dtype=float))
+    rays = np.stack([u, v, np.ones_like(u)], axis=-1).reshape(-1, 3) @ np.linalg.inv(K).T
+    d = rays @ R  # world directions; R @ d = K^-1 p, whose z is 1, so depth = lambda
+    centre = -R.T @ t
+    depth = np.full(len(d), np.nan)
+    for face in faces:
+        if np.dot(face.normal, centre - face.origin) <= 0:
+            continue
+        # centre + lam d = origin + a u + b v  ->  [d, -u, -v] (lam, a, b) = origin - centre
+        A = np.stack([d, np.broadcast_to(-face.u, d.shape), np.broadcast_to(-face.v, d.shape)], -1)
+        with np.errstate(all="ignore"):
+            rhs = np.broadcast_to(face.origin - centre, d.shape)[..., None]
+            lam, a, b = np.linalg.solve(A, rhs)[..., 0].T
+        hit = (lam > 0) & (a >= 0) & (a <= 1) & (b >= 0) & (b <= 1)
+        depth[hit] = lam[hit]
+    return depth.reshape(height, width)
+
+
+def box_scene_distance(X: np.ndarray) -> np.ndarray:
+    """Distance of points (N, 3) to the surface of ``box_scene_faces``' scene (ground plane
+    y = 1 or the box [-1, 1]^3)."""
+    q = np.abs(X) - 1.0
+    outside = np.linalg.norm(np.maximum(q, 0), axis=1)
+    inside = np.minimum(q.max(axis=1), 0)
+    return np.minimum(np.abs(X[:, 1] - 1.0), np.abs(outside + inside))
+
+
+def distort_image(image: np.ndarray, K: np.ndarray, dist: np.ndarray) -> np.ndarray:
+    """What a lens with OpenCV distortion ``dist`` would have recorded: every output
+    (distorted) pixel samples the undistorted image where its ray lands."""
+    h, w = image.shape[:2]
+    u, v = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    grid = np.stack([u, v], axis=-1).reshape(-1, 1, 2)
+    source = cv2.undistortPoints(grid, K, np.asarray(dist, float), P=K).reshape(h, w, 2)
+    return cv2.remap(image, source[..., 0], source[..., 1], cv2.INTER_LINEAR,
+                     borderMode=cv2.BORDER_CONSTANT, borderValue=(40, 40, 40))  # fmt: skip

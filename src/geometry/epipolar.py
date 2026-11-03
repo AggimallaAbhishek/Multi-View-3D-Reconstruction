@@ -22,7 +22,7 @@ from src.config import VerificationConfig
 
 Model = Literal["essential", "fundamental"]
 
-_ESTIMATORS = {
+ESTIMATORS = {
     "usac_accurate": cv2.USAC_ACCURATE,
     "usac_magsac": cv2.USAC_MAGSAC,
     "ransac": cv2.RANSAC,  # equals cv2.FM_RANSAC
@@ -258,7 +258,7 @@ def verify_pair(
     x_i = np.ascontiguousarray(x_i, dtype=np.float64)
     x_j = np.ascontiguousarray(x_j, dtype=np.float64)
     threshold = config.ransac_threshold_px
-    estimator = _ESTIMATORS[config.estimator]
+    estimator = ESTIMATORS[config.estimator]
     cv2.setRNGSeed(0)  # RANSAC sampling uses OpenCV's RNG: make runs reproducible
 
     E = None

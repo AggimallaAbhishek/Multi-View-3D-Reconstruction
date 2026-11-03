@@ -61,12 +61,16 @@ class CalibrationConfig:
 
 @dataclass(frozen=True)
 class FeatureConfig:
-    detector: Literal["sift", "orb"] = "sift"
+    detector: Literal["sift", "orb", "disk"] = "sift"
     max_features: int = 8000
     root_sift: bool = False
-    sift_contrast_threshold: float = 0.04
+    sift_contrast_threshold: float = 0.02
     sift_adaptive_min_features: int = 500
     sift_min_contrast_threshold: float = 0.005
+    affine_simulation: bool = False
+    affine_max_tilt: int = 5
+    affine_tilt_step: float = 1.4142135623730951
+    affine_rotate_step_base: float = 72.0
     warn_min_features: int = 100
     warn_min_coverage: float = 0.25
     coverage_grid: int = 8
@@ -76,9 +80,10 @@ class FeatureConfig:
 class MatchConfig:
     ratio: float = 0.75
     mutual: bool = True
-    method: Literal["bruteforce", "flann"] = "bruteforce"
+    method: Literal["bruteforce", "flann", "lightglue"] = "bruteforce"
     flann_trees: int = 5
     flann_checks: int = 64
+    lightglue_filter_threshold: float = 0.7
     pair_mode: Literal["auto", "exhaustive", "sequential"] = "auto"
     exhaustive_max_images: int = 50
     sequential_window: int = 5
@@ -121,6 +126,11 @@ class RegistrationConfig:
     min_inliers: int = 30
     min_inlier_ratio: float = 0.25
     refine: bool = True
+    relative_pose_fallback: bool = True
+    fallback_estimator: Literal["usac_accurate", "usac_magsac", "ransac"] = "usac_accurate"
+    fallback_epipolar_threshold_px: float = 1.5
+    fallback_min_links: int = 6
+    fallback_min_pair_inliers: int = 50
 
 
 @dataclass(frozen=True)
@@ -136,6 +146,11 @@ class BundleAdjustmentConfig:
     refine_structure: bool = True
     refine_focal: bool = True
     max_focal_change: float = 3.0
+    estimate_distortion: bool = True
+    distortion_min_shift_px: float = 2.0
+    distortion_passes: int = 2
+    distortion_min_images: int = 5
+    distortion_min_field_radius: float = 0.3
 
 
 @dataclass(frozen=True)
@@ -149,8 +164,37 @@ class FilteringConfig:
 
 
 @dataclass(frozen=True)
+class DenseConfig:
+    min_angle_deg: float = 3.0
+    target_angle_deg: float = 8.0
+    max_angle_deg: float = 20.0
+    rectify_alpha: float = 1.0
+    depth_quantile: float = 0.01
+    disparity_margin_px: int = 16
+    max_disparities: int = 384
+    block_size: int = 3
+    uniqueness_ratio: int = 10
+    speckle_window: int = 100
+    speckle_range: int = 2
+    disp12_max_diff: int = 1
+    min_texture: float = 2.0
+    edge_erosion_px: int = 1
+    fusion_views: int = 4
+    min_consistent_views: int = 2
+    depth_tolerance: float = 0.01
+    voxel_fraction: float = 0.001
+    normal_neighbours: int = 30
+    poisson_depth: int = 9
+    poisson_threads: int = 1
+    mesh_density_quantile: float = 0.02
+
+
+@dataclass(frozen=True)
 class EvaluationConfig:
     completeness_tolerance: float = 0.01
+    silhouette_threshold: int = 15
+    silhouette_close_px: int = 7
+    silhouette_margin_px: int = 2
 
 
 @dataclass(frozen=True)
@@ -162,6 +206,7 @@ class OutputConfig:
 @dataclass(frozen=True)
 class PerformanceConfig:
     workers: int = 0
+    torch_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -172,6 +217,12 @@ class WebConfig:
     max_upload_images: int = 200
     poll_interval_ms: int = 1000
     open_browser: bool = True
+    thumbnails: int = 12
+    thumbnail_px: int = 240
+    thumbnail_quality: int = 82
+    showcase_frame_px: int = 960
+    showcase_quality: int = 80
+    showcase_photos: int = 6
 
 
 @dataclass(frozen=True)
@@ -188,6 +239,7 @@ class Config:
     registration: RegistrationConfig = field(default_factory=RegistrationConfig)
     bundle_adjustment: BundleAdjustmentConfig = field(default_factory=BundleAdjustmentConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
+    dense: DenseConfig = field(default_factory=DenseConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
@@ -236,7 +288,13 @@ def config_from_args(args: Any) -> Config:
 def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: top level must be a mapping")
-    return _build(Config, raw, source)
+    config = _build(Config, raw, source)
+    if config.matching.method == "lightglue" and config.features.detector != "disk":
+        raise ConfigError(
+            f"{source}: matching.method lightglue needs features.detector disk "
+            f"(got {config.features.detector!r})"
+        )
+    return config
 
 
 def _build(cls: type, raw: dict[str, Any], where: str) -> Any:
