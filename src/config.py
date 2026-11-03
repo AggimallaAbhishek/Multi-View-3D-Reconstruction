@@ -219,6 +219,7 @@ class WebConfig:
     open_browser: bool = True
     thumbnails: int = 12
     thumbnail_px: int = 240
+    thumbnail_quality: int = 82
 
 
 @dataclass(frozen=True)

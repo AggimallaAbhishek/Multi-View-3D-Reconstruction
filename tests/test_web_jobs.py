@@ -275,6 +275,20 @@ def test_failure_in_a_stage_writes_the_stages_before_it(tmp_path, monkeypatch):
     assert (run_dir / "verification").is_dir()
     assert not (run_dir / "pose").exists()
     assert not (run_dir / "report.json").exists()
+    assert len(list((run_dir / "thumbnails").glob("*.jpg"))) == 4  # photos kept for the page
+
+
+def test_failure_while_writing_outputs_still_keeps_thumbnails(tmp_path, monkeypatch):
+    import src.web.jobs as jobs
+
+    def broken_outputs(*args, **kwargs):
+        raise RuntimeError("outputs broke")
+
+    monkeypatch.setattr(jobs, "save_stage_outputs", broken_outputs)
+    _, images, config = rendered_upload(tmp_path)
+    with pytest.raises(JobFailed, match="outputs broke") as failed:
+        reconstruct(images, config, lambda s, t: None)
+    assert len(list((failed.value.run_dir / "thumbnails").glob("*.jpg"))) == 4
 
 
 def test_failure_while_preparing_the_dataset_writes_nothing(tmp_path):
@@ -329,3 +343,23 @@ def test_run_folder_keeps_small_thumbnails_of_the_photos(tmp_path):
     for path in thumbs:
         image = cv2.imread(str(path))
         assert max(image.shape[:2]) == 120 and image.std() > 5  # a real, downscaled photo
+
+
+def test_thumbnail_failure_on_a_failed_job_keeps_the_original_error(tmp_path, monkeypatch):
+    """Thumbnails are best-effort: a failure writing them must not hide why the job failed."""
+    import src.web.jobs as jobs
+
+    _, images, config = rendered_upload(tmp_path)
+
+    import src.pipeline
+
+    def broken_stage(result):
+        raise RuntimeError("stage broke")
+
+    def disk_full(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setitem(src.pipeline._STEPS, "pose", broken_stage)
+    monkeypatch.setattr(jobs.cv2, "imwrite", disk_full)
+    with pytest.raises(JobFailed, match="stage broke"):
+        reconstruct(images, config, lambda s, t: None)

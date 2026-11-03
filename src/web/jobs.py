@@ -31,6 +31,7 @@ import cv2
 
 from src.config import Config, WebConfig
 from src.data.loader import discover_images
+from src.data.preprocessing import resize_max_side
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import CORE_STAGES, STAGES, PipelineResult, Stage, run_pipeline
@@ -148,33 +149,36 @@ def reconstruct(
         progress("outputs", dict(result.timings))
         run_dir = new_run_dir(result, RUN_LABEL, stamp)
         save_stage_outputs(result, run_dir, "filter")
-        write_thumbnails(result, run_dir, config.web)
         gt_path = upload_dir / GT_CAMERAS_FILE
         gt = load_cameras_json(gt_path) if gt_path.is_file() else None
         write_report(build_report(result, gt), run_dir)
     except Exception as exc:
         if run_dir is None and result is not None:
             run_dir = _save_partial(result, stamp)
-            write_thumbnails(result, run_dir, config.web)
         raise JobFailed(str(exc), run_dir) from exc
+    finally:  # whatever happened, a run folder keeps its photos (uploads get deleted)
+        if run_dir is not None and result is not None:
+            write_thumbnails(result, run_dir, config.web)
     return run_dir
 
 
-def write_thumbnails(result: PipelineResult, run_dir: Path | None, web: WebConfig) -> None:
+def write_thumbnails(result: PipelineResult, run_dir: Path, web: WebConfig) -> None:
     """Small JPEGs of the first ``web.thumbnails`` photos in ``run_dir/thumbnails``, as the
-    pipeline saw them (upright, undistorted): the uploads themselves are deleted when the
-    job ends."""
-    if run_dir is None:
-        return
-    folder = Path(run_dir) / THUMBNAILS_DIR
-    folder.mkdir(parents=True, exist_ok=True)
-    for im in result.images[: web.thumbnails]:
-        colour = im.image
-        scale = web.thumbnail_px / max(colour.shape[:2])
-        small = cv2.resize(colour, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        cv2.imwrite(
-            str(folder / f"{Path(im.name).stem}.jpg"), small, [cv2.IMWRITE_JPEG_QUALITY, 82]
-        )
+    pipeline saw them (upright, undistorted). Best effort: a failure here is logged, never
+    raised, so it cannot hide how the job ended."""
+    try:
+        folder = run_dir / THUMBNAILS_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        used: set[str] = set()
+        for im in result.images[: web.thumbnails]:
+            small, _, _ = resize_max_side(im.image, im.K, web.thumbnail_px)
+            stem = Path(im.name).stem
+            name = stem if stem not in used else f"{stem}_{im.index}"  # a.jpg and a.png
+            used.add(name)
+            quality = [cv2.IMWRITE_JPEG_QUALITY, web.thumbnail_quality]
+            cv2.imwrite(str(folder / f"{name}.jpg"), small, quality)
+    except Exception:
+        log.exception("could not write thumbnails in %s", run_dir)
 
 
 def reconstruct_in_subprocess(

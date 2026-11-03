@@ -90,6 +90,9 @@ export function parsePly(buffer) {
   return { positions, colours, count };
 }
 
+/** The ``q`` quantile of ``values`` (sorted in place). */
+const quantile = (values, q) => values.sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(q * values.length))];
+
 /** Centre (per-axis median) and radius (90th percentile distance) of the bulk of the
  * points, so a few stray points far out don't shrink the view. Samples large clouds. */
 function robustSphere(positions) {
@@ -100,7 +103,6 @@ function robustSphere(positions) {
   for (let i = 0; i < n; i += step) {
     xs.push(positions[3 * i]); ys.push(positions[3 * i + 1]); zs.push(positions[3 * i + 2]);
   }
-  const quantile = (values, q) => values.sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(q * values.length))];
   const centre = new THREE.Vector3(quantile([...xs], 0.5), quantile([...ys], 0.5), quantile([...zs], 0.5));
   const distances = xs.map((x, k) => Math.hypot(x - centre.x, ys[k] - centre.y, zs[k] - centre.z));
   return { centre, radius: Math.max(quantile(distances, 0.9), 1e-6) };
@@ -255,11 +257,13 @@ export class Viewer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     if (colours) {
-      // PLY colours are sRGB; three.js wants linear vertex colours
-      const linear = colours.map(srgbToLinear);
-      geometry.setAttribute("color", new THREE.BufferAttribute(linear, 3));
+      // PLY colours are sRGB; three.js wants linear vertex colours (converted in place:
+      // the parsed arrays belong to this cloud)
+      for (let i = 0; i < colours.length; i++) colours[i] = srgbToLinear(colours[i]);
+      geometry.setAttribute("color", new THREE.BufferAttribute(colours, 3));
     }
     geometry.computeBoundingBox();
+    this.sphere = robustSphere(positions);
     const material = new THREE.PointsMaterial({
       size: this.pointSize * window.devicePixelRatio,
       sizeAttenuation: false,
@@ -284,16 +288,13 @@ export class Viewer {
     const vertices = [];
     const forward = new THREE.Vector3();
     const up = new THREE.Vector3();
-    this.cameraCentres = cameras.map((cam) => {
-      const Rt = new THREE.Matrix3().set(...cam.R.flat()).transpose();
-      return new THREE.Vector3(...cam.t).applyMatrix3(Rt).negate(); // C = -R^T t
-    });
-    const distances = this.cameraCentres.map((c) => c.distanceTo(middle)).sort((a, b) => a - b);
-    const median = distances.length ? distances[Math.floor(distances.length / 2)] : 0;
+    const rotations = cameras.map((cam) => new THREE.Matrix3().set(...cam.R.flat()).transpose()); // R^T
+    this.cameraCentres = cameras.map((cam, k) => new THREE.Vector3(...cam.t).applyMatrix3(rotations[k]).negate()); // C = -R^T t
+    const median = this.cameraCentres.length ? quantile(this.cameraCentres.map((c) => c.distanceTo(middle)), 0.5) : 0;
     // cameras on a wide ring would be specks at the cloud's scale
     const depth = Math.max(FRUSTUM_SCALE * extent, FRUSTUM_RING_SCALE * median);
     cameras.forEach((cam, k) => {
-      const Rt = new THREE.Matrix3().set(...cam.R.flat()).transpose();
+      const Rt = rotations[k];
       const centre = this.cameraCentres[k];
       const Kinv = new THREE.Matrix3().set(...cam.K.flat()).invert();
       const corners = [[0, 0], [cam.width, 0], [cam.width, cam.height], [0, cam.height]].map(([u, v]) => {
@@ -338,12 +339,8 @@ export class Viewer {
 
   /** A ground grid under the cloud, wide enough for the cameras. */
   #buildGrid() {
-    if (this.grid) {
-      this.scene.remove(this.grid);
-      this.grid.geometry.dispose();
-      this.grid.material.dispose();
-      this.grid = null;
-    }
+    this.#dispose(this.grid);
+    this.grid = null;
     if (!this.points || !this.cameraCentres.length) return;
     this.group.updateMatrixWorld();
     const box = new THREE.Box3().setFromObject(this.points);
@@ -383,6 +380,8 @@ export class Viewer {
     const shown = Math.min(cameraCount, this.cameraCentres.length);
     this.frustums?.geometry.setDrawRange(0, shown * 16); // 8 segments per frustum
     this.markers?.geometry.setDrawRange(0, shown);
+    // the path runs in photo order, not registration order: only once it is complete
+    if (this.path) this.path.visible = this.layers.path && shown >= this.cameraCentres.length;
     this.render();
   }
 
@@ -412,7 +411,11 @@ export class Viewer {
       this.camera.quaternion.copy(from.quaternion);
       this.frameOrthographic();
     } else {
-      this.perspective.position.copy(from.position);
+      // the orthographic zoom becomes distance, so the view keeps its size
+      const half = this.orthoHalf / from.zoom;
+      const distance = half / Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+      const back = from.position.clone().sub(this.controls.target).normalize();
+      this.perspective.position.copy(this.controls.target).addScaledVector(back, distance);
       this.perspective.quaternion.copy(from.quaternion);
       this.camera = this.perspective;
     }
@@ -423,6 +426,7 @@ export class Viewer {
 
   /** Turn slowly round the object (never under reduced motion). */
   spin(on) {
+    const wasSpinning = this.spinning;
     this.spinning = on && !reducedMotion();
     this.controls.autoRotate = this.spinning;
     this.controls.autoRotateSpeed = 0.8;
@@ -432,17 +436,29 @@ export class Viewer {
       this.render();
       requestAnimationFrame(loop);
     };
-    loop();
+    if (this.spinning && !wasSpinning) loop(); // one loop, however often this is called
     return this.spinning;
+  }
+
+  /** Screen positions (px in the container) of cameras ``0..count-1``; null when behind
+   * the view. */
+  #screenPositions(count = this.cameraCentres.length) {
+    const { clientWidth: w, clientHeight: h } = this.container;
+    this.group.updateMatrixWorld();
+    this.camera.updateMatrixWorld();
+    const toView = new THREE.Matrix4().multiplyMatrices(this.camera.matrixWorldInverse, this.group.matrixWorld);
+    const p = new THREE.Vector3();
+    return this.cameraCentres.slice(0, count).map((c) => {
+      p.copy(c).applyMatrix4(toView);
+      if (p.z >= 0) return null; // behind the view
+      p.applyMatrix4(this.camera.projectionMatrix);
+      return [((p.x + 1) / 2) * w, ((1 - p.y) / 2) * h];
+    });
   }
 
   /** Screen position (px in the container) of camera ``k``, or null when behind the view. */
   screenOf(k) {
-    const { clientWidth: w, clientHeight: h } = this.container;
-    this.group.updateMatrixWorld();
-    const p = this.cameraCentres[k].clone().applyMatrix4(this.group.matrixWorld).project(this.camera);
-    if (p.z > 1) return null;
-    return [((p.x + 1) / 2) * w, ((1 - p.y) / 2) * h];
+    return this.#screenPositions(k + 1)[k];
   }
 
   /** Index of the drawn camera nearest (x, y) within ``radius`` px, or -1. */
@@ -451,43 +467,44 @@ export class Viewer {
     const drawn = Math.min(this.markers.geometry.drawRange.count, this.cameraCentres.length);
     let best = -1;
     let bestDistance = radius;
-    for (let k = 0; k < drawn; k++) {
-      const p = this.screenOf(k);
+    this.#screenPositions(drawn).forEach((p, k) => {
       const d = p ? Math.hypot(p[0] - x, p[1] - y) : Infinity;
       if (d < bestDistance) [best, bestDistance] = [k, d];
-    }
+    });
     return best;
   }
 
   /** Frame the cloud ("object"), the cloud and every camera ("cameras"), or the cloud with
    * the nearer cameras round it ("overview"), looking the way the photos did. */
   fit(target = "object") {
-    const ortho = this.camera !== this.perspective;
-    if (ortho) this.setProjection("perspective");
     this.group.updateMatrixWorld();
-    const sphere = this.points && robustSphere(this.points.geometry.attributes.position.array);
+    const sphere = this.points && this.sphere;
     if (!sphere) return;
-    const cameras = target === "cameras" ? this.cameraCentres.map((c) => c.distanceTo(sphere.centre)) : [];
-    const radius = Math.max(sphere.radius, ...cameras);
+    const reaches = this.cameraCentres.map((c) => c.distanceTo(sphere.centre));
+    const radius = Math.max(sphere.radius, ...(target === "cameras" ? reaches : []));
     const centre = sphere.centre.clone().applyMatrix4(this.group.matrixWorld);
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
     // a little further back, so the cameras in front of the cloud stay in view
-    let distance = (1.3 * radius) / Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
-    if (target === "overview" && this.cameraCentres.length) {
-      const reach = Math.min(...this.cameraCentres.map((c) => c.distanceTo(sphere.centre)));
-      distance = Math.max(distance, 1.6 * reach);
-    }
+    let distance = (1.3 * radius) / tanHalf;
+    if (target === "overview" && reaches.length) distance = Math.max(distance, 1.6 * Math.min(...reaches));
     const direction = this.cameraForward
       ? this.cameraForward.clone().transformDirection(this.group.matrixWorld)
       : new THREE.Vector3(0, 0, -1);
     if (Math.hypot(direction.x, direction.z) < 1e-3) direction.set(0, 0, -1); // looking straight down
     direction.setY(0).normalize().add(new THREE.Vector3(0, this.cameraForward ? -0.35 : -0.8, 0)).normalize(); // from above
-    this.perspective.position.copy(centre).addScaledVector(direction, -distance);
+    this.camera.position.copy(centre).addScaledVector(direction, -distance);
+    this.camera.lookAt(centre);
     this.perspective.near = distance / 1000;
     this.perspective.far = distance * 10;
     this.perspective.updateProjectionMatrix();
+    if (this.camera !== this.perspective) { // orthographic: the same view's size, no zoom
+      this.orthoHalf = distance * tanHalf;
+      this.camera.zoom = 1;
+      Object.assign(this.camera, { near: this.perspective.near, far: this.perspective.far * 2 });
+      this.frameOrthographic();
+    }
     this.controls.target.copy(centre);
     this.controls.update();
-    if (ortho) this.setProjection("orthographic");
     this.render();
   }
 }

@@ -410,13 +410,21 @@ def test_intro_page_is_served_and_leads_to_the_workstation():
     assert 'href="app.html"' in response.text  # the call to action
 
 
+def test_old_job_links_on_the_intro_forward_to_the_workstation():
+    """Before the intro page existed, /#job=<id> opened a run; such links still work."""
+    text = client_for().get("/").text
+    assert 'location.replace("app.html" + location.hash)' in text
+
+
 def test_workstation_page_is_served_with_its_upload_form():
     response = client_for().get("/app.html")
     assert response.status_code == 200
     assert 'id="images"' in response.text and 'id="run"' in response.text
 
 
-@pytest.mark.parametrize("path", ["/", "/app.html", "/app.js", "/viewer.js", "/style.css"])
+@pytest.mark.parametrize(
+    "path", ["/", "/app.html", "/app.js", "/viewer.js", "/style.css", "/tokens.css"]
+)
 def test_page_files_are_revalidated_on_every_load(path):
     """Without Cache-Control, browsers reuse a cached app.js after the page was updated."""
     client = client_for()

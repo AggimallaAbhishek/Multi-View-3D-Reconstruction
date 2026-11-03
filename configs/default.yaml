@@ -200,3 +200,4 @@ web:                           # local web interface (python -m src.web); one jo
   open_browser: true           # open the page when the server starts
   thumbnails: 12               # photos kept per run as thumbnails (uploads are deleted)
   thumbnail_px: 240            # longest side of a thumbnail
+  thumbnail_quality: 82        # JPEG quality of the thumbnails (0-100)

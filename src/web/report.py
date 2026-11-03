@@ -89,43 +89,57 @@ def write_report(report: dict[str, Any], run_dir: str | Path) -> Path:
 def _stages(result: PipelineResult) -> dict[str, Any]:
     """What each stage produced, for the page's pipeline column; ``None`` where the stage
     did not run (or, for the initial pair, found none)."""
-    features = matches = verification = initial = reconstruction = filtering = None
-    if result.feature_stats is not None:
-        counts = sorted(s.n_features for s in result.feature_stats)
-        features = {
-            "per_image_median": counts[len(counts) // 2] if counts else 0,
-            "total": sum(counts),
-            "cached": bool(counts) and all(s.cached for s in result.feature_stats),
-        }
-    if result.match_stats is not None:
-        matches = {
-            "pairs": len(result.match_stats),
-            "matches": sum(s.final for s in result.match_stats),
-            "cached": bool(result.match_stats) and all(s.cached for s in result.match_stats),
-        }
-    if result.verification_stats is not None:
-        ok = [s for s in result.verification_stats if s.success]
-        tested = sum(s.n_matches for s in ok)
-        verification = {
-            "pairs": len(ok),
-            "inliers": sum(s.n_inliers for s in ok),
-            "inlier_ratio": sum(s.n_inliers for s in ok) / tested if tested else 0.0,
-        }
-    if result.initial_pair is not None:
-        initial = [result.names[result.initial_pair.i], result.names[result.initial_pair.j]]
-    if result.reconstruction is not None:
-        rec = result.reconstruction
-        reconstruction = {"registered": len(rec.registry.images), "landmarks": len(rec.landmarks)}
-    if result.filtering is not None:
-        keep = result.filtering.keep
-        filtering = {"kept": int(keep.sum()), "total": len(keep)}
+    pair = result.initial_pair
+    rec, filtering = result.reconstruction, result.filtering
     return {
-        "features": features,
-        "matches": matches,
-        "verification": verification,
-        "initial_pair": initial,
-        "reconstruction": reconstruction,
-        "filter": filtering,
+        "features": _features(result.feature_stats),
+        "matches": _matches(result.match_stats),
+        "verification": _verification(result.verification_stats),
+        "initial_pair": None if pair is None else [result.names[pair.i], result.names[pair.j]],
+        "reconstruction": None
+        if rec is None
+        else {"registered": len(rec.registry.images), "landmarks": len(rec.landmarks)},
+        "filter": None
+        if filtering is None
+        else {"kept": int(filtering.keep.sum()), "total": len(filtering.keep)},
+    }
+
+
+def _all_cached(stats: list[Any]) -> bool:
+    return bool(stats) and all(s.cached for s in stats)
+
+
+def _features(stats: list[Any] | None) -> dict[str, Any] | None:
+    if stats is None:
+        return None
+    counts = [s.n_features for s in stats]
+    return {
+        "per_image_median": float(np.median(counts)) if counts else 0.0,  # as the console
+        "total": sum(counts),
+        "cached": _all_cached(stats),
+    }
+
+
+def _matches(stats: list[Any] | None) -> dict[str, Any] | None:
+    if stats is None:
+        return None
+    return {
+        "pairs": len(stats),
+        "matches": sum(s.final for s in stats),
+        "cached": _all_cached(stats),
+    }
+
+
+def _verification(stats: list[Any] | None) -> dict[str, Any] | None:
+    """Verified pairs and their inliers; the ratio is pooled over those pairs."""
+    if stats is None:
+        return None
+    ok = [s for s in stats if s.success]
+    inliers, tested = sum(s.n_inliers for s in ok), sum(s.n_matches for s in ok)
+    return {
+        "pairs": len(ok),
+        "inliers": inliers,
+        "inlier_ratio": inliers / tested if tested else 0.0,
     }
 
 

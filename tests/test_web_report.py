@@ -139,9 +139,9 @@ def test_report_gives_each_stage_its_numbers(result):
     """The pipeline column shows what each stage produced: features, matches, verified
     pairs and inliers, the initial pair, registered cameras, points kept."""
     stages = build_report(result)["stages"]
-    counts = sorted(len(f) for f in result.features)
+    counts = [len(f) for f in result.features]
 
-    assert stages["features"]["per_image_median"] == counts[len(counts) // 2]
+    assert stages["features"]["per_image_median"] == pytest.approx(np.median(counts))
     assert stages["features"]["total"] == sum(counts)
     assert stages["features"]["cached"] is False  # first run of this scene
     assert stages["matches"]["pairs"] == N_VIEWS * (N_VIEWS - 1) // 2  # exhaustive
