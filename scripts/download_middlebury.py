@@ -1,6 +1,9 @@
 """Download a Middlebury multi-view dataset with ground-truth cameras.
 
-Usage: python scripts/download_middlebury.py [templeRing|templeSparseRing|dinoRing|dinoSparseRing]
+Usage: python scripts/download_middlebury.py NAME
+
+NAME: templeRing, templeSparseRing, dinoRing, dinoSparseRing, or the full hemisphere
+sets temple (312 photos) and dino (363 photos).
 
 Extracts the images into data/raw/<name>/ (git-ignored) and writes, next to them:
   camera.yaml       the shared intrinsics, for camera.calibration_file
@@ -23,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 from src.evaluation.ground_truth import load_middlebury_par, write_ground_truth  # noqa: E402
 
 URL = "https://vision.middlebury.edu/mview/data/data/{name}.zip"
-DATASETS = ("templeRing", "templeSparseRing", "dinoRing", "dinoSparseRing")
+DATASETS = ("templeRing", "templeSparseRing", "temple", "dinoRing", "dinoSparseRing", "dino")
 
 
 def main(name: str = "templeRing") -> int:

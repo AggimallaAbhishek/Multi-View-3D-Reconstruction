@@ -896,15 +896,9 @@ async function init() {
     "Walk round the subject so neighbouring photos overlap by about two thirds.";
   renderPipeline(null);
   await refreshPreviousRuns();
-  openJobFromUrl();
-  // a #job= link pasted into an open tab, or edited by hand
-  window.addEventListener("hashchange", openJobFromUrl);
-}
-
-function openJobFromUrl() {
-  const match = location.hash.match(/^#job=(.+)$/);
-  if (match) openJob(decodeURIComponent(match[1]));
-  else clearRun();
+  // The workstation always opens empty: nothing is loaded or run until the user picks a
+  // previous run from the list or starts a reconstruction.
+  clearRun();
 }
 
 init().catch((error) => showUploadMessage(`The page could not start: ${error.message}`));
