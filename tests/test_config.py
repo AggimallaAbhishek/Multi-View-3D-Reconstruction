@@ -156,6 +156,16 @@ def test_learned_config_file_selects_disk_and_lightglue():
         ("web.thumbnail_quality", 101),
         ("web.port", 70000),
         ("performance.workers", -1),
+        ("calibration.min_views", 0),
+        ("calibration.subpix_window", 0),
+        ("features.coverage_grid", 0),
+        ("dense.fusion_views", 0),
+        ("dense.poisson_threads", -2),
+        ("web.max_upload_images", 0),
+        ("web.poll_interval_ms", 0),
+        ("matching.ratio", float("nan")),  # NaN compares False with every bound
+        ("verification.confidence", float("nan")),
+        ("camera.focal_scale", float("inf")),
     ],
 )
 def test_out_of_range_values_name_their_key(key, value):
@@ -169,3 +179,10 @@ def test_every_shipped_config_is_in_range():
     for name in ("default.yaml", "learned.yaml"):  # the pipeline configs (not camera.*.yaml)
         load_config(Path(DEFAULT_CONFIG_PATH).parent / name)  # raises if out of range
     assert load_config().with_overrides({"dense.rectify_alpha": -1.0}).dense.rectify_alpha == -1.0
+    # Open3D: -1 threads means all cores, as configs/default.yaml documents
+    assert load_config().with_overrides({"dense.poisson_threads": -1}).dense.poisson_threads == -1
+
+
+def test_max_images_below_min_images_is_rejected():
+    with pytest.raises(ConfigError, match=r"dataset\.max_images"):
+        load_config().with_overrides({"dataset.min_images": 3, "dataset.max_images": 2})

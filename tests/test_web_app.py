@@ -208,7 +208,8 @@ def test_names_differing_only_in_case_are_rejected():
     one photo would silently overwrite the other."""
     response = post(client_for(), images("IMG_1.png", "img_1.png", "b.png"))
     assert response.status_code == 422
-    assert "img_1.png" in response.json()["detail"].lower()
+    detail = response.json()["detail"]
+    assert "IMG_1.png" in detail and "img_1.png" in detail  # both names, so the user can rename one
     assert nothing_uploaded()
 
 

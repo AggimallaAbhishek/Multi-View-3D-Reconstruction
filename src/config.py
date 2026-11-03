@@ -8,6 +8,7 @@ so that typos in experiment configs fail loudly instead of being ignored.
 from __future__ import annotations
 
 import dataclasses
+import math
 import types
 import typing
 from dataclasses import dataclass, field
@@ -298,8 +299,9 @@ def config_from_dict(raw: dict[str, Any], source: str = "<dict>") -> Config:
     return config
 
 
-# Ranges beyond "not negative" (every number must be >= 0 unless listed in _SIGNED):
-# key -> (low, high, low exclusive?, high exclusive?); None is unbounded.
+# Validity limits (what a setting can mean at all), not tuning thresholds: those live in
+# configs/default.yaml. Every number must be finite and >= 0 unless its range here
+# starts below 0. key -> (low, high, low exclusive?, high exclusive?); None is unbounded.
 _RANGES: dict[str, tuple[float | None, float | None, bool, bool]] = {
     "dataset.min_images": (2, None, False, False),
     "dataset.max_images": (1, None, False, False),
@@ -315,28 +317,40 @@ _RANGES: dict[str, tuple[float | None, float | None, bool, bool]] = {
     "camera.focal_scale": (0, None, True, False),
     "bundle_adjustment.loss_scale_px": (0, None, True, False),
     "matching.sequential_window": (1, None, False, False),
+    "calibration.min_views": (1, None, False, False),
+    "calibration.subpix_window": (1, None, False, False),
+    "features.coverage_grid": (1, None, False, False),
+    "dense.fusion_views": (1, None, False, False),
+    "web.max_upload_images": (1, None, False, False),
+    "web.poll_interval_ms": (1, None, False, False),
     "web.thumbnail_quality": (0, 100, False, False),
     "web.showcase_quality": (0, 100, False, False),
     "web.port": (1, 65535, False, False),
-    "dense.rectify_alpha": (-1, 1, False, False),
+    "dense.rectify_alpha": (-1, 1, False, False),  # OpenCV: -1 means "let it choose"
+    "dense.poisson_threads": (-1, None, False, False),  # Open3D: -1 means all cores
 }
-_SIGNED = {"dense.rectify_alpha"}  # OpenCV: -1 means "let it choose"
 
 
 def _check_ranges(config: Config, source: str) -> None:
     """Range-check every number, so a bad value fails here with its key instead of
     deep inside a stage (a negative max_images crashed np.linspace)."""
     for key, value in _numbers(config):
-        where = f"{source}: {key}"
         if value is None:
             continue
-        if key not in _SIGNED and value < 0:
-            raise ConfigError(f"{where} must not be negative (got {value})")
-        low, high, low_open, high_open = _RANGES.get(key, (None, None, False, False))
+        where = f"{source}: {key}"
+        if not math.isfinite(value):  # NaN compares False with every bound below
+            raise ConfigError(f"{where} must be a finite number (got {value})")
+        low, high, low_open, high_open = _RANGES.get(key, (0, None, False, False))
         if low is not None and (value <= low if low_open else value < low):
             raise ConfigError(f"{where} must be {'>' if low_open else '>='} {low} (got {value})")
         if high is not None and (value >= high if high_open else value > high):
             raise ConfigError(f"{where} must be {'<' if high_open else '<='} {high} (got {value})")
+    dataset = config.dataset
+    if dataset.max_images is not None and dataset.max_images < dataset.min_images:
+        raise ConfigError(
+            f"{source}: dataset.max_images ({dataset.max_images}) must be >= "
+            f"dataset.min_images ({dataset.min_images})"
+        )
     if config.dense.block_size % 2 == 0:
         raise ConfigError(f"{source}: dense.block_size must be odd (got {config.dense.block_size})")
 
