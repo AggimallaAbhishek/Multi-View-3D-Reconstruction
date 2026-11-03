@@ -83,7 +83,8 @@ async function api(path, options) {
 }
 
 const jobUrl = (id, rest = "") => `/api/jobs/${encodeURIComponent(id)}${rest}`;
-const fileUrl = (id, path) => jobUrl(id, `/files/${path}`);
+// each segment encoded: a file named after an upload may hold #, ? or spaces
+const fileUrl = (id, path) => jobUrl(id, `/files/${path.split("/").map(encodeURIComponent).join("/")}`);
 
 // --- Formatting -------------------------------------------------------------------------
 
@@ -179,13 +180,16 @@ async function openJob(id, { quiet = false } = {}) {
     showUploadMessage(null);
     if (job.status === "done") await showResults(job);
     else follow(job);
-    return true;
+    return "opened";
   } catch (error) {
-    openJobInUrl(null);
-    clearRun();
-    // a remembered run that was deleted elsewhere: start empty without an error
-    if (!quiet) showUploadMessage(`Could not open run ${id}: ${error.message}`);
-    return false;
+    // Only a run the server does not know is forgotten (deleted, or a job id from
+    // before a restart). Anything else (the server unreachable, a page error) keeps
+    // the run remembered for the next reload and says what went wrong.
+    const gone = error instanceof ApiError && error.status === 404;
+    clearRun({ forget: gone });
+    if (!gone) console.error(error);
+    if (!gone || !quiet) showUploadMessage(`Could not open run ${id}: ${error.message}`);
+    return gone ? "gone" : "error";
   }
 }
 
@@ -195,18 +199,21 @@ async function reopenRememberedRun() {
   const ids = rememberedOpenRun();
   const folder = ids.at(-1);
   for (const id of ids) {
-    if (await openJob(id, { quiet: true })) return;
+    const outcome = await openJob(id, { quiet: true });
+    if (outcome !== "gone") return; // opened, or an error that keeps it remembered
     if (id !== folder) rememberOpenRun(folder, folder); // keep the folder for the next try
   }
   clearRun();
 }
 
-/** Nothing open: the empty workstation, ready for photos. */
-function clearRun() {
+/** Nothing open: the empty workstation, ready for photos. ``forget: false`` keeps the
+ * remembered run (and the address) for the next reload. */
+function clearRun({ forget = true } = {}) {
   pollToken++;
   replaying = false;
+  setSpin(false); // a replay left the view turning
   shownJob = shownReport = null;
-  openJobInUrl(null);
+  if (forget) openJobInUrl(null);
   $("previous-runs").value = "";
   show("empty");
   setStatus("No run open", "Drop overlapping photos in the panel on the left, or open a previous run.");
@@ -524,7 +531,9 @@ async function deleteShownRun(control) {
 // --- Results ----------------------------------------------------------------------------
 
 async function showResults(job, { replay = false } = {}) {
+  const token = pollToken; // another run opened meanwhile, or the run cleared: stop
   const [report, files] = await Promise.all([api(jobUrl(job.id, "/report")), api(jobUrl(job.id, "/files"))]);
+  if (token !== pollToken) return;
   if (job.run_dir) rememberOpenRun(job.id, job.run_dir.split(/[\\/]/).pop()); // survives a restart
   shownReport = report;
   show("results");
@@ -551,6 +560,7 @@ async function showResults(job, { replay = false } = {}) {
         label, el("small", {}, name)))),
   );
   await loadViewer(job.id, report);
+  if (token !== pollToken) return;
   $("replay").disabled = !viewerJob?.cameras;
   if (replay) replayRun();
 }
@@ -771,6 +781,7 @@ async function fetchCloud(id, name) {
 }
 
 async function loadViewer(id, report) {
+  setSpin(false);
   try {
     viewer ??= createViewer();
   } catch (error) { // no WebGL: the numbers, tables and figures still work
