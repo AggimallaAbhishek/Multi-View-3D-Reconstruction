@@ -348,6 +348,11 @@ def _check_ranges(config: Config, source: str) -> None:
             raise ConfigError(f"{where} must be {'>' if low_open else '>='} {low} (got {value})")
         if high is not None and (value >= high if high_open else value > high):
             raise ConfigError(f"{where} must be {'<' if high_open else '<='} {high} (got {value})")
+    _check_relations(config, source)
+
+
+def _check_relations(config: Config, source: str) -> None:
+    """Rules between settings, or beyond a range."""
     dataset = config.dataset
     if dataset.max_images is not None and dataset.max_images < dataset.min_images:
         raise ConfigError(

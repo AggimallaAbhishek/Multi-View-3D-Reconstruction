@@ -234,6 +234,16 @@ class DenseResult:
     coverage: list[float | None]  # per image: fraction of pixels with a depth (None: no partner)
     voxel_size: float
 
+    @classmethod
+    def empty(cls, n_images: int) -> DenseResult:
+        """No depth at all: no image has a stereo partner."""
+        return cls(
+            cloud=DenseCloud.empty(),
+            plan=ViewPlan(partner=[None] * n_images, checks=[[] for _ in range(n_images)]),
+            coverage=[None] * n_images,
+            voxel_size=0.0,
+        )
+
 
 def dense_scene(result: PipelineResult) -> PipelineResult:
     """A depth map per registered image from stereo with its partner view, fused by
@@ -247,12 +257,7 @@ def dense_scene(result: PipelineResult) -> PipelineResult:
     points = rec.landmarks.position[keep]
     if not len(points):  # no sparse points to plan stereo or set depth ranges with
         n = len(images)
-        result.dense = DenseResult(
-            cloud=DenseCloud.empty(),
-            plan=ViewPlan(partner=[None] * n, checks=[[] for _ in range(n)]),
-            coverage=[None] * n,
-            voxel_size=0.0,
-        )
+        result.dense = DenseResult.empty(n)
         return result
     cameras = [rec.registry.camera(m) for m in images]
     pixels = [result.images[m].image for m in images]
