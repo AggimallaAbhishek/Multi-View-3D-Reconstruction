@@ -138,3 +138,19 @@ Web Interface Guidelines audit, declined:
   real user problem in a local, single-user tool; left as they are.
 - **Section links in the intro's nav below 1000 px:** the page is short and linear; the
   call to action stays.
+
+## Verification record (2026-11-03)
+
+- `pytest -q`: 489 passed before the final review fixes (490 with the single-photo test).
+- Real data in Chrome: a templeRing upload (47 photos, `camera.yaml`, `gt_cameras.json`)
+  followed live in the workstation: pipeline ticking stage by stage, console, then 47/47
+  cameras, 9 907 points, 0.15° median rotation error, replay; no console errors.
+- 390 / 768 / 1440 px: both pages screenshotted by `inspect.mjs` after the fixes
+  (`.taste-skill/`, not committed); phone layouts checked by eye.
+- Contrast: every text token checked on `--ground`, `--card` and `--raise` (the values are
+  in `tokens.css`); `--faint` raised to #7b9096 to pass AA on table heads.
+- Fixed findings are listed in the commit messages of `30b4071` (checkpoint A),
+  `28daedf` (checkpoint B), `796919c` (design pass), `1827a36` (audit) and the final
+  review commit.
+- The intro's results table quotes `docs/experiments.md` (E6, E7, E9); only templeRing
+  comes from the committed showcase, the other rows are cited measurements.

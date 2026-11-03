@@ -43,6 +43,7 @@ export function cameraLabels(viewer, label, describe, { onPin = () => {}, announ
   viewer.controls.addEventListener("change", () => show(pinned));
   // Keyboard: "]" and "[" step through the cameras, Escape lets go.
   container.addEventListener("keydown", (e) => {
+    if (e.target !== container) return; // not from the toolbar buttons inside it
     const n = viewer.cameraCentres.length;
     if (!n) return;
     if (e.key === "]" || e.key === "[") {

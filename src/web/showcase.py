@@ -90,6 +90,8 @@ def _save_photos(out: Path, result, config: Config) -> list[dict[str, str]]:
     n, wanted = len(result.images), config.web.showcase_photos
     if n <= wanted:
         picks = list(range(n))
+    elif wanted <= 1:
+        picks = list(range(wanted))  # the first photo, or none
     else:
         picks = [round(k * (n - 1) / (wanted - 1)) for k in range(wanted)]
     photos = []

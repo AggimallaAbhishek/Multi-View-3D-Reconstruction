@@ -88,3 +88,12 @@ def test_showcase_keeps_a_few_of_the_photos_themselves(run, tmp_path):
         assert max(image.shape[:2]) == config.web.thumbnail_px * 2
         assert (out / entry["file"]).stat().st_size < 60_000
     assert [p["name"] for p in photos] == sorted(p["name"] for p in photos)
+
+
+def test_a_single_showcase_photo_is_the_first(run, tmp_path):
+    run_dir, images, config = run
+    one = config.with_overrides({"web.showcase_photos": 1})
+    photos = json.loads(
+        (make_showcase(run_dir, images, tmp_path / "s", one) / "showcase.json").read_text()
+    )["photos"]
+    assert [p["name"] for p in photos] == ["view_01.png"]

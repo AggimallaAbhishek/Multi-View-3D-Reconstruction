@@ -55,13 +55,15 @@ function renderPhotos(photos) {
 function renderFragment(report) {
   const t = report.timings;
   const s = report.stages ?? {};
-  const time = (x, cached) => (cached ? "cached" : `${x < 10 ? x.toFixed(1) : Math.round(x)} s`);
+  const time = (x, cached) =>
+    cached ? "cached" : Number.isFinite(x) ? `${x < 10 ? x.toFixed(1) : Math.round(x)} s` : "";
+  const sum = (...keys) => keys.reduce((total, key) => total + (t[key] ?? 0), 0);
   const rows = [
     ["Load and check photos", `${report.images.total} photos`, time(t.dataset)],
     ["Detect features", s.features ? `${count(Math.round(s.features.per_image_median))} per photo` : "", time(t.features, s.features?.cached)],
     ["Match features", s.matches ? `${count(s.matches.matches)} matches` : "", time(t.matches, s.matches?.cached)],
     ["Verify geometry", s.verification ? `${s.verification.pairs} pairs · ${Math.round(100 * s.verification.inlier_ratio)}% inliers` : "", time(t.verify)],
-    ["Register cameras, adjust", s.reconstruction ? `${s.reconstruction.registered}/${report.images.total} cameras` : "", time(t.pose + t.triangulate + t.cloud + t.reconstruct)],
+    ["Register cameras, adjust", s.reconstruction ? `${s.reconstruction.registered}/${report.images.total} cameras` : "", time(sum("pose", "triangulate", "cloud", "reconstruct"))],
     ["Remove outliers", s.filter ? `${count(s.filter.kept)} of ${count(s.filter.total)} kept` : "", time(t.filter)],
   ];
   $("fragment-pipeline").replaceChildren(...rows.map(([name, detail, when]) => {
@@ -117,7 +119,12 @@ async function startHero({ showcase, gt }) {
     const name = cameras.cameras[k].name;
     const bold = Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` });
     return [bold, ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`];
-  }, { announce: (text) => { held = true; spin(); announcer.textContent = text; } });
+  }, {
+    announce: (text) => {
+      if (text) { held = true; spin(); } // a camera chosen by keyboard holds the view still
+      announcer.textContent = text;
+    },
+  });
 }
 
 // --- How it was made: the pinned stage follows the step in view ---------------------------
