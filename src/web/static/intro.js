@@ -1,0 +1,177 @@
+// The intro page: the committed showcase (showcase/, made by scripts/make_showcase.py from
+// a real run) shown live in the hero, its numbers filled in, and the pinned "how it was
+// made" story. The page reads fully without JavaScript; this adds the live parts.
+
+import { Viewer, parsePly } from "./viewer.js";
+
+const $ = (id) => document.getElementById(id);
+const count = (n) => n.toLocaleString("en-GB").replace(/,/g, " ");
+const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.toFixed(1));
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+document.documentElement.classList.add("js");
+
+/** Every element with ``data-n="<key>"`` gets ``values[key]``. */
+function fill(values) {
+  for (const node of document.querySelectorAll("[data-n]")) {
+    const value = values[node.dataset.n];
+    if (value !== undefined && value !== null) node.textContent = value;
+  }
+}
+
+async function loadShowcase() {
+  const showcase = await fetch("showcase/showcase.json").then((r) => r.json());
+  const { report, frames } = showcase;
+  const frame = Object.fromEntries(frames.map((f) => [f.file.replace(".jpg", ""), f]));
+  const gt = report.ground_truth && !report.ground_truth.error ? report.ground_truth : null;
+  fill({
+    photos: String(report.images.total),
+    cameras: `${report.images.registered} / ${report.images.total}`,
+    "cameras-short": String(report.images.registered),
+    points: count(report.points.filtered),
+    rotation: gt ? `${small(gt.rotation_deg.median)}°` : null,
+    reprojection: `${small(report.reprojection.median_px)} px`,
+    keypoints: count(frame.features.keypoints),
+    verified: count(frame.matches.verified),
+    matches: count(frame.matches.matches),
+  });
+  return { showcase, frame, gt };
+}
+
+// --- Hero: the reconstruction, live -----------------------------------------------------
+
+async function startHero({ showcase, gt }) {
+  const container = $("hero-viewer");
+  const viewer = new Viewer(container);
+  const [cloud, cameras] = await Promise.all([
+    fetch("showcase/cloud.ply").then((r) => r.arrayBuffer()).then(parsePly),
+    fetch("showcase/cameras.json").then((r) => r.json()),
+  ]);
+  viewer.setPointSize(2.5);
+  viewer.setCloud(cloud);
+  viewer.setCameras(cameras.cameras);
+  viewer.setLayer("grid", true);
+  viewer.fit("overview");
+  $("hero-caption").textContent = `${showcase.name} · ${count(cloud.count)} points · drag to orbit`;
+
+  // Hold the orbit while the visitor drives it, and while the hero is off screen.
+  let visible = true;
+  let held = false;
+  const spin = () => viewer.spin(visible && !held && !reducedMotion);
+  viewer.controls.addEventListener("start", () => { held = true; spin(); });
+  new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; spin(); }).observe(container);
+  spin();
+
+  // Camera labels: hover shows one, a click keeps it.
+  const label = $("cam-label");
+  const errors = Object.fromEntries((gt?.per_camera ?? []).map((c) => [c.image, c.rotation_deg]));
+  let pinned = -1;
+  const show = (k) => {
+    const at = k >= 0 && viewer.screenOf(k);
+    if (!at) { label.hidden = true; return; }
+    const name = cameras.cameras[k].name;
+    label.replaceChildren(
+      Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` }),
+      ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`,
+    );
+    label.classList.toggle("flip", at[0] > container.clientWidth - 340);
+    label.style.left = `${at[0]}px`;
+    label.style.top = `${at[1]}px`;
+    label.hidden = false;
+  };
+  const canvas = viewer.renderer.domElement;
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.buttons) return;
+    const k = viewer.pick(e.offsetX, e.offsetY);
+    canvas.style.cursor = k >= 0 ? "pointer" : "";
+    show(k >= 0 ? k : pinned);
+  });
+  canvas.addEventListener("click", (e) => { pinned = viewer.pick(e.offsetX, e.offsetY); show(pinned); });
+  viewer.controls.addEventListener("change", () => show(pinned));
+}
+
+// --- How it was made: the pinned stage follows the step in view ---------------------------
+
+function startStory({ frame }) {
+  const steps = [...document.querySelectorAll(".step")];
+  const image = $("stage-image");
+  const caption = $("stage-caption");
+  const describe = {
+    photos: () => [`Five of the ${frame.photos.photos} templeRing photos`, `${frame.photos.photos} photos`],
+    features: () => [`${frame.features.photo} with its ${count(frame.features.keypoints)} SIFT keypoints`, `${frame.features.photo} · ${count(frame.features.keypoints)} keypoints`],
+    matches: () => [`${frame.matches.verified} verified matches between ${frame.matches.photos.join(" and ")}`, `${frame.matches.photos.join(" ↔ ")} · ${count(frame.matches.verified)} of ${count(frame.matches.matches)} verified (150 drawn)`],
+    cameras: () => [`The ${frame.cameras.cameras} recovered cameras round the temple`, `${frame.cameras.cameras} recovered cameras`],
+    cloud: () => [`The filtered point cloud of ${count(frame.cloud.points)} points`, `${count(frame.cloud.points)} points after filtering`],
+  };
+  let current = "photos";
+  let pending = 0; // the picture swap waiting for the fade, cancelled by a newer step
+  const select = (name) => {
+    if (name === current) return;
+    current = name;
+    for (const step of steps) step.classList.toggle("is-active", step.dataset.frame === name);
+    const [alt, text] = describe[name]();
+    const swap = () => {
+      image.src = `showcase/${name}.jpg`;
+      image.alt = alt;
+      caption.textContent = `${name}.jpg · ${text}`;
+      image.classList.remove("is-changing");
+    };
+    clearTimeout(pending);
+    if (reducedMotion) return swap();
+    image.classList.add("is-changing");
+    pending = setTimeout(swap, 180);
+  };
+  // preload, so a step never waits for its picture
+  for (const name of Object.keys(describe)) new Image().src = `showcase/${name}.jpg`;
+  const [alt, text] = describe.photos();
+  image.alt = alt;
+  caption.textContent = `photos.jpg · ${text}`;
+  // One source of truth: the step under the middle of the viewport (the first above it
+  // before the steps begin, the last after they end), recomputed once per frame on scroll.
+  const update = () => {
+    const middle = innerHeight / 2;
+    let active = steps[0];
+    for (const step of steps) if (step.getBoundingClientRect().top <= middle) active = step;
+    select(active.dataset.frame);
+  };
+  let queued = false;
+  addEventListener("scroll", () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; update(); });
+  }, { passive: true });
+  addEventListener("resize", update);
+  update();
+}
+
+// --- Entrances --------------------------------------------------------------------------
+
+function startEntrances() {
+  const parts = document.querySelectorAll(".arch .flow li, .stack-row > div, .results-table tbody tr, .credits, .cta h2, .cta p, .cta-actions, .footer .tile");
+  if (reducedMotion) return;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add("is-in");
+        observer.unobserve(entry.target);
+      }
+    },
+    { rootMargin: "0px 0px -8% 0px" },
+  );
+  parts.forEach((part, k) => {
+    part.classList.add("reveal");
+    part.style.transitionDelay = `${(k % 4) * 60}ms`;
+    observer.observe(part);
+  });
+}
+
+startEntrances();
+loadShowcase()
+  .then((data) => {
+    startStory(data);
+    return startHero(data);
+  })
+  .catch((error) => {
+    $("hero-caption").textContent = `The live view could not load: ${error.message}`;
+  });

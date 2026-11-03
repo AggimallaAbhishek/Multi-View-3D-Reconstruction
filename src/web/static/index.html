@@ -4,16 +4,179 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Multi-View 3D Reconstruction</title>
+  <meta name="description" content="Classical structure from motion written from scratch: overlapping photos in, a 3-D point cloud and every camera position out, measured against ground truth and COLMAP.">
   <script>
     // /#job=<id> opened a run before this intro page existed: keep such links working
     if (location.hash.startsWith("#job=")) location.replace("app.html" + location.hash);
   </script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="intro.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10' fill='none' stroke='%233cc2b5' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="intro.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#how">Skip to how it works</a>
+
+  <header class="nav">
+    <a class="wordmark" href="./" aria-label="Multi-View 3D Reconstruction, top of the page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <span>Multi-View 3D Reconstruction</span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#results">Results</a>
+    </nav>
+    <a class="btn btn-primary btn-small" href="app.html">Open the workstation</a>
+  </header>
+
   <main>
-    <h1>Multi-view 3D reconstruction</h1>
-    <p><a href="app.html">Open the workstation</a></p>
+    <!-- Hero: the real reconstruction, live ------------------------------------------- -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-viewer" id="hero-viewer" tabindex="0" aria-label="Live 3-D view of the templeRing reconstruction: the point cloud and its ring of recovered cameras. Drag to orbit, scroll to zoom.">
+        <div class="fiducials" aria-hidden="true"></div>
+        <p class="hero-caption num" id="hero-caption" aria-hidden="true">templeRing · drag to orbit</p>
+        <div class="cam-label num" id="cam-label" role="status" hidden></div>
+      </div>
+      <div class="hero-text">
+        <h1 id="hero-title"><span class="num" data-n="photos">47</span> photos in.<br>A <em>temple</em> out.</h1>
+        <p class="hero-lede">Classical structure from motion, written from scratch in Python. Ordinary overlapping photos become a 3-D point cloud and the position of every camera that took them, and the result is checked against ground truth.</p>
+      </div>
+      <dl class="strip" id="strip" aria-label="The featured reconstruction in numbers">
+        <div><dt>Cameras recovered</dt><dd class="num" data-n="cameras">47 / 47</dd></div>
+        <div><dt>Points</dt><dd class="num" data-n="points">9 907</dd></div>
+        <div><dt>Rotation error</dt><dd class="num" data-n="rotation">0.15°</dd></div>
+        <div><dt>Reprojection</dt><dd class="num" data-n="reprojection">0.13 px</dd></div>
+        <a class="strip-cta" href="app.html">Reconstruct your own photos
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </dl>
+    </section>
+
+    <!-- How it works: a pinned stage that changes with each step --------------------- -->
+    <section class="how" id="how" aria-labelledby="how-title">
+      <div class="how-steps">
+        <h2 id="how-title">How the temple was made</h2>
+        <ol class="steps" id="steps">
+          <li class="step is-active" data-frame="photos">
+            <h3>Photograph the object from all round.</h3>
+            <p>Middlebury's templeRing: <span class="num" data-n="photos">47</span> photos of a plaster temple on a ring of viewpoints, each overlapping its neighbours. The camera's focal length comes from a calibration file, EXIF data, or a guess that bundle adjustment later refines.</p>
+          </li>
+          <li class="step" data-frame="features">
+            <h3>Find points worth following.</h3>
+            <p>SIFT finds distinctive corners and blobs in each photo: <span class="num" data-n="keypoints">1 494</span> in this one, each with a 128-number descriptor of the texture round it. Dark or flat photos get a lower contrast threshold automatically.</p>
+          </li>
+          <li class="step" data-frame="matches">
+            <h3>Match them, then keep only what the geometry allows.</h3>
+            <p>Descriptors are paired across photos (Lowe's ratio test, both directions), then a robust fit of the essential matrix throws out pairs no single camera motion can explain: <span class="num" data-n="verified">947</span> of <span class="num" data-n="matches">952</span> survive between these two neighbours.</p>
+          </li>
+          <li class="step" data-frame="cameras">
+            <h3>Solve the cameras, one at a time.</h3>
+            <p>Two photos give the first relative pose and the first 3-D points. Every further camera is placed by PnP against the points it sees, and bundle adjustment refines all cameras, points and the focal length together: <span class="num" data-n="cameras-short">47</span> cameras on the ring.</p>
+          </li>
+          <li class="step" data-frame="cloud">
+            <h3>Keep the points you can trust.</h3>
+            <p>Points seen in too few views, with large reprojection error or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points. An optional dense stage adds stereo depth maps and a mesh.</p>
+          </li>
+        </ol>
+      </div>
+      <div class="how-stage-wrap">
+        <figure class="how-stage" aria-live="polite">
+          <div class="fiducials" aria-hidden="true"></div>
+          <img id="stage-image" src="showcase/photos.jpg" alt="Five of the templeRing photos" width="960" height="600">
+          <figcaption class="num" id="stage-caption">photos.jpg · 47 photos</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Architecture --------------------------------------------------------------- -->
+    <section class="arch" id="architecture" aria-labelledby="arch-title">
+      <h2 id="arch-title">How it is built</h2>
+      <p class="section-lede">A pipeline of small stages, each tested against synthetic and rendered scenes with known cameras before it ever saw a real photo. The geometry is our own; OpenCV, SciPy and Open3D provide the numerical building blocks, labelled where they are used.</p>
+
+      <ol class="flow" aria-label="Pipeline stages, in order">
+        <li><b>Load and check</b><span>decode, reject blur and duplicates, resolve intrinsics</span><i>ours</i></li>
+        <li><b>Features</b><span>SIFT, strict strongest-N cap, adaptive threshold</span><i>SIFT: OpenCV</i></li>
+        <li><b>Matching</b><span>2-NN, ratio test, mutual check, pair selection</span><i>2-NN: OpenCV</i></li>
+        <li><b>Verification</b><span>essential or fundamental matrix, Sampson inliers, refinement</span><i>USAC: OpenCV</i></li>
+        <li><b>First pair</b><span>pose from E, cheirality, triangulation</span><i>ours</i></li>
+        <li><b>Incremental SfM</b><span>tracks, next-best view, PnP, relative-pose fallback</span><i>PnP: OpenCV</i></li>
+        <li><b>Bundle adjustment</b><span>exact sparse Jacobian, soft-L1, shared focal length</span><i>solver: SciPy</i></li>
+        <li><b>Filter and export</b><span>track, reprojection and outlier filters; PLY, cameras, report</span><i>outlier removal: Open3D</i></li>
+      </ol>
+
+      <div class="stack">
+        <h3>This page and the workstation</h3>
+        <div class="stack-row" role="list">
+          <div role="listitem"><b>Browser</b><span>these two pages; 3-D view in three.js</span><i>three.js: external</i></div>
+          <svg class="stack-arrow" viewBox="0 0 48 16" aria-hidden="true"><path d="M2 8h42M36 2l8 6-8 6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          <div role="listitem"><b>FastAPI</b><span>uploads, one job at a time, run folders, report.json</span><i>FastAPI: external</i></div>
+          <svg class="stack-arrow" viewBox="0 0 48 16" aria-hidden="true"><path d="M2 8h42M36 2l8 6-8 6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+          <div role="listitem"><b>Worker process</b><span>the pipeline above, progress per stage</span><i>ours</i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -------------------------------------------------------------------- -->
+    <section class="results" id="results" aria-labelledby="results-title">
+      <h2 id="results-title">How well it works</h2>
+      <p class="section-lede">Camera positions recovered from the photos alone, aligned to each benchmark's ground-truth cameras by a similarity transform. COLMAP, the reference structure-from-motion system, ran on the same images with the same starting calibration.</p>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Results against ground truth">
+        <table class="results-table">
+          <thead>
+            <tr><th scope="col">Scene</th><th scope="col">Cameras</th><th scope="col">Rotation error<br><small>median</small></th><th scope="col">Points</th><th scope="col">COLMAP <small>(external)</small></th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">templeRing <small>Middlebury, 47 photos</small></th><td class="num">47 / 47</td><td class="num">0.15°</td><td class="num">9 907</td><td class="num">47 / 47 · 0.26°</td></tr>
+            <tr><th scope="row">dinoRing <small>Middlebury, dark, 48 photos</small></th><td class="num">48 / 48</td><td class="num">0.15°</td><td class="num">3 462</td><td class="num">24 / 48 · 23.4°</td></tr>
+            <tr><th scope="row">pipes <small>ETH3D, 14 DSLR photos</small></th><td class="num">14 / 14</td><td class="num">0.06°</td><td class="num">–</td><td class="num">11 / 14 · 0.08°</td></tr>
+            <tr><th scope="row">office <small>ETH3D, 26 photos, low texture</small></th><td class="num">26 / 26</td><td class="num">0.14°</td><td class="num">–</td><td class="num">26 / 26 · 0.24°</td></tr>
+            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num">16 / 16</td><td class="num">0.21°</td><td class="num">–</td><td class="num">6 / 16</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="results-note">From the experiments in <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/experiments.md">docs/experiments.md</a> (E6, E7, E9). The last row uses the optional DISK + LightGlue features (external, via kornia); with SIFT that scene registers 6 of 16.</p>
+
+      <p class="credits">Measured on <span>Middlebury templeRing</span><span>dinoRing</span><span>dinoSparseRing</span><span>ETH3D pipes</span><span>office</span><span>terrains</span></p>
+    </section>
+
+    <!-- Call to action --------------------------------------------------------------- -->
+    <section class="cta" aria-labelledby="cta-title">
+      <h2 id="cta-title">Bring your own photos.</h2>
+      <p>Walk round an object, take twenty or more overlapping photos and drop them into the workstation. It runs on this machine; nothing is uploaded anywhere else.</p>
+      <div class="cta-actions">
+        <a class="btn btn-primary" href="app.html">Open the workstation
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <code class="cli">python -m src.cli reconstruct data/raw/templeRing</code>
+      </div>
+    </section>
   </main>
+
+  <footer class="footer">
+    <div class="tile tile-statement">
+      <p>A research and teaching project in multi-view geometry: OpenCV, NumPy, SciPy and Open3D underneath, the reconstruction logic on top written and tested from scratch.</p>
+      <p class="legal">Datasets: Middlebury Multi-View Stereo (Seitz et al., 2006), ETH3D (Schöps et al., 2017). 3-D view: three.js. Fonts: Archivo, Atkinson Hyperlegible Next, JetBrains Mono.</p>
+    </div>
+    <nav class="tile tile-nav" aria-label="Documentation">
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction">Source on GitHub</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/methodology.md">Methodology</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/architecture.md">Architecture</a>
+      <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/experiments.md">Experiments</a>
+    </nav>
+    <div class="tile tile-wordmark" aria-hidden="true">Multi-View 3D</div>
+    <a class="tile tile-accent" href="app.html"><span>Open the workstation</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  </footer>
 </body>
 </html>

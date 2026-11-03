@@ -220,6 +220,8 @@ class WebConfig:
     thumbnails: int = 12
     thumbnail_px: int = 240
     thumbnail_quality: int = 82
+    showcase_frame_px: int = 960
+    showcase_quality: int = 80
 
 
 @dataclass(frozen=True)

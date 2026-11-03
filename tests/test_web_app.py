@@ -423,7 +423,17 @@ def test_workstation_page_is_served_with_its_upload_form():
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/app.html", "/app.js", "/viewer.js", "/style.css", "/tokens.css"]
+    "path",
+    [
+        "/",
+        "/app.html",
+        "/app.js",
+        "/intro.js",
+        "/viewer.js",
+        "/tokens.css",
+        "/app.css",
+        "/intro.css",
+    ],
 )
 def test_page_files_are_revalidated_on_every_load(path):
     """Without Cache-Control, browsers reuse a cached app.js after the page was updated."""

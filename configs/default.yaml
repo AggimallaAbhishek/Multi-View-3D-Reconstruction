@@ -201,3 +201,5 @@ web:                           # local web interface (python -m src.web); one jo
   thumbnails: 12               # photos kept per run as thumbnails (uploads are deleted)
   thumbnail_px: 240            # longest side of a thumbnail
   thumbnail_quality: 82        # JPEG quality of the thumbnails (0-100)
+  showcase_frame_px: 960       # width of the intro page's "how it works" frames (16:10)
+  showcase_quality: 80         # their JPEG quality (scripts/make_showcase.py)
