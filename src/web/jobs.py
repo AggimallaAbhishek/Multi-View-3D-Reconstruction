@@ -21,6 +21,7 @@ import multiprocessing
 import queue
 import shutil
 import threading
+import time
 import traceback
 import uuid
 from collections.abc import Callable
@@ -234,25 +235,39 @@ def write_thumbnails(result: PipelineResult, run_dir: Path, web: WebConfig) -> N
 
 
 def reconstruct_in_subprocess(
-    upload_dir: Path, config: Config, progress: ProgressFn, stamp: str | None = None
+    upload_dir: Path,
+    config: Config,
+    progress: ProgressFn,
+    stamp: str | None = None,
+    target: Callable[..., None] | None = None,
 ) -> Path:
-    """``reconstruct`` in a spawned child process, relaying its progress."""
+    """``reconstruct`` in a spawned child process, relaying its progress. A child that
+    stays silent for ``web.stage_timeout_s`` is stopped. ``target``: the child's function
+    (tests), ``_child`` by default."""
     ctx = multiprocessing.get_context("spawn")
     events = ctx.Queue()
+    timeout = config.web.stage_timeout_s
+    wait = min(0.5, timeout) if timeout else 0.5
     child = ctx.Process(
-        target=_child,
+        target=target or _child,
         args=(Path(upload_dir), config, events, stamp),
         name="reconstruct",
         daemon=True,
     )
     child.start()
     _children.add(child)
+    heard = time.monotonic()  # the child's last message
     try:
         while True:
             try:
-                kind, *payload = events.get(timeout=0.5)
+                kind, *payload = events.get(timeout=wait)
             except queue.Empty:
                 if child.is_alive():
+                    if timeout and time.monotonic() - heard > timeout:  # alive but stuck
+                        raise RuntimeError(
+                            f"the reconstruction made no progress for {timeout:g} s "
+                            "(web.stage_timeout_s) and was stopped"
+                        ) from None
                     continue
                 try:  # it may have exited right after its last message
                     kind, *payload = events.get(timeout=1.0)
@@ -260,6 +275,7 @@ def reconstruct_in_subprocess(
                     raise RuntimeError(
                         f"the reconstruction process crashed (exit code {child.exitcode})"
                     ) from None
+            heard = time.monotonic()
             if kind == "stage":
                 progress(*payload)
             elif kind == "failed":

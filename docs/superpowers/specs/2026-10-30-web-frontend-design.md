@@ -179,6 +179,7 @@ Follows the system light/dark preference; usable at laptop and tablet widths.
 | Partial registration | Job `done`; summary shows the count in yellow and lists unregistered images |
 | Ground-truth names don't match uploads | GT panel says so; rest of the report unaffected |
 | Second run while one is running | `409`; page links to the running job |
+| Worker alive but silent | After `web.stage_timeout_s` without a progress message (0: no limit) the worker is terminated and the job fails, naming the setting |
 | Server restart mid-job | In-memory job lost; its folder, if it has one, is listed as a failed run that did not finish; finished and failed runs are rediscovered from `report.json` / `failure.json` |
 
 ## 6. Testing
