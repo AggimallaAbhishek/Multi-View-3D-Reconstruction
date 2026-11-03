@@ -7,6 +7,7 @@ import pytest
 
 from src.evaluation.metrics import camera_pose_errors
 from src.reconstruction.colmap_runner import (
+    ColmapError,
     colmap_executable,
     intrinsics_from_colmap,
     read_text_model,
@@ -72,3 +73,48 @@ def test_run_colmap_recovers_rendered_cameras(tmp_path):
     errors = camera_pose_errors([model.cameras[n] for n in names], [truth[n] for n in names])
     assert np.max(errors.rotation_deg) < 0.2
     assert len(model.points) > 500
+
+
+def test_image_names_may_hold_spaces(tmp_path):
+    """COLMAP's NAME is the rest of the header line, spaces included."""
+    (tmp_path / "cameras.txt").write_text("1 PINHOLE 640 480 800 800 320 240\n")
+    (tmp_path / "images.txt").write_text("1 1 0 0 0 0 0 0 1 my photo 01.png\n\n")
+    (tmp_path / "points3D.txt").write_text("")
+    assert list(read_text_model(tmp_path).cameras) == ["my photo 01.png"]
+
+
+def fake_colmap(tmp_path, fail_step):
+    """A stand-in ``colmap`` executable: every step succeeds (the mapper writes one empty
+    model folder) except ``fail_step``."""
+    exe = tmp_path / "colmap"
+    exe.write_text(
+        "#!/bin/sh\n"
+        f'[ "$1" = "{fail_step}" ] && exit 3\n'
+        'if [ "$1" = "mapper" ]; then\n'
+        '  while [ $# -gt 0 ]; do [ "$1" = "--output_path" ] && mkdir -p "$2/0"; shift; done\n'
+        "fi\n"
+        "exit 0\n"
+    )
+    exe.chmod(0o755)
+    return str(exe)
+
+
+@pytest.mark.parametrize("step", ["feature_extractor", "mapper", "model_converter"])
+def test_every_colmap_failure_is_a_colmap_error(tmp_path, monkeypatch, step):
+    """The baseline script catches ColmapError; model_converter raised CalledProcessError."""
+    import src.reconstruction.colmap_runner as runner
+
+    monkeypatch.setattr(runner, "colmap_executable", lambda: fake_colmap(tmp_path, step))
+    images = {"a.png": np.zeros((8, 8, 3), np.uint8)}
+    with pytest.raises(ColmapError, match=step):
+        run_colmap(images, np.eye(3), tmp_path / "work", 100)
+
+
+def test_colmap_that_cannot_be_started_is_a_colmap_error(tmp_path, monkeypatch):
+    import src.reconstruction.colmap_runner as runner
+
+    broken = tmp_path / "colmap"
+    broken.write_text("not a program")  # not executable
+    monkeypatch.setattr(runner, "colmap_executable", lambda: str(broken))
+    with pytest.raises(ColmapError, match="could not run"):
+        run_colmap({"a.png": np.zeros((8, 8, 3), np.uint8)}, np.eye(3), tmp_path / "work", 100)

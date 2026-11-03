@@ -210,7 +210,8 @@ def _learned_version() -> str:
 
 
 class MatchCache:
-    """Matches on disk, keyed by both images' descriptors and the matching settings.
+    """Matches on disk, keyed by both images' keypoints and descriptors and the matching
+    settings (for LightGlue also its versions and the torch device).
 
     Lets a later command (``verify`` after ``matches``, or a rerun) skip matching; any
     change to features or matching settings gives new keys.
@@ -223,15 +224,21 @@ class MatchCache:
     def digest(features: Features) -> str:
         h = hashlib.sha1(f"{features.detector}{features.descriptors.shape}".encode())
         h.update(np.ascontiguousarray(features.descriptors).data)
+        # LightGlue matches on keypoint positions as well as descriptors
+        h.update(np.ascontiguousarray(features.points, dtype=np.float64).data)
         return h.hexdigest()
 
-    def path_for(self, digest_i: str, digest_j: str, config: MatchConfig) -> Path:
+    def path_for(
+        self, digest_i: str, digest_j: str, config: MatchConfig, device: str | None = None
+    ) -> Path:
+        """``device``: the torch device type LightGlue runs on (GPU kernels can reorder
+        near-equal scores); descriptor matching runs on the CPU and ignores it."""
         settings = {
             k: v for k, v in dataclasses.asdict(config).items() if k not in PAIR_SELECTION_FIELDS
         }
         settings = f"{sorted(settings.items())}|cv{cv2.__version__}"
         if config.method == "lightglue":  # its weights ship with kornia
-            settings += f"|{_learned_version()}"
+            settings += f"|{_learned_version()}|{device}"
         key = hashlib.sha1(f"{digest_i}|{digest_j}|{settings}".encode()).hexdigest()
         return self.directory / f"{key[:24]}.npz"
 
@@ -288,12 +295,14 @@ def match_pairs(
     slower (oversubscription: 15.9 s vs 12.2 s for 78 pairs at 8000 features).
     """
     digests = [MatchCache.digest(f) for f in features] if cache else None
+    device = getattr(matcher, "device", None)  # torch.device of a learned matcher
+    device = None if device is None else device.type
 
     def one(pair: tuple[int, int]) -> tuple[Matches, MatchStats]:
         i, j = pair
         if cache is not None:
             start = time.perf_counter()
-            path = cache.path_for(digests[i], digests[j], matcher.config)
+            path = cache.path_for(digests[i], digests[j], matcher.config, device)
             entry = cache.load(path, i, j) if path.exists() else None
             if entry is not None:
                 m, raw, after_ratio = entry

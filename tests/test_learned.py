@@ -212,3 +212,35 @@ def test_match_cache_key_changes_with_the_lightglue_version(tmp_path, monkeypatc
     assert cache.path_for("a", "b", MatchConfig()) == matcher_module.MatchCache(tmp_path).path_for(
         "a", "b", MatchConfig()
     )
+
+
+def test_match_cache_digest_covers_keypoint_positions():
+    """LightGlue matches on keypoint positions too: same descriptors at other positions (a
+    new max_side, another detector setting) must not reuse cached matches."""
+    import dataclasses
+
+    from src.features.extractor import Features
+    from src.features.matcher import MatchCache
+
+    rng = np.random.default_rng(0)
+    points = rng.uniform(0, 100, (5, 2))
+    ones = np.ones(5)
+    descriptors = rng.standard_normal((5, 128)).astype(np.float32)
+    features = Features(points, descriptors, ones, ones, ones, "disk")
+    moved = dataclasses.replace(features, points=points + 1.0)
+    assert MatchCache.digest(moved) != MatchCache.digest(features)
+
+
+def test_match_cache_key_changes_with_the_lightglue_device(tmp_path):
+    """GPU kernels can reorder near-equal scores, as for the DISK feature cache."""
+    from src.features import matcher as matcher_module
+
+    cache = matcher_module.MatchCache(tmp_path)
+    cfg = MatchConfig(method="lightglue")
+    assert cache.path_for("a", "b", cfg, device="cpu") != cache.path_for(
+        "a", "b", cfg, device="mps"
+    )
+    classical = MatchConfig()  # descriptor matching runs on the CPU only
+    assert cache.path_for("a", "b", classical, device="cpu") == cache.path_for(
+        "a", "b", classical, device="mps"
+    )
