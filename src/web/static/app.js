@@ -2,6 +2,7 @@
 // logic about what is valid or what a run contains lives in the API (src/web/app.py);
 // this only presents it. States (body[data-state]): empty, running, results, failed.
 
+import { cameraLabels, count, small } from "./ui.js";
 import { Viewer, parsePly } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
@@ -56,7 +57,7 @@ let shownReport = null;
 let gtSort = { key: "image", descending: false }; // ground-truth table order
 let lightboxItems = [];  // [{href, caption}] of the gallery the lightbox was opened from
 let lightboxIndex = 0;
-let pinnedCamera = -1;   // camera whose label stays up after a click
+let labels = null;       // camera labels of the viewer (ui.js cameraLabels)
 let replaying = false;
 
 // --- API --------------------------------------------------------------------------------
@@ -86,9 +87,7 @@ const fileUrl = (id, path) => jobUrl(id, `/files/${path}`);
 
 // --- Formatting -------------------------------------------------------------------------
 
-const count = (n) => n.toLocaleString("en-GB").replace(/,/g, " "); // thin-space groups
 const seconds = (s) => (s < 10 ? s.toFixed(1) : Math.round(s).toString());
-const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.toFixed(1));
 const percent = (fraction) => `${small(fraction * 100)}%`;
 const megabytes = (bytes) => `${(bytes / 2 ** 20).toFixed(1)} MB`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -306,6 +305,7 @@ async function submit() {
 
 function renderThisRun(job, report = null, files = []) {
   $("this-run").hidden = false;
+  $("restart-run").hidden = job.status !== "failed";
   $("run-when").textContent = runLabel(job);
   $("run-status").textContent = { done: "done", failed: "failed", running: "running", queued: "queued" }[job.status] ?? job.status;
   const facts = [];
@@ -408,8 +408,9 @@ async function follow(job) {
     } catch (error) {
       if (error.status === 404) { // jobs live in server memory: it was restarted mid-run
         show("failed");
-        setStatus("Reconstruction lost", "The server was restarted while this reconstruction was running, so it stopped. Start it again from the panel on the left.");
+        setStatus("Reconstruction lost", "The server was restarted while this reconstruction was running, so it stopped. Start it again.");
         log("The server was restarted; the reconstruction stopped", "bad");
+        $("restart-run").hidden = false;
         return;
       }
       setStatus("Lost contact with the server", `${error.message}. Retrying…`);
@@ -419,6 +420,7 @@ async function follow(job) {
 
 async function showFailure(job) {
   show("failed");
+  $("restart-run").hidden = false;
   renderPipeline(job);
   const stage = STAGE_LABELS[job.stage] ?? job.stage;
   setStatus(`Failed: ${stage}`, job.error || "unknown error");
@@ -595,8 +597,8 @@ function renderGroundTruth(gt) {
   const n = gt.cameras;
   $("gt-ring").innerHTML = Array.from({ length: n }, (_, k) => {
     const a = (k / n) * 2 * Math.PI;
-    return `<circle cx="${(60 + 52 * Math.cos(a)).toFixed(1)}" cy="${(40 + 30 * Math.sin(a)).toFixed(1)}" r="1.8" fill="#3cc2b5"/>`;
-  }).join("") + '<circle cx="60" cy="40" r="7" fill="none" stroke="#8fa3a9" stroke-width="1.4"/>';
+    return `<circle class="ring-camera" cx="${(60 + 52 * Math.cos(a)).toFixed(1)}" cy="${(40 + 30 * Math.sin(a)).toFixed(1)}" r="1.8"/>`;
+  }).join("") + '<circle class="ring-object" cx="60" cy="40" r="7"/>';
   renderGroundTruthRows();
 }
 
@@ -617,7 +619,7 @@ function renderGroundTruthRows() {
     (key === "image" ? byName(a, b) : a[key] - b[key] || byName(a, b)) * (descending ? -1 : 1));
   const maxRot = Math.max(...gt.per_camera.map((c) => c.rotation_deg));
   const maxCentre = Math.max(...gt.per_camera.map((c) => c.centre));
-  const picked = pinnedCamera >= 0 ? viewerJob?.cameras?.[pinnedCamera]?.name : null;
+  const picked = labels?.pinned >= 0 ? viewerJob?.cameras?.[labels.pinned]?.name : null;
   $("gt-rows").replaceChildren(
     ...rows.map((c) =>
       el("tr", { class: [c.rotation_deg === maxRot || c.centre === maxCentre ? "worst" : "", c.image === picked ? "picked" : ""].join(" ").trim() },
@@ -753,43 +755,17 @@ async function loadViewer(id, report) {
 function createViewer() {
   const v = new Viewer($("viewer"));
   v.setPointSize(Number($("point-size").value));
-  const canvas = v.renderer.domElement;
-  canvas.addEventListener("pointermove", (e) => {
-    if (e.buttons) return; // dragging
-    const k = v.pick(e.offsetX, e.offsetY);
-    canvas.style.cursor = k >= 0 ? "pointer" : "";
-    showCameraLabel(k >= 0 ? k : pinnedCamera);
-  });
-  canvas.addEventListener("pointerleave", () => showCameraLabel(pinnedCamera));
-  let down = null;
-  canvas.addEventListener("pointerdown", (e) => { down = [e.offsetX, e.offsetY]; });
-  canvas.addEventListener("click", (e) => {
-    if (down && Math.hypot(e.offsetX - down[0], e.offsetY - down[1]) > 4) return; // a drag, not a click
-    pinnedCamera = v.pick(e.offsetX, e.offsetY);
-    showCameraLabel(pinnedCamera);
-    renderGroundTruthRows();
-  });
-  v.controls.addEventListener("change", () => showCameraLabel(pinnedCamera));
+  labels = cameraLabels(v, $("cam-label"), (k) => {
+    const camera = viewerJob?.cameras?.[k];
+    if (!camera) return null;
+    const gt = shownReport?.ground_truth?.per_camera?.find((c) => c.image === camera.name);
+    return [el("b", {}, `Camera ${k + 1}`), ` · ${camera.name}`, gt ? ` · ${small(gt.rotation_deg)}°` : ""];
+  }, { onPin: renderGroundTruthRows });
   return v;
 }
 
-/** The label of camera ``k`` (name, and its error when ground truth was scored), or none. */
-function showCameraLabel(k) {
-  const label = $("cam-label");
-  const camera = k >= 0 ? viewerJob?.cameras?.[k] : null;
-  const at = camera && viewer.screenOf(k);
-  if (!at) { label.hidden = true; return; }
-  const gt = shownReport?.ground_truth?.per_camera?.find((c) => c.image === camera.name);
-  label.replaceChildren(el("b", {}, `Camera ${k + 1}`), ` · ${camera.name}`, gt ? ` · ${small(gt.rotation_deg)}°` : null);
-  label.classList.toggle("flip", at[0] > $("viewer").clientWidth - 320);
-  label.style.left = `${at[0]}px`;
-  label.style.top = `${at[1]}px`;
-  label.hidden = false;
-}
-
 function hideCameraLabel() {
-  pinnedCamera = -1;
-  $("cam-label").hidden = true;
+  labels?.unpin();
 }
 
 /** The run again at presentation speed: cameras appear in registration order and the
@@ -862,6 +838,10 @@ function wire() {
   }
   $("previous-runs").addEventListener("change", (e) => (e.target.value ? openJob(e.target.value) : clearRun()));
   $("replay").addEventListener("click", replayRun);
+  $("restart-run").addEventListener("click", () => {
+    clearRun();
+    $("images").focus(); // straight to choosing photos again
+  });
 
   for (const tab of document.querySelectorAll('[role="tab"]')) tab.addEventListener("click", () => selectTab(tab.dataset.tab));
   document.querySelector(".tabs").addEventListener("keydown", onTabKey);

@@ -6,6 +6,8 @@
   /* surfaces, darkest to lightest */
   --ground: #090d10;      /* page */
   --viewer: #070a0c;      /* behind the point cloud */
+  --glow: #0e2a2a;        /* the faint light behind the object in a viewer */
+  --figure: #ffffff;      /* behind the pipeline's own figures (Matplotlib, white) */
   --panel: #0e1418;       /* bars, strips */
   --card: #121a1f;        /* cards */
   --raise: #18232a;       /* hover, table heads */

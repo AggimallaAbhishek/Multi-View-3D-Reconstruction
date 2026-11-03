@@ -25,3 +25,4 @@ outputs/*
 .vscode/
 .idea/
 .superpowers/
+!src/web/static/showcase/cloud.ply

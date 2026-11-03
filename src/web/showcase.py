@@ -31,6 +31,13 @@ from src.web.report import REPORT_NAME
 
 FRAMES = ("photos", "features", "matches", "cameras", "cloud")
 MATCH_LINES = 150  # lines drawn in the matches frame (a drawing choice, not a measurement)
+# Drawing choices for the frames (layout, not measurement):
+DIM = 0.45  # brightness of photos under keypoints or match lines, so the accent reads
+FAINT_CLOUD = 0.55  # brightness of the cloud behind the cameras
+CARD = (0.36, 0.62)  # a photo in the fan, as fractions of the frame (width, height)
+VIEW_ELEVATION_DEG = 28  # the rendered views look down at the object by this much
+FILL = 0.44  # half the frame's extent the rendered object fills
+TICK = 0.12  # length of a camera's direction tick, as a fraction of its distance
 BACKGROUND = (12, 10, 7)  # BGR of the page's viewer background (#070a0c)
 ACCENT = (181, 194, 60)  # BGR of the accent (#3cc2b5)
 MUTED = (169, 163, 143)  # BGR of --muted (#8fa3a9)
@@ -73,6 +80,10 @@ def _save(out: Path, name: str, image: np.ndarray, config: Config) -> None:
     )
 
 
+def _dim(image: np.ndarray, factor: float = DIM) -> np.ndarray:
+    return (image * factor).astype(np.uint8)
+
+
 def _canvas(size: tuple[int, int]) -> np.ndarray:
     width, height = size
     canvas = np.empty((height, width, 3), np.uint8)
@@ -100,7 +111,7 @@ def _photos(result, size: tuple[int, int]) -> np.ndarray:
     canvas = _canvas(size)
     width, height = size
     shown = result.images[:5]
-    card = (int(width * 0.36), int(height * 0.62))
+    card = (int(width * CARD[0]), int(height * CARD[1]))
     step = (width - card[0] - width * 0.1) / max(1, len(shown) - 1)
     for k, im in enumerate(shown):
         photo = _fit(im.image, card)
@@ -116,7 +127,7 @@ def _features_frame(out: Path, result, size: tuple[int, int], config: Config) ->
     im, features = result.images[0], result.features[0]
     photo = _fit(im.image, (size[0] - 40, size[1] - 40))
     scale = photo.shape[1] / im.width
-    photo = (photo * 0.45).astype(np.uint8)
+    photo = _dim(photo)
     for (x, y), s in zip(features.points, features.sizes, strict=True):
         cv2.circle(
             photo,
@@ -150,8 +161,8 @@ def _matches_frame(out: Path, result, size: tuple[int, int], config: Config) -> 
         10 + (half[0] - left.shape[1]) // 2,
         size[0] // 2 + 10 + (half[0] - right.shape[1]) // 2,
     )
-    _paste(canvas, (left * 0.45).astype(np.uint8), x_left, y0)
-    _paste(canvas, (right * 0.45).astype(np.uint8), x_right, (size[1] - right.shape[0]) // 2)
+    _paste(canvas, _dim(left), x_left, y0)
+    _paste(canvas, _dim(right), x_right, (size[1] - right.shape[0]) // 2)
     pa, pb = kept.points(result.features[stats.i], result.features[stats.j])
     y1 = (size[1] - right.shape[0]) // 2
     # an even sample, so single lines stay visible (the caption gives the full count)
@@ -198,7 +209,7 @@ def _render(
     along = vt[0] - np.dot(vt[0], up) * up
     along /= np.linalg.norm(along)
     side = np.cross(up, along)
-    elevation = np.deg2rad(28)
+    elevation = np.deg2rad(VIEW_ELEVATION_DEG)
     view = np.cos(elevation) * side - np.sin(elevation) * up  # looking down at the object
     right = np.cross(view, up)
     right /= np.linalg.norm(right)
@@ -216,14 +227,14 @@ def _render(
         reach = np.percentile(
             np.abs((points - middle) @ np.stack([right, screen_up], axis=1)), 98, axis=0
         )
-    scale = 0.44 * min(width / reach[0], height / reach[1])
+    scale = FILL * min(width / reach[0], height / reach[1])
     canvas = _canvas(size)
     p = project(points, scale)
     order = np.argsort(-p[:, 2])  # far first
     radius = 1 if cameras_only else max(1, round(width / 480))
     bgr = (colours[:, ::-1] * 255).astype(np.uint8)
     if cameras_only:
-        bgr = (bgr * 0.55).astype(np.uint8)
+        bgr = _dim(bgr, FAINT_CLOUD)
     for k in order:
         x, y = int(p[k, 0]), int(p[k, 1])
         if 0 <= x < width and 0 <= y < height:
@@ -232,7 +243,7 @@ def _render(
         c = project(centres, scale)
         target = project(middle[None], scale)[0]
         for x, y, _ in c:
-            tip = (int(x + 0.12 * (target[0] - x)), int(y + 0.12 * (target[1] - y)))
+            tip = (int(x + TICK * (target[0] - x)), int(y + TICK * (target[1] - y)))
             cv2.line(canvas, (int(x), int(y)), tip, ACCENT, 1, cv2.LINE_AA)
             cv2.circle(canvas, (int(x), int(y)), 4, ACCENT, -1, cv2.LINE_AA)
     return canvas

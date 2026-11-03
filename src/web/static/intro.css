@@ -20,7 +20,7 @@ body { font-size: var(--step-1); line-height: 1.55; }
 /* Hero --------------------------------------------------------------------------------- */
 .hero {
   position: relative; min-height: calc(100svh - 64px); display: grid; grid-template-rows: 1fr auto;
-  background: radial-gradient(ellipse 65% 60% at 58% 45%, #0e2a2a 0%, var(--viewer) 70%);
+  background: radial-gradient(ellipse 65% 60% at 58% 45%, var(--glow) 0%, var(--viewer) 70%);
   overflow: hidden; border-bottom: 1px solid var(--rule);
 }
 .hero-viewer { position: absolute; inset: 0 0 76px; cursor: grab; outline: none; }

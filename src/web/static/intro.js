@@ -2,11 +2,10 @@
 // a real run) shown live in the hero, its numbers filled in, and the pinned "how it was
 // made" story. The page reads fully without JavaScript; this adds the live parts.
 
+import { cameraLabels, count, small } from "./ui.js";
 import { Viewer, parsePly } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
-const count = (n) => n.toLocaleString("en-GB").replace(/,/g, " ");
-const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.toFixed(1));
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 document.documentElement.classList.add("js");
@@ -63,31 +62,12 @@ async function startHero({ showcase, gt }) {
   spin();
 
   // Camera labels: hover shows one, a click keeps it.
-  const label = $("cam-label");
   const errors = Object.fromEntries((gt?.per_camera ?? []).map((c) => [c.image, c.rotation_deg]));
-  let pinned = -1;
-  const show = (k) => {
-    const at = k >= 0 && viewer.screenOf(k);
-    if (!at) { label.hidden = true; return; }
+  cameraLabels(viewer, $("cam-label"), (k) => {
     const name = cameras.cameras[k].name;
-    label.replaceChildren(
-      Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` }),
-      ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`,
-    );
-    label.classList.toggle("flip", at[0] > container.clientWidth - 340);
-    label.style.left = `${at[0]}px`;
-    label.style.top = `${at[1]}px`;
-    label.hidden = false;
-  };
-  const canvas = viewer.renderer.domElement;
-  canvas.addEventListener("pointermove", (e) => {
-    if (e.buttons) return;
-    const k = viewer.pick(e.offsetX, e.offsetY);
-    canvas.style.cursor = k >= 0 ? "pointer" : "";
-    show(k >= 0 ? k : pinned);
+    const bold = Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` });
+    return [bold, ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`];
   });
-  canvas.addEventListener("click", (e) => { pinned = viewer.pick(e.offsetX, e.offsetY); show(pinned); });
-  viewer.controls.addEventListener("change", () => show(pinned));
 }
 
 // --- How it was made: the pinned stage follows the step in view ---------------------------

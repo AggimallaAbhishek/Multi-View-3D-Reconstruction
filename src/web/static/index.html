@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Multi-View 3D Reconstruction</title>
-  <meta name="description" content="Classical structure from motion written from scratch: overlapping photos in, a 3-D point cloud and every camera position out, measured against ground truth and COLMAP.">
+  <meta name="description" content="Classical structure from motion written from scratch: overlapping photos in, a 3-D point cloud and every camera position out, measured against ground truth and COLMAP (external).">
   <script>
     // /#job=<id> opened a run before this intro page existed: keep such links working
     if (location.hash.startsWith("#job=")) location.replace("app.html" + location.hash);
@@ -56,8 +56,8 @@
       <dl class="strip" id="strip" aria-label="The featured reconstruction in numbers">
         <div><dt>Cameras recovered</dt><dd class="num" data-n="cameras">47 / 47</dd></div>
         <div><dt>Points</dt><dd class="num" data-n="points">9 907</dd></div>
-        <div><dt>Rotation error</dt><dd class="num" data-n="rotation">0.15°</dd></div>
-        <div><dt>Reprojection</dt><dd class="num" data-n="reprojection">0.13 px</dd></div>
+        <div><dt>Rotation error, median</dt><dd class="num" data-n="rotation">0.15°</dd></div>
+        <div><dt>Reprojection, median</dt><dd class="num" data-n="reprojection">0.13 px</dd></div>
         <a class="strip-cta" href="app.html">Reconstruct your own photos
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       </dl>
@@ -142,13 +142,13 @@
             <tr><th scope="row">dinoRing <small>Middlebury, dark, 48 photos</small></th><td class="num">48 / 48</td><td class="num">0.15°</td><td class="num">3 462</td><td class="num">24 / 48 · 23.4°</td></tr>
             <tr><th scope="row">pipes <small>ETH3D, 14 DSLR photos</small></th><td class="num">14 / 14</td><td class="num">0.06°</td><td class="num">–</td><td class="num">11 / 14 · 0.08°</td></tr>
             <tr><th scope="row">office <small>ETH3D, 26 photos, low texture</small></th><td class="num">26 / 26</td><td class="num">0.14°</td><td class="num">–</td><td class="num">26 / 26 · 0.24°</td></tr>
-            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num">16 / 16</td><td class="num">0.21°</td><td class="num">–</td><td class="num">6 / 16</td></tr>
+            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num">16 / 16</td><td class="num">0.21°</td><td class="num">–</td><td class="num">6 / 16 · 0.54° <small>K fixed</small></td></tr>
           </tbody>
         </table>
       </div>
       <p class="results-note">From the experiments in <a href="https://github.com/AggimallaAbhishek/Multi-View-3D-Reconstruction/blob/main/docs/experiments.md">docs/experiments.md</a> (E6, E7, E9). The last row uses the optional DISK + LightGlue features (external, via kornia); with SIFT that scene registers 6 of 16.</p>
 
-      <p class="credits">Measured on <span>Middlebury templeRing</span><span>dinoRing</span><span>dinoSparseRing</span><span>ETH3D pipes</span><span>office</span><span>terrains</span></p>
+      <p class="credits">Measured on <span>Middlebury templeRing</span><span>dinoRing</span><span>dinoSparseRing</span><span>ETH3D pipes</span><span>office</span></p>
     </section>
 
     <!-- Call to action --------------------------------------------------------------- -->

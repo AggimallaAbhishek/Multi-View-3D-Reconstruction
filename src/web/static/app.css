@@ -97,8 +97,8 @@ body[data-state="failed"] .status-tag { color: var(--error); border-color: var(-
 .run-photos { list-style: none; margin: var(--s3) 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .run-photos li { position: relative; }
 .run-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--raise); }
-.run-photos .more { display: grid; place-items: center; aspect-ratio: 4 / 3; border: 1px solid var(--rule); border-radius: 4px; color: var(--muted); font: 600 var(--step--1) var(--mono); }
-.run-actions { margin-top: var(--s4); }
+.run-photos .more { display: grid; place-items: center; aspect-ratio: 4 / 3; border: 1px solid var(--rule); border-radius: 4px; color: var(--muted); font: 600 var(--step--1) var(--body); }
+.run-actions { margin-top: var(--s4); display: grid; gap: var(--s2); justify-items: start; }
 .delete-confirm { display: grid; gap: var(--s2); font-size: var(--step--1); }
 .delete-buttons { display: flex; gap: var(--s2); }
 .partial-files { list-style: none; margin: var(--s3) 0 0; padding: 0; font: 12px/1.7 var(--mono); }
@@ -125,7 +125,7 @@ body[data-state="failed"] .status-tag { color: var(--error); border-color: var(-
 
 .viewport {
   position: absolute; inset: 0; overflow: hidden; cursor: grab; outline: none;
-  background: radial-gradient(ellipse 70% 60% at 50% 48%, #0d2425 0%, var(--viewer) 68%);
+  background: radial-gradient(ellipse 70% 60% at 50% 48%, var(--glow) 0%, var(--viewer) 68%);
 }
 .viewport:active { cursor: grabbing; }
 .viewport:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -213,7 +213,7 @@ body[data-state="running"] .status-title::after {
 /* Figures */
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s4); }
 .gallery figure { min-width: 0; }
-.gallery a { display: block; border: 1px solid var(--rule); border-radius: var(--r-control); overflow: hidden; background: #fff; transition: border-color var(--fast); }
+.gallery a { display: block; border: 1px solid var(--rule); border-radius: var(--r-control); overflow: hidden; background: var(--figure); transition: border-color var(--fast); }
 .gallery a:hover { border-color: var(--accent); }
 .gallery img { width: 100%; height: 220px; object-fit: contain; }
 .gallery figcaption { color: var(--muted); font-size: var(--step--1); margin-top: var(--s2); }
@@ -255,6 +255,8 @@ body[data-state="running"] .status-title::after {
 /* Bottom ------------------------------------------------------------------------------- */
 .gt-mini { display: grid; grid-template-columns: 96px 1fr; gap: var(--s3); align-items: center; }
 .gt-mini svg { width: 96px; height: 64px; }
+.gt-mini .ring-camera { fill: var(--accent); }
+.gt-mini .ring-object { fill: none; stroke: var(--muted); stroke-width: 1.4; }
 .gt-mini dt { font-size: 12px; color: var(--muted); }
 .gt-mini dd { font: 600 1.375rem/1.2 var(--mono); font-variant-numeric: tabular-nums; margin-bottom: var(--s2); }
 .gt-mini dd small { font: 400 12px var(--body); color: var(--muted); }
@@ -273,7 +275,7 @@ body[data-state="running"] .status-title::after {
 /* Lightbox ----------------------------------------------------------------------------- */
 .lightbox { width: min(92vw, 1100px); max-height: 92vh; padding: var(--s4); background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--r-card); }
 .lightbox::backdrop { background: rgb(5 8 10 / 0.8); }
-.lightbox img { width: 100%; max-height: calc(92vh - 8rem); object-fit: contain; background: #fff; border-radius: 4px; }
+.lightbox img { width: 100%; max-height: calc(92vh - 8rem); object-fit: contain; background: var(--figure); border-radius: 4px; }
 .lightbox figcaption { display: flex; justify-content: space-between; gap: var(--s4); margin-top: var(--s2); font-size: var(--step--1); }
 .lightbox-count { color: var(--muted); }
 .lightbox-nav { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); }
@@ -281,6 +283,13 @@ body[data-state="running"] .status-title::after {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes enter { from { opacity: 0; transform: translateY(3px); } }
+
+/* Touch screens: every control at least 44 px */
+@media (pointer: coarse) {
+  .tool-group button, .segmented button { min-width: 44px; min-height: 44px; }
+  .layers label { min-height: 44px; }
+  .btn-small { min-height: 44px; }
+}
 
 /* Narrower screens ---------------------------------------------------------------------- */
 @media (max-width: 1180px) {
