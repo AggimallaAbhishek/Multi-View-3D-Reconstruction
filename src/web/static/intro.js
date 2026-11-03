@@ -117,21 +117,26 @@ function startOrbit(model) {
 }
 
 const FORMATION_MS = 5000; // under 5 s: no pause control needed for it (WCAG 2.2.2)
+const FORMATION_OVERLAP = 4; // cameras growing in at once
 
 /** The cameras appear one by one round the ring while the temple rises from the ground in
  * step with them, the last camera arriving as the roof fills in. Shown whole at once under
  * reduced motion. */
 function form(viewer, heights, cameraCount) {
   if (reducedMotion) return;
-  viewer.reveal(0, 0);
+  // each camera grows in over the time of FORMATION_OVERLAP cameras, so the next starts
+  // while the last settles: one continuous sweep round the ring, not a series of pops
+  const span = cameraCount - 1 + FORMATION_OVERLAP;
+  const levels = new Float32Array(cameraCount);
   const start = performance.now();
   const frame = (now) => {
     const progress = ease(Math.min(1, (now - start) / FORMATION_MS));
-    const cameras = progress >= 1 ? Infinity : Math.floor(progress * cameraCount) + 1;
-    viewer.reveal(pointsBelow(heights, progress) / heights.length, cameras);
+    for (let k = 0; k < cameraCount; k++) levels[k] = (progress * span - k) / FORMATION_OVERLAP;
+    viewer.setCameraLevels(levels); // clamps each to 0..1; all 1 once progress is 1
+    viewer.reveal(pointsBelow(heights, progress) / heights.length, Infinity);
     if (progress < 1) requestAnimationFrame(frame);
   };
-  requestAnimationFrame(frame);
+  frame(start); // nothing shown before the first frame
 }
 
 async function startHero({ showcase, gt }, model) {

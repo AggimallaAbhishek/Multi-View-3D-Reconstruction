@@ -427,6 +427,43 @@ export class Viewer {
     this.render();
   }
 
+  /** How far each camera has appeared, ``levels[k]`` from 0 (not there) to 1 (as
+   * drawn): its frustum grows out of its centre and it fades in with its glow. For an
+   * animated entrance; all 1 looks exactly like no call at all. */
+  setCameraLevels(levels) {
+    if (!this.frustums || !this.markers) return;
+    const lines = this.frustums.geometry;
+    const glows = this.markers.geometry;
+    if (!lines.getAttribute("color")) { // per-vertex alpha, white: the material keeps its colour
+      this.frustumBase = lines.getAttribute("position").array.slice();
+      lines.setAttribute("color", new THREE.BufferAttribute(new Float32Array(lines.getAttribute("position").count * 4).fill(1), 4));
+      glows.setAttribute("color", new THREE.BufferAttribute(new Float32Array(glows.getAttribute("position").count * 4).fill(1), 4));
+      for (const material of [this.frustums.material, this.markers.material]) {
+        material.vertexColors = true;
+        material.needsUpdate = true;
+      }
+    }
+    const base = this.frustumBase;
+    const position = lines.getAttribute("position");
+    const lineColour = lines.getAttribute("color");
+    const glowColour = glows.getAttribute("color");
+    this.cameraCentres.forEach((_, k) => {
+      const level = Math.min(1, Math.max(0, levels[k] ?? 1));
+      const grow = 1 - (1 - level) ** 3; // out of the centre quickly, then settles
+      const c = 16 * k * 3; // 16 vertices per frustum; its first is the centre
+      for (let v = 0; v < 16; v++) {
+        for (let a = 0; a < 3; a++) {
+          const i = c + 3 * v + a;
+          position.array[i] = base[c + a] + grow * (base[i] - base[c + a]);
+        }
+        lineColour.array[4 * (16 * k + v) + 3] = level;
+      }
+      glowColour.array[4 * k + 3] = level;
+    });
+    position.needsUpdate = lineColour.needsUpdate = glowColour.needsUpdate = true;
+    this.render();
+  }
+
   /** What a left-drag does: "orbit" or "pan". */
   setTool(tool) {
     this.controls.mouseButtons.LEFT = tool === "pan" ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
