@@ -108,3 +108,33 @@ checkpoint (saved rule): `/code-review`, `systematic-debugging` for anything fai
   tabs, viewer upgrades and replay.
 - `pytest -q` green; no console errors; both pages usable at 390 px; every audit finding
   fixed or explicitly declined in this file.
+
+## Findings kept or declined (with reasons)
+
+Design inspector (`design-taste-frontend`, `inspect.mjs`) and detector (`impeccable`):
+
+- **Three typefaces, monospace for numbers, hairline rules, fiducial crosses (drawn with
+  CSS gradients), the faint glow behind the object:** kept. They are the brand committed
+  in PRODUCT.md (survey-instrument language); `impeccable`: the brief wins over a
+  saturated-pattern warning.
+- **"Off-centre" 56 px / 72 px margins at 1440 px:** the extra 16 px on the right is the
+  scrollbar; the content margins are equal.
+- **No video:** none would be honest; the hero's live, orbiting 3-D view is the moving
+  picture.
+- **Ragged rows and "mixed-font headline" on the workstation:** a three-column work
+  surface whose columns end at different heights by nature; the mixed-font items could
+  not be located from the report and nothing on screen mixes faces within a heading.
+- **`impeccable` detector, empty `<img>` in the lightbox:** filled when a figure opens.
+- **Stock photographs (picsum) offered by the direction sheet:** not used; every picture
+  is the project's own (photos, frames, live view).
+
+Web Interface Guidelines audit, declined:
+
+- **Vendor three.js instead of the CDN:** the original Phase 12 decision (no build step,
+  CDN with a pinned version) stands; the page says it needs the network for three.js and
+  the fonts.
+- **`Intl.DateTimeFormat` for clocks and dates, units after U+00A0, the selected tab in
+  the URL, opening a run on Enter instead of on `change` of the select:** polish without a
+  real user problem in a local, single-user tool; left as they are.
+- **Section links in the intro's nav below 1000 px:** the page is short and linear; the
+  call to action stays.
