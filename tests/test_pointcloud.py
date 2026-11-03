@@ -122,3 +122,18 @@ def test_old_cameras_json_format_gives_a_clear_error(tmp_path):
     path.write_text(json.dumps({"a.png": {"K": np.eye(3).tolist()}}))
     with pytest.raises(ValueError, match="download_middlebury"):
         read_cameras_json(path)
+
+
+@pytest.mark.parametrize("with_colors", [False, True])
+def test_an_empty_cloud_round_trips(tmp_path, with_colors):
+    """A stage that keeps no points (a filter, a dense run without stereo partners) still
+    writes a valid PLY; Open3D refuses to write zero points itself."""
+    from src.pointcloud.export import read_ply, write_ply
+
+    colors = np.empty((0, 3)) if with_colors else None
+    path = write_ply(tmp_path / "empty.ply", np.empty((0, 3)), colors)
+    points, read_colors = read_ply(path)
+    assert points.shape == (0, 3) and points.dtype == np.float64
+    assert (read_colors is not None) == with_colors
+    if with_colors:
+        assert read_colors.shape == (0, 3)

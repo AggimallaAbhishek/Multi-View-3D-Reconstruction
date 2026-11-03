@@ -245,6 +245,12 @@ def dense_scene(result: PipelineResult) -> PipelineResult:
     images = rec.registry.images
     keep = result.filtering.keep if result.filtering is not None else slice(None)
     points = rec.landmarks.position[keep]
+    if not len(points):  # no sparse points to plan stereo or set depth ranges with
+        n = len(images)
+        result.dense = DenseResult(
+            DenseCloud.empty(), ViewPlan([None] * n, [[] for _ in range(n)]), [None] * n, 0.0
+        )
+        return result
     cameras = [rec.registry.camera(m) for m in images]
     pixels = [result.images[m].image for m in images]
     plan = plan_views(cameras, points, cfg)

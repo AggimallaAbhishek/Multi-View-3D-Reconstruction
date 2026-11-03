@@ -131,3 +131,25 @@ def _similarity_to_truth(result):
     est = [rec.registry.camera(k).centre for k in m]
     true = [truth[result.names[k]].centre for k in m]
     return align_similarity(np.array(est), np.array(true))
+
+
+def test_a_filter_that_keeps_nothing_still_writes_every_output(scene_dir, tmp_path):
+    """A reconstruction whose filter drops every point, then the dense stage on it: each
+    stage writes its (empty) results instead of crashing (filtered.ply, dense.ply)."""
+    import json
+
+    from src.pipeline import dense_scene
+    from src.pointcloud.export import read_ply
+
+    images, raw = scene_dir
+    config = config_from_dict({**raw, "filtering": {"min_track_length": 1000}})
+    result = dense_scene(run_pipeline(images, config, until="filter"))
+    assert result.filtering.keep.sum() == 0
+
+    written, status = save_stage_outputs(result, tmp_path, "dense")
+    assert status == 0
+    filtered, _ = read_ply(tmp_path / "point_clouds" / "filtered.ply")
+    dense, _ = read_ply(written)
+    assert len(filtered) == 0 and len(dense) == 0
+    summary = json.loads((tmp_path / "reconstruction" / "reconstruction.json").read_text())
+    assert summary["dense"]["points"] == 0
