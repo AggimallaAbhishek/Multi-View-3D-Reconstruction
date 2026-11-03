@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d10">
   <title>Multi-View 3D Reconstruction</title>
   <meta name="description" content="Classical structure from motion written from scratch: overlapping photos in, a 3-D point cloud and every camera position out, measured against ground truth and COLMAP (external).">
   <script>
@@ -44,23 +45,28 @@
   <main>
     <!-- Hero: the real reconstruction, live ------------------------------------------- -->
     <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-viewer" id="hero-viewer" tabindex="0" aria-label="Live 3-D view of the templeRing reconstruction: the point cloud and its ring of recovered cameras. Drag to orbit, scroll to zoom.">
+      <div class="hero-viewer" id="hero-viewer" tabindex="0" role="application" aria-roledescription="3-D view" aria-label="Live 3-D view of the templeRing reconstruction: the point cloud and its ring of recovered cameras. Drag or arrow keys to move, scroll to zoom, ] and [ to step through the cameras.">
         <div class="fiducials" aria-hidden="true"></div>
         <p class="hero-caption num" id="hero-caption" aria-hidden="true">templeRing · drag to orbit</p>
-        <div class="cam-label num" id="cam-label" role="status" hidden></div>
+        <div class="cam-label num" id="cam-label" aria-hidden="true" hidden></div>
+        <button type="button" class="pause" id="pause" aria-pressed="false" hidden>Pause rotation</button>
+        <p class="visually-hidden" id="hero-announce" aria-live="polite"></p>
       </div>
       <div class="hero-text">
         <h1 id="hero-title"><span class="num" data-n="photos">47</span> photos in.<br>A <em>temple</em> out.</h1>
+        <p class="hero-error" id="hero-error" role="alert" hidden></p>
         <p class="hero-lede">Classical structure from motion, written from scratch in Python. Ordinary overlapping photos become a 3-D point cloud and the position of every camera that took them, and the result is checked against ground truth.</p>
       </div>
-      <dl class="strip" id="strip" aria-label="The featured reconstruction in numbers">
+      <div class="strip">
+        <dl class="strip-numbers" id="strip" aria-label="The featured reconstruction in numbers">
         <div><dt>Cameras recovered</dt><dd class="num" data-n="cameras">47 / 47</dd></div>
-        <div><dt>Points</dt><dd class="num" data-n="points">9 907</dd></div>
+        <div><dt>Points</dt><dd class="num" data-n="points">9 907</dd></div>
         <div><dt>Rotation error, median</dt><dd class="num" data-n="rotation">0.15°</dd></div>
         <div><dt>Reprojection, median</dt><dd class="num" data-n="reprojection">0.13 px</dd></div>
+      </dl>
         <a class="strip-cta" href="app.html">Reconstruct your own photos
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-      </dl>
+      </div>
     </section>
 
     <!-- How it works: a pinned stage that changes with each step --------------------- -->
@@ -92,12 +98,12 @@
           <li class="step" data-frame="cloud">
             <h3>Keep the points you trust.</h3>
             <img class="step-picture" src="showcase/cloud.jpg" alt="The filtered point cloud" width="960" height="600" loading="lazy">
-            <p>Points seen in too few views, with large reprojection error or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points. An optional dense stage adds stereo depth maps and a mesh.</p>
+            <p>Points seen in too few views, with large reprojection error or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points. An optional dense stage adds stereo depth maps and a mesh.</p>
           </li>
         </ol>
       </div>
       <div class="how-stage-wrap">
-        <figure class="how-stage" aria-live="polite">
+        <figure class="how-stage">
           <div class="fiducials" aria-hidden="true"></div>
           <img id="stage-image" src="showcase/photos.jpg" alt="Five of the templeRing photos" width="960" height="600">
           <figcaption class="num" id="stage-caption">photos.jpg · 47 photos</figcaption>
@@ -139,16 +145,16 @@
       <p class="section-lede">Camera positions recovered from the photos alone, aligned to each benchmark's ground-truth cameras by a similarity transform. COLMAP, the reference structure-from-motion system, ran on the same images with the same starting calibration.</p>
 
       <div class="table-wrap" tabindex="0" role="region" aria-label="Results against ground truth">
-        <table class="results-table">
+        <table class="results-table" role="table">
           <thead>
-            <tr><th scope="col">Scene</th><th scope="col">Cameras</th><th scope="col">Rotation error<br><small>median</small></th><th scope="col">Points</th><th scope="col">COLMAP <small>(external)</small></th></tr>
+            <tr role="row"><th scope="col" role="columnheader">Scene</th><th scope="col" role="columnheader">Cameras</th><th scope="col" role="columnheader">Rotation error<br><small>median</small></th><th scope="col" role="columnheader">Points</th><th scope="col" role="columnheader">COLMAP <small>(external)</small></th></tr>
           </thead>
           <tbody>
-            <tr><th scope="row">templeRing <small>Middlebury, 47 photos</small></th><td class="num" data-label="Cameras">47 / 47</td><td class="num" data-label="Rotation error">0.15°</td><td class="num" data-label="Points">9 907</td><td class="num" data-label="COLMAP (external)">47 / 47 · 0.26°</td></tr>
-            <tr><th scope="row">dinoRing <small>Middlebury, dark, 48 photos</small></th><td class="num" data-label="Cameras">48 / 48</td><td class="num" data-label="Rotation error">0.15°</td><td class="num" data-label="Points">3 462</td><td class="num" data-label="COLMAP (external)">24 / 48 · 23.4°</td></tr>
-            <tr><th scope="row">pipes <small>ETH3D, 14 DSLR photos</small></th><td class="num" data-label="Cameras">14 / 14</td><td class="num" data-label="Rotation error">0.06°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">11 / 14 · 0.08°</td></tr>
-            <tr><th scope="row">office <small>ETH3D, 26 photos, low texture</small></th><td class="num" data-label="Cameras">26 / 26</td><td class="num" data-label="Rotation error">0.14°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">26 / 26 · 0.24°</td></tr>
-            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num" data-label="Cameras">16 / 16</td><td class="num" data-label="Rotation error">0.21°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">6 / 16 · 0.54° <small>K fixed</small></td></tr>
+            <tr role="row"><th scope="row" role="rowheader">templeRing <small>Middlebury, 47 photos</small></th><td role="cell" class="num" data-label="Cameras">47 / 47</td><td role="cell" class="num" data-label="Rotation error">0.15°</td><td role="cell" class="num" data-label="Points">9 907</td><td role="cell" class="num" data-label="COLMAP (external)">47 / 47 · 0.26°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">dinoRing <small>Middlebury, dark, 48 photos</small></th><td role="cell" class="num" data-label="Cameras">48 / 48</td><td role="cell" class="num" data-label="Rotation error">0.15°</td><td role="cell" class="num" data-label="Points">3 462</td><td role="cell" class="num" data-label="COLMAP (external)">24 / 48 · 23.4°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">pipes <small>ETH3D, 14 DSLR photos</small></th><td role="cell" class="num" data-label="Cameras">14 / 14</td><td role="cell" class="num" data-label="Rotation error">0.06°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">11 / 14 · 0.08°</td></tr>
+            <tr role="row"><th scope="row" role="rowheader">office <small>ETH3D, 26 photos, low texture</small></th><td role="cell" class="num" data-label="Cameras">26 / 26</td><td role="cell" class="num" data-label="Rotation error">0.14°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">26 / 26 · 0.24°</td></tr>
+            <tr class="highlight" role="row"><th scope="row" role="rowheader">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td role="cell" class="num" data-label="Cameras">16 / 16</td><td role="cell" class="num" data-label="Rotation error">0.21°</td><td role="cell" class="num" data-label="Points">–</td><td role="cell" class="num" data-label="COLMAP (external)">6 / 16 · 0.54° <small>K fixed</small></td></tr>
           </tbody>
         </table>
       </div>
@@ -165,7 +171,7 @@
       <div class="cta-actions">
         <a class="btn btn-primary" href="app.html">Open the workstation
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-        <code class="cli">python -m src.cli reconstruct data/raw/templeRing</code>
+        <code class="cli" translate="no">python -m src.cli reconstruct data/raw/templeRing</code>
       </div>
       </div>
       <figure class="fragment" data-ui aria-labelledby="fragment-caption">

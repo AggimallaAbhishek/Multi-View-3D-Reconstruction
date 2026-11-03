@@ -269,6 +269,7 @@ function renderSelection() {
 function showUploadMessage(text, action = null, kind = "error") {
   const box = $("upload-message");
   box.className = `message ${kind}`;
+  box.setAttribute("role", kind === "error" ? "alert" : "status");
   box.hidden = !text;
   box.replaceChildren(...(text ? [el("div", {}, text), action].filter(Boolean) : []));
 }
@@ -320,7 +321,7 @@ function renderThisRun(job, report = null, files = []) {
   const shown = thumbs.slice(0, 8);
   const more = (job.photos ?? thumbs.length) - shown.length;
   const items = shown.map((path) => el("li", {}, el("img", { src: fileUrl(job.id, path), alt: path.slice(11, -4), loading: "lazy" })));
-  if (more > 0 && shown.length) items.push(el("li", {}, el("span", { class: "more", "aria-label": `${more} more photos` }, `+${more}`)));
+  if (more > 0 && shown.length) items.push(el("li", {}, el("span", { class: "more" }, `+${more} more`)));
   $("run-photos").replaceChildren(...items);
   $("run-photos").hidden = !items.length;
   showDeleteControls(job);
@@ -469,6 +470,7 @@ async function deleteShownRun(control) {
   }
   await refreshPreviousRuns();
   clearRun();
+  $("previous-runs").focus(); // the card that had focus is gone
   log(`Deleted the run of ${runLabel(job)}`, "");
   showUploadMessage(`Deleted the run of ${runLabel(job)}.`, null, "notice");
 }
@@ -508,7 +510,7 @@ async function showResults(job, { replay = false } = {}) {
 
 /** Console lines for a run opened from the list: its stages, at the times they finished. */
 function logFinishedRun(job, report) {
-  $("console").replaceChildren();
+  $("console").replaceChildren(); // log() scrolls; one layout per line is fine for ~10 lines
   let at = startedAt(job).getTime();
   for (const [stage, time] of Object.entries(report.timings)) {
     at += time * 1000;
@@ -623,7 +625,9 @@ function renderGroundTruthRows() {
   $("gt-rows").replaceChildren(
     ...rows.map((c) =>
       el("tr", { class: [c.rotation_deg === maxRot || c.centre === maxCentre ? "worst" : "", c.image === picked ? "picked" : ""].join(" ").trim() },
-        el("td", {}, c.image),
+        el("td", {}, c.image,
+          c.rotation_deg === maxRot || c.centre === maxCentre ? el("span", { class: "visually-hidden" }, " (worst camera)") : null,
+          c.image === picked ? el("span", { class: "visually-hidden" }, " (selected in the 3-D view)") : null),
         errorCell(c.rotation_deg, maxRot, `${small(c.rotation_deg)}°`),
         errorCell(c.centre, maxCentre, percent(c.centre)))),
   );
@@ -720,7 +724,12 @@ async function fetchCloud(id, name) {
 }
 
 async function loadViewer(id, report) {
-  viewer ??= createViewer();
+  try {
+    viewer ??= createViewer();
+  } catch (error) { // no WebGL: the numbers, tables and figures still work
+    setStatus("3-D view unavailable", `This browser could not start WebGL (${error.message}). The summary, tables and figures below are complete.`);
+    return;
+  }
   viewerJob = { id, clouds: {}, cameras: null };
   setPressed("cloud", "filtered");
   hideCameraLabel();
@@ -760,7 +769,7 @@ function createViewer() {
     if (!camera) return null;
     const gt = shownReport?.ground_truth?.per_camera?.find((c) => c.image === camera.name);
     return [el("b", {}, `Camera ${k + 1}`), ` · ${camera.name}`, gt ? ` · ${small(gt.rotation_deg)}°` : ""];
-  }, { onPin: renderGroundTruthRows });
+  }, { onPin: renderGroundTruthRows, announce: (text) => { $("viewer-announce").textContent = text; } });
   return v;
 }
 
@@ -776,7 +785,7 @@ async function replayRun() {
   const id = viewerJob.id;
   const n = viewerJob.cameras.length;
   const button = $("replay");
-  button.disabled = true;
+  button.setAttribute("aria-disabled", "true"); // stays focusable while it plays
   hideCameraLabel();
   if (!reducedMotion()) {
     setSpin(true);
@@ -788,7 +797,7 @@ async function replayRun() {
   }
   if (viewerJob?.id === id) viewer.reveal(1, Infinity);
   replaying = false;
-  button.disabled = false;
+  button.removeAttribute("aria-disabled");
 }
 
 function setSpin(on) {
@@ -864,7 +873,10 @@ function wire() {
     button.addEventListener("click", () => showLightboxItem(lightboxIndex + Number(button.dataset.step)));
   }
   $("lightbox-close").addEventListener("click", () => lightbox.close());
-  lightbox.addEventListener("click", (e) => { if (e.target === lightbox) lightbox.close(); }); // backdrop
+  lightbox.addEventListener("click", (e) => { // the backdrop, not the dialog's own padding
+    const r = lightbox.getBoundingClientRect();
+    if (e.target === lightbox && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) lightbox.close();
+  });
   lightbox.addEventListener("keydown", (e) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();

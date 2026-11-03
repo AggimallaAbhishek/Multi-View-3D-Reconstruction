@@ -1,7 +1,7 @@
 // Small helpers shared by the intro page (intro.js) and the workstation (app.js).
 
-/** 12 345 with thin-space groups. */
-export const count = (n) => n.toLocaleString("en-GB").replace(/,/g, " ");
+/** 12 345 with narrow no-break spaces between digit groups (never split across lines). */
+export const count = (n) => n.toLocaleString("en-GB").replace(/,/g, "\u202f");
 
 /** A small measurement with sensible precision: 0.053, 0.15, 12.3. */
 export const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.toFixed(1));
@@ -9,8 +9,9 @@ export const small = (x) => (x < 0.1 ? x.toFixed(3) : x < 10 ? x.toFixed(2) : x.
 /** Hover and click labels for the cameras of ``viewer`` in ``label``: hovering shows one,
  * a click keeps it up (a drag does not count as a click). ``describe(k)`` returns the
  * label's content (nodes or strings) for camera ``k``, or null for none. Returns
- * ``{show, pin, unpin}``: ``show()`` re-places the label, e.g. after the view moved. */
-export function cameraLabels(viewer, label, describe, { onPin = () => {} } = {}) {
+ * ``{show, pin, unpin}``: ``show()`` re-places the label, e.g. after the view moved.
+ * ``announce(text)`` (optional) reads a camera chosen by keyboard to screen readers. */
+export function cameraLabels(viewer, label, describe, { onPin = () => {}, announce = null } = {}) {
   const container = viewer.container;
   const canvas = viewer.renderer.domElement;
   let pinned = -1;
@@ -40,6 +41,20 @@ export function cameraLabels(viewer, label, describe, { onPin = () => {} } = {})
     onPin(pinned);
   });
   viewer.controls.addEventListener("change", () => show(pinned));
+  // Keyboard: "]" and "[" step through the cameras, Escape lets go.
+  container.addEventListener("keydown", (e) => {
+    const n = viewer.cameraCentres.length;
+    if (!n) return;
+    if (e.key === "]" || e.key === "[") {
+      e.preventDefault();
+      pinned = pinned < 0 ? 0 : (pinned + (e.key === "]" ? 1 : -1) + n) % n;
+    } else if (e.key === "Escape" && pinned >= 0) {
+      pinned = -1;
+    } else return;
+    show(pinned);
+    onPin(pinned);
+    announce?.(pinned >= 0 ? label.textContent : "");
+  });
   return {
     show,
     get pinned() { return pinned; },

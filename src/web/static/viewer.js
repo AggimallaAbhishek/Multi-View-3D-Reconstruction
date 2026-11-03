@@ -192,13 +192,14 @@ function spriteTexture(glow) {
   return new THREE.CanvasTexture(canvas);
 }
 
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+const reducedMotion = () => motionQuery.matches;
 
 export class Viewer {
   constructor(container) {
     this.container = container;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 3x screens: no gain, 2.25x cost
     this.renderer.setClearColor(0x000000, 0); // the container's background shows through
     container.appendChild(this.renderer.domElement);
 
@@ -227,6 +228,8 @@ export class Viewer {
     this.textures = { dot: spriteTexture(false), glow: spriteTexture(true) };
 
     new ResizeObserver(() => this.resize()).observe(container);
+    // asking for reduced motion mid-session stops a turning view at once
+    motionQuery.addEventListener("change", () => { if (reducedMotion()) this.spin(false); });
     this.resize();
   }
 

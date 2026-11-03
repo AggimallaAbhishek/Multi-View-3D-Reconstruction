@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e1418">
   <title>Workstation · Multi-View 3D Reconstruction</title>
   <meta name="description" content="Upload overlapping photos, reconstruct them in 3-D and inspect the cameras and points.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -92,7 +93,7 @@
           <button type="button" class="btn btn-primary btn-small restart" id="restart-run" hidden>Start a new reconstruction</button>
           <div class="delete-run">
             <button type="button" class="btn btn-quiet btn-small" data-delete="ask">Delete this run</button>
-            <span class="delete-confirm" hidden><span class="delete-question"></span>
+            <span class="delete-confirm" hidden><span class="delete-question" role="status"></span>
               <span class="delete-buttons">
                 <button type="button" class="btn btn-danger btn-small" data-delete="confirm">Delete</button>
                 <button type="button" class="btn btn-quiet btn-small" data-delete="cancel">Cancel</button>
@@ -120,7 +121,7 @@
         <ul class="warnings" id="warnings" hidden></ul>
 
         <div class="panel" id="panel-viewer" role="tabpanel" aria-labelledby="tab-viewer" data-panel="viewer">
-          <div class="viewport" id="viewer" tabindex="0" aria-label="3-D point cloud with the recovered cameras. Drag to orbit, scroll to zoom, right-drag or arrow keys to pan.">
+          <div class="viewport" id="viewer" tabindex="0" role="application" aria-roledescription="3-D view" aria-label="3-D point cloud with the recovered cameras. Drag to orbit, scroll to zoom, right-drag or arrow keys to pan, ] and [ to step through the cameras.">
             <div class="fiducials" aria-hidden="true"></div>
             <div class="viewer-tools" id="viewer-tools" hidden>
               <div class="tool-group" role="group" aria-label="Viewer tools">
@@ -131,11 +132,12 @@
                 <button type="button" id="spin" aria-pressed="false" title="Turn slowly round the object" aria-label="Auto-orbit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5c-2 0-3.8-.3-5.3-.9M8 19l-2.2-3.4L9.4 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               </div>
               <div class="segmented" role="group" aria-label="Projection">
-                <button type="button" data-projection="perspective" aria-pressed="true">Persp</button>
-                <button type="button" data-projection="orthographic" aria-pressed="false">Ortho</button>
+                <button type="button" data-projection="perspective" aria-pressed="true" aria-label="Perspective">Persp</button>
+                <button type="button" data-projection="orthographic" aria-pressed="false" aria-label="Orthographic">Ortho</button>
               </div>
             </div>
-            <div class="cam-label num" id="cam-label" role="status" hidden></div>
+            <div class="cam-label num" id="cam-label" aria-hidden="true" hidden></div>
+            <p class="visually-hidden" id="viewer-announce" aria-live="polite"></p>
             <div class="layers" id="layers" hidden>
               <div class="segmented" role="group" aria-label="Point cloud">
                 <button type="button" data-cloud="filtered" aria-pressed="true">Filtered</button>
@@ -150,7 +152,7 @@
               </fieldset>
               <label class="size"><span>Point size</span><input type="range" id="point-size" min="1" max="6" step="0.5" value="2.5"></label>
             </div>
-            <div class="viewer-status" id="viewer-status">
+            <div class="viewer-status" id="viewer-status" role="status">
               <p class="status-title" id="status-title">No run open</p>
               <p class="status-text" id="status-text">Drop overlapping photos in the panel on the left, or open a previous run.</p>
             </div>
@@ -186,7 +188,7 @@
     <aside class="col col-right" aria-label="Pipeline and results">
       <section class="card" aria-labelledby="pipeline-title">
         <h2 class="card-title" id="pipeline-title">Pipeline</h2>
-        <ol class="pipeline" id="pipeline" aria-live="polite"></ol>
+        <ol class="pipeline" id="pipeline"></ol>
       </section>
       <section class="card" id="summary-card" aria-labelledby="summary-title" hidden>
         <h2 class="card-title" id="summary-title">Summary</h2>
@@ -208,7 +210,7 @@
     </section>
     <section class="card console-card" aria-labelledby="console-title">
       <h2 class="card-title" id="console-title">Console</h2>
-      <ol class="console num" id="console" aria-live="polite"></ol>
+      <ol class="console num" id="console" role="log" aria-live="polite"></ol>
     </section>
   </main>
 

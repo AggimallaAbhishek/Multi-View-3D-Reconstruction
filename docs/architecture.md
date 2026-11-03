@@ -64,7 +64,7 @@ The optional web layer (`src/web/`, Phase 12) drives the same pipeline and outpu
 
 ```mermaid
 flowchart LR
-    B["browser<br/><i>static/index.html · app.js · viewer.js</i><br/>three.js (external)"] -->|"POST /api/jobs<br/>(photos, camera.yaml, gt_cameras.json)"| A["FastAPI app<br/><i>web/app.py</i><br/>upload checks → data/raw/web_uploads/{job}/"]
+    B["browser<br/><i>index.html (overview) · app.html (workstation)<br/>intro.js · app.js · ui.js · viewer.js</i><br/>three.js (external)"] -->|"POST /api/jobs<br/>(photos, camera.yaml, gt_cameras.json)"| A["FastAPI app<br/><i>web/app.py</i><br/>upload checks → data/raw/web_uploads/{job}/"]
     A --> J["JobManager<br/><i>web/jobs.py</i><br/>one job at a time"]
     J -->|"spawn"| C["child process<br/>run_pipeline(on_stage=…)<br/>save_stage_outputs · report.json"]
     C -.->|"stage, done, failed<br/>(queue)"| J
@@ -74,6 +74,8 @@ flowchart LR
 ```
 
 Reconstructions run in a spawned child process because Open3D's offscreen renderer aborts outside the main thread, and a native crash must end one job rather than the server. A failed job keeps the outputs of the stages it finished. Finished runs are found again from their `report.json`: the job list lives in memory, the results in the run folders.
+
+The overview page (`/`) reads only committed files, `static/showcase/` (`src/web/showcase.py`, written by `scripts/make_showcase.py` from a finished run): the filtered cloud, the cameras, the report and five frames whose numbers are measured on the photos they show. It works offline except for the fonts and three.js. The workstation (`/app.html`) is the only page that talks to the API; both share `tokens.css` (colours, type, controls), `viewer.js` and `ui.js`.
 
 ## Coordinate frames
 

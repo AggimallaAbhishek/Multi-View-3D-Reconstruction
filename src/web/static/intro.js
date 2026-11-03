@@ -91,20 +91,33 @@ async function startHero({ showcase, gt }) {
   $("hero-caption").textContent = `${showcase.name} · ${count(cloud.count)} points · drag to orbit`;
 
   // Hold the orbit while the visitor drives it, and while the hero is off screen.
+  // Paused by the button, by the visitor moving the view (pointer or keys), off screen, or
+  // under reduced motion (WCAG 2.2.2: anything moving for more than 5 s can be paused).
   let visible = true;
   let held = false;
-  const spin = () => viewer.spin(visible && !held && !reducedMotion);
-  viewer.controls.addEventListener("start", () => { held = true; spin(); });
+  const pause = $("pause");
+  const spin = () => {
+    const turning = viewer.spin(visible && !held && !reducedMotion);
+    pause.setAttribute("aria-pressed", String(held));
+    pause.textContent = held ? "Resume rotation" : "Pause rotation";
+    return turning;
+  };
+  const hold = () => { held = true; spin(); };
+  viewer.controls.addEventListener("start", hold);
+  container.addEventListener("keydown", (e) => { if (e.key.startsWith("Arrow")) hold(); });
+  pause.hidden = reducedMotion;
+  pause.addEventListener("click", () => { held = !held; spin(); });
   new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; spin(); }).observe(container);
   spin();
 
   // Camera labels: hover shows one, a click keeps it.
   const errors = Object.fromEntries((gt?.per_camera ?? []).map((c) => [c.image, c.rotation_deg]));
+  const announcer = $("hero-announce");
   cameraLabels(viewer, $("cam-label"), (k) => {
     const name = cameras.cameras[k].name;
     const bold = Object.assign(document.createElement("b"), { textContent: `Camera ${k + 1}` });
     return [bold, ` · ${name}${errors[name] !== undefined ? ` · ${small(errors[name])}° from the truth` : ""}`];
-  });
+  }, { announce: (text) => { held = true; spin(); announcer.textContent = text; } });
 }
 
 // --- How it was made: the pinned stage follows the step in view ---------------------------
@@ -190,5 +203,7 @@ loadShowcase()
     return startHero(data);
   })
   .catch((error) => {
-    $("hero-caption").textContent = `The live view could not load: ${error.message}`;
+    const box = $("hero-error");
+    box.textContent = `The live 3-D view could not load (${error.message}). The rest of the page works; reload to try again.`;
+    box.hidden = false;
   });

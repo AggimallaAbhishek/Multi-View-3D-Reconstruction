@@ -166,7 +166,7 @@ Tested against rendered depth with exact cameras (`tests/test_dense.py`): median
 | Point-cloud filtering | per-point filters, scale-relative radius, logging | statistical / radius outlier removal: Open3D |
 | Export, viewer, renders | `cameras.json`, scene assembly | PLY IO, visualiser, offscreen renderer: Open3D |
 | Evaluation, experiments, reports | ✔ | k-d tree: SciPy; plots: Matplotlib; tables: pandas |
-| Web interface | endpoints, upload checks, jobs, `report.json`, page, PLY parsing, scene orientation | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
+| Web interface | endpoints, upload checks, jobs, `report.json`, run thumbnails, the overview and workstation pages, the showcase (frames drawn from measured features and matches), PLY parsing, scene orientation, camera picking | HTTP server: FastAPI, uvicorn; 3-D rendering and orbit controls: three.js; fonts: Google Fonts |
 | Dense reconstruction | partner selection, depth back in image pixels, texture mask, consistency fusion, voxel averaging, normal orientation | `stereoRectify`, `StereoSGBM`, `undistortPoints`, `remap`: OpenCV; Poisson meshing, normals: Open3D |
 | COLMAP baseline (E6) | running it, reading its text model into our conventions (pixel centres, poses) | **all of the reconstruction: COLMAP** (CLI, `scripts/run_colmap_baseline.py`) |
 

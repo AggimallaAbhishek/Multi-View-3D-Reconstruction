@@ -280,7 +280,7 @@ body[data-state="running"] .status-title::after {
 .console:empty::before { content: "Stage progress and results are logged here."; color: var(--faint); font-family: var(--body); }
 
 /* Lightbox ----------------------------------------------------------------------------- */
-.lightbox { width: min(92vw, 1100px); max-height: 92vh; padding: var(--s4); background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--r-card); }
+.lightbox { overscroll-behavior: contain; width: min(92vw, 1100px); max-height: 92vh; padding: var(--s4); background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--r-card); }
 .lightbox::backdrop { background: rgb(5 8 10 / 0.8); }
 .lightbox img { width: 100%; max-height: calc(92vh - 8rem); object-fit: contain; background: var(--figure); border-radius: 4px; }
 .lightbox figcaption { display: flex; justify-content: space-between; gap: var(--s4); margin-top: var(--s2); font-size: var(--step--1); }
@@ -317,8 +317,6 @@ body[data-state="running"] .status-title::after {
   .brand-name { font-size: 0.9375rem; }
   .stage { height: 72vh; min-height: 420px; }
   .layers { left: var(--s3); right: auto; width: auto; max-width: calc(100% - 2 * var(--s3)); }
-  .layers fieldset, .layers .size { display: none; }
-  .layers:focus-within fieldset { display: grid; }
 }
 @media (max-width: 560px) {
   .brand-name { display: none; }
@@ -327,6 +325,7 @@ body[data-state="running"] .status-title::after {
   .runs { min-width: 0; flex: 1; }
   .runs select { width: 100%; max-width: none; }
   #replay { padding: 0 var(--s3); }
+
   #replay .replay-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .viewer-tools { flex-wrap: wrap; }
   .datastrip { grid-template-columns: repeat(2, minmax(0, 1fr)); }

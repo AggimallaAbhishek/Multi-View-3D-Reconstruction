@@ -180,7 +180,7 @@ flowchart TD
 | `evaluation/` | Pose metrics (pairwise, and per camera after similarity alignment), cloud completeness / accuracy / Chamfer against a reference, metric scale from one distance, ground-truth loading (Middlebury format); `experiments.py` (YAML specs → one run per setting → `experiment_results.csv`), `reports.py` (figures + Markdown tables) | Error tables, experiment results |
 | `pipeline.py` | Library pipeline: `run_pipeline(images, config, until=...)` → `PipelineResult` (features → matches → verify → pose → triangulate → cloud → reconstruct → filter → dense); stage-by-stage data flow in [docs/architecture.md](docs/architecture.md) | In-memory results |
 | `cli.py` / `run.py` / `outputs.py` | Commands per stage; run directories with config, environment and per-stage outputs (`outputs.py`, shared with the web interface); shared CSV writer | Reproducible run directories |
-| `web/` | Optional local web interface: FastAPI app (upload checks, job, report and file endpoints), one reconstruction at a time in a child process, `report.json`; static page with a three.js viewer | Browser UI, `report.json` |
+| `web/` | Optional local web interface: FastAPI app (upload checks, job, report and file endpoints), one reconstruction at a time in a child process, `report.json` (with per-stage numbers), run thumbnails; an overview page with a committed showcase (`showcase.py`) and the workstation, both with a three.js viewer | Browser UI, `report.json` |
 
 ### 5.3 Design principles
 
@@ -368,9 +368,16 @@ uv pip install -e ".[learned]" # optional: DISK + LightGlue via torch and kornia
 python -m src.web              # serves http://127.0.0.1:8000/ and opens it (--port to change)
 ```
 
-Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The page follows the run stage by stage, then shows the point cloud with its cameras (three.js, external), summary metrics, the ground-truth errors when `gt_cameras.json` was given, the diagnostic figures and downloads (`filtered.ply`, `cameras.json`, `report.json`). Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, so earlier results are listed again after a restart; **Delete this run** removes one. The uploaded photos are deleted once their run has ended (the run folder keeps the results).
+The server has two pages:
 
-![web interface on templeRing](docs/images/web_ui.png)
+- **`/`: the overview.** It shows a real templeRing reconstruction live: the point cloud and the ring of its 47 recovered cameras, which you can orbit, with a label on each camera giving its error against ground truth. Below that come how it was made (photos, features, matches, cameras, cloud, each with numbers measured on that run), the architecture with the external parts labelled, and results against ground truth and COLMAP. The data is committed under `src/web/static/showcase/`, made by `python scripts/make_showcase.py <run folder> data/raw/templeRing` from a finished web run.
+- **`/app.html`: the workstation.** Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The pipeline column on the right ticks through the stages live, then shows what each stage produced (features per photo, matches, verified pairs and inliers, registered cameras, points kept; cached stages marked). The 3-D view (three.js, external) has orbit and pan, fit to the object or to every camera, auto-orbit, perspective or orthographic projection, layers and a label on each camera. Tabs show the camera poses against ground truth (sortable, worst camera highlighted), the matching figures and the statistics. **Replay** plays the run back with the cameras appearing in registration order. A console logs every stage. Exports are `filtered.ply`, `cameras.json` and `report.json`.
+
+Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with twelve thumbnails of its photos, so earlier results are listed again after a restart; **Delete this run** removes one. The uploaded photos are deleted once their run has ended.
+
+![overview page: the templeRing reconstruction live](docs/images/web_intro.jpg)
+
+![workstation on templeRing](docs/images/web_ui.png)
 
 Local only: the server listens on `127.0.0.1`, has no authentication and runs one reconstruction at a time. Upload limits and the poll interval are under `web:` in `configs/default.yaml`; the page needs internet access for three.js and the fonts. Through the page, templeRing gives exactly the CLI's numbers (Phase 12 in the roadmap).
 
@@ -423,8 +430,8 @@ Multi-View-3D-Reconstruction/
 │   ├── dense/         stereo.py · fusion.py · meshing.py
 │   ├── pointcloud/    coloring.py · filtering.py · export.py
 │   ├── evaluation/    metrics.py · ground_truth.py · experiments.py · reports.py
-│   └── web/           __main__.py · app.py · jobs.py · report.py
-│                      static/ index.html · app.js · viewer.js · style.css
+│   └── web/           __main__.py · app.py · jobs.py · report.py · showcase.py
+│                      static/ index.html · app.html · intro.js · app.js · ui.js · viewer.js · tokens.css · intro.css · app.css · showcase/
 ├── tests/
 │   ├── synthetic.py              # 3D points + cameras with exact ground truth
 │   ├── render.py                 # rendered textured box scene from known cameras
@@ -524,7 +531,7 @@ outputs/<timestamp>_two_view_sift/
 
 `reconstruct` runs the same stages and continues to `reconstruction/` (`reconstruction.json`, `registration.csv`, `cameras.png`, `reprojection_histogram.png`) and `figures/filtered.png`; its `point_clouds/sparse.ply` (every landmark), `filtered.ply` and `camera_poses/cameras.json` hold the **multi-view** reconstruction, and the two-view cloud and renders are not written.
 
-The web interface writes the same layout as `reconstruct` to `outputs/<timestamp>_web_reconstruct/`, plus `report.json` (counts, calibration source, reprojection and ground-truth errors, timings).
+The web interface writes the same layout as `reconstruct` to `outputs/<timestamp>_web_reconstruct/`, plus `report.json` (counts, calibration source, reprojection and ground-truth errors, timings, per-stage numbers) and `thumbnails/`.
 
 `dense` adds `point_clouds/dense.ply`, `meshes/reconstructed_mesh.ply` and `figures/dense.png`. Not produced: textured meshes. Experiment runs have their own layout (§7.6).
 
@@ -581,7 +588,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-474 tests run in ~2.5 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+489 tests run in ~2.5 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
