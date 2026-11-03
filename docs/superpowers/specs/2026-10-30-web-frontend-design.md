@@ -55,9 +55,13 @@ src/web/app.py (FastAPI) ──► src/web/jobs.py (JobManager thread ⇄ child 
 ```text
 images        {total, registered, unregistered: [names]}
 points        {sparse, filtered} | null            null: no reconstruction
+features      {detector, matcher}                   the methods the run used
 calibration   {sources: ["file"|"exif"|"fallback", ...] (sorted, usually one),
-               K: 3x3 of the first image at working resolution}
+               K: 3x3 of the first image at working resolution, before bundle adjustment,
+               focal_scale: the refined focal scale | null}
 reprojection  {n, mean_px, median_px, p90_px, max_px} | null
+stages        {features, matches, verification, initial_pair, reconstruction, filter}
+               per-stage counts; null for a stage that did not run
 timings       {dataset, features, ..., filter: seconds}   stages that ran, in order
 total_s       seconds
 warnings      [text]   fallback intrinsics, unregistered images, no reconstruction
@@ -88,7 +92,10 @@ registered images with a ground-truth camera are scored; fewer than 3 gives an e
   `gt_cameras.json` if given, so the dataset loader's existing auto-detection finds them.
   The job manager removes the folder once the job has ended (done or failed); the run
   folder holds the results.
-- Results: the normal run folder `outputs/<stamp>_web_reconstruct/` plus `report.json`.
+- Results: the normal run folder `outputs/<stamp>_web_reconstruct/` plus `report.json` and
+  `thumbnails/` (`web.thumbnails` small photos, for the page). A failed job keeps the
+  outputs of the stages that finished and writes `failure.json` (error, stage,
+  `stages_done`, timings) instead of `report.json`.
 - Both are under git-ignored directories.
 
 ### 2.4 Configuration (`configs/default.yaml`)
@@ -125,8 +132,8 @@ from a CDN and labelled as external in the README and methodology docs.
 | `GET` | `/api/jobs/{id}/report` | `report.json`; `409` if not done yet; `404` if unknown. |
 | `GET` | `/api/jobs/{id}/files` | Relative paths of the files in the job's run folder (sorted; empty while running). The page shows only figures and downloads that exist, and links everything a failed job wrote. |
 | `GET` | `/api/jobs/{id}/files/{path}` | Serves a file from the job's run folder (a failed job's too: the outputs of the stages that finished). The resolved path must lie inside the run folder, otherwise `404`. |
-| `GET` | `/api/config` | Page-relevant settings: `poll_interval_ms`, `max_upload_images`, `max_upload_mb` from `web`; `min_images`, `extensions` from `dataset`. |
-| `GET` | `/api/jobs` | In-memory jobs plus finished web runs rediscovered from `outputs/<stamp>_web_reconstruct[_n]/report.json` (newest first; `_n` when two runs start in the same second), so results survive a server restart. |
+| `GET` | `/api/config` | Page-relevant settings: `poll_interval_ms`, `max_upload_images`, `max_upload_mb` from `web`; `min_images`, `extensions` from `dataset`; `stages`, the job's stages in order. |
+| `GET` | `/api/jobs` | In-memory jobs plus earlier web runs rediscovered from their folders `outputs/<stamp>_web_reconstruct[_n]/` (newest first; `_n` when two runs start in the same second), so results survive a server restart: finished from `report.json`, failed from `failure.json`, and failed as unfinished or unreadable without either (the running job's own folder excepted). |
 
 Rediscovered runs use the run folder name as their `id`.
 
@@ -138,8 +145,9 @@ One page, three states.
    `camera.yaml` and `gt_cameras.json`; **Run** button; "Open previous run" dropdown fed by
    `GET /api/jobs`, each run labelled with its start time and registered / total photos
    (or the photo count, and the status, while unfinished). Validation errors from the API shown inline.
-2. **Running** — checklist of stages (dataset, then `src/pipeline.STAGES`: features,
-   matches, verify, pose, triangulate, cloud, reconstruct, filter, then `outputs`): spinner on the current one, ✓ and time on finished
+2. **Running** — checklist of stages (dataset, then `src/pipeline.CORE_STAGES`: features,
+   matches, verify, pose, triangulate, cloud, reconstruct, filter — the optional `dense`
+   stage is not run from the page — then `outputs`): spinner on the current one, ✓ and time on finished
    ones. Polls every `poll_interval_ms`.
 3. **Results**
    - Summary cards: registered / total images, filtered points, median reprojection
@@ -164,14 +172,14 @@ Follows the system light/dark preference; usable at laptop and tablet widths.
 
 | Situation | Handling |
 |---|---|
-| Too few / too many images, bad extension, over size | `422`, inline message, nothing written |
+| Too few / too many images, bad extension, over size | `422`, inline message, nothing kept (the size is checked after the multipart body is received, so it is not a streaming limit) |
 | Malformed `camera.yaml` / `gt_cameras.json` | `422` naming the file, before queueing |
 | `DatasetError` | Job `failed` with the CLI's message, which lists the validation errors (`ValidationReport.errors`) after the folder |
 | Exception in a stage | Job `failed`, `stage` set to the failing stage, `error` holds the message; page marks it ✗ and links outputs already written |
 | Partial registration | Job `done`; summary shows the count in yellow and lists unregistered images |
 | Ground-truth names don't match uploads | GT panel says so; rest of the report unaffected |
 | Second run while one is running | `409`; page links to the running job |
-| Server restart mid-job | In-memory job lost; finished runs rediscovered from `report.json` |
+| Server restart mid-job | In-memory job lost; its folder, if it has one, is listed as a failed run that did not finish; finished and failed runs are rediscovered from `report.json` / `failure.json` |
 
 ## 6. Testing
 

@@ -1,8 +1,8 @@
 """Turn a finished web run into the intro page's showcase (src/web/static/showcase/).
 
 Usage:
-    python scripts/make_showcase.py outputs/<stamp>_web_reconstruct data/raw/templeRing \
-        [--name templeRing] [--out src/web/static/showcase]
+    python scripts/make_showcase.py outputs/<stamp>_web_reconstruct data/raw/temple \
+        --up-axis y [--name "Middlebury Temple"] [--out src/web/static/showcase]
 
 Uses the run's own settings (its config.yaml) to recompute the features and matches
 drawn in the "how it works" frames; see src/web/showcase.py. The output is committed so
