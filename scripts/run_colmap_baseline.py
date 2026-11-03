@@ -76,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
         print("our pipeline found no initial pair")
         return 1
     images = result.images
+    missing = [im.name for im in images if im.name not in gt]
+    if missing:
+        print(f"{len(missing)} image(s) have no ground-truth camera: {', '.join(missing[:5])}")
+        return 1
     truth = {im.name: at_working_resolution(gt[im.name], im.scale) for im in images}
     if any(not np.allclose(im.K, images[0].K) for im in images):
         print("COLMAP baseline expects one camera (identical intrinsics)")

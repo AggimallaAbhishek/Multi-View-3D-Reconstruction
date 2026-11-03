@@ -128,7 +128,8 @@ def collect_metrics(
 ) -> dict[str, Any]:
     """One row of METRICS for a run (nan where a metric does not apply).
 
-    Pose errors need ground truth and at least 3 registered cameras; cloud errors also
+    Pose errors need at least 3 registered cameras with ground truth (others are left
+    out); cloud errors also
     need the reference. Both align the reconstruction to ground truth through its
     camera centres. ``metric_scale_error`` is the relative error of the scale taken from
     a single measured distance (the true distance between the first two registered
@@ -169,8 +170,12 @@ def collect_metrics(
         filtered_points=int(keep.sum()),
         focal_px=float(np.median([c.K[0, 0] for c in cameras])),  # refined if refine_focal
     )
-    if gt is None or len(images) < 3:
+    # score the registered images that have ground truth (a set may lack some)
+    scored = [k for k, m in enumerate(images) if gt is not None and result.names[m] in gt]
+    if len(scored) < 3:
         return row
+    images = [images[k] for k in scored]
+    cameras = [cameras[k] for k in scored]
     truth = [gt[result.names[m]] for m in images]
     errors = camera_pose_errors(cameras, truth)
     one = metric_scale(cameras[0].centre, cameras[1].centre,

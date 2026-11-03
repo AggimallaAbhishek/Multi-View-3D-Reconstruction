@@ -402,4 +402,6 @@ def _quality(result: PipelineResult) -> tuple[int, float]:
     rec = result.reconstruction
     if rec is None:
         return 0, 0.0
-    return len(rec.registry.images), -float(np.mean(rec.landmarks.error))
+    errors = rec.landmarks.error
+    # no landmarks: no error to compare, and NaN would compare as "not worse"
+    return len(rec.registry.images), -float(np.mean(errors)) if len(errors) else -np.inf

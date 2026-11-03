@@ -336,3 +336,21 @@ def test_relative_pose_fallback_closes_a_sparse_arc(tmp_path):
     cameras = [rec.registry.camera(m) for m in rec.registry.images]
     errors = camera_pose_errors(cameras, [gt[result.names[m]] for m in rec.registry.images])
     assert errors.rotation_deg.max() < 0.5 and errors.centre.max() < 0.01  # measured 0.22 / 0.3 %
+
+
+def test_a_pass_without_landmarks_is_never_better():
+    """Self-calibration keeps a pass only if it is not worse. A pass with images
+    registered but no landmarks has no mean error (NaN), which used to compare as
+    'not worse' and so could replace a good pass."""
+    from types import SimpleNamespace
+
+    from src.pipeline import _quality
+
+    def result(errors):
+        rec = SimpleNamespace(
+            registry=SimpleNamespace(images=[0, 1, 2]),
+            landmarks=SimpleNamespace(error=np.array(errors)),
+        )
+        return SimpleNamespace(reconstruction=rec)
+
+    assert _quality(result([])) < _quality(result([0.4, 0.6]))
