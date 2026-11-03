@@ -2,6 +2,7 @@
 // a real run) shown live in the hero, its numbers filled in, and the pinned "how it was
 // made" story. The page reads fully without JavaScript; this adds the live parts.
 
+import { aroundRing, ease, pointsBelow, sortByHeight, upOf } from "./formation.js";
 import { cameraLabels, count, small } from "./ui.js";
 import { Viewer, parsePly } from "./viewer.js";
 
@@ -99,8 +100,12 @@ function startOrbit(model) {
   const viewer = new Viewer($("orbit-model"));
   viewer.controls.enabled = false;
   viewer.setPointSize(1.15); // fine points: the columns and cornices read clearly
-  viewer.setCloud({ positions: cloud.positions.slice(), colours: cloud.colours?.slice() ?? null });
-  viewer.setCameras(ring, { pullIn: 2.4 }); // drawn close round the model (caption says so)
+  // the formation draws a growing share of these: points bottom to top, cameras round the ring
+  const up = upOf(cloud, model.all, model.up);
+  const points = up ? sortByHeight(cloud, up) : { ...cloud, positions: cloud.positions.slice(), colours: cloud.colours?.slice() ?? null };
+  const cameras = up ? aroundRing(ring, up) : ring;
+  viewer.setCloud({ positions: points.positions, colours: points.colours });
+  viewer.setCameras(cameras, { pullIn: 2.4 }); // drawn close round the model (caption says so)
   standUp(viewer, model);
   viewer.setLayer("grid", false);
   // a low three-quarter view, as one would photograph a building, close enough that the
@@ -108,6 +113,30 @@ function startOrbit(model) {
   viewer.fit("cameras", { elevation: 16, distanceScale: 0.62 });
   viewer.controls.autoRotateSpeed = 0.9;
   viewer.spin(true);
+  if (up) form(viewer, points.heights, cameras.length);
+}
+
+const FORMATION_MS = 5000; // under 5 s: no pause control needed for it (WCAG 2.2.2)
+const FORMATION_OVERLAP = 4; // cameras growing in at once
+
+/** The cameras appear one by one round the ring while the temple rises from the ground in
+ * step with them, the last camera arriving as the roof fills in. Shown whole at once under
+ * reduced motion. */
+function form(viewer, heights, cameraCount) {
+  if (reducedMotion) return;
+  // each camera grows in over the time of FORMATION_OVERLAP cameras, so the next starts
+  // while the last settles: one continuous sweep round the ring, not a series of pops
+  const span = cameraCount - 1 + FORMATION_OVERLAP;
+  const levels = new Float32Array(cameraCount);
+  const start = performance.now();
+  const frame = (now) => {
+    const progress = ease(Math.min(1, (now - start) / FORMATION_MS));
+    for (let k = 0; k < cameraCount; k++) levels[k] = (progress * span - k) / FORMATION_OVERLAP;
+    viewer.setCameraLevels(levels); // clamps each to 0..1; all 1 once progress is 1
+    viewer.reveal(pointsBelow(heights, progress) / heights.length, Infinity);
+    if (progress < 1) requestAnimationFrame(frame);
+  };
+  frame(start); // nothing shown before the first frame
 }
 
 async function startHero({ showcase, gt }, model) {
