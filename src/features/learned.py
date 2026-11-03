@@ -99,6 +99,20 @@ class DISKExtractor(FeatureExtractor):
         )
 
 
+def _learned_version() -> str:
+    """kornia's and torch's versions: LightGlue's weights ship with kornia and run on
+    torch, so either can change its matches."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    def get(package: str) -> str:
+        try:
+            return version(package)
+        except PackageNotFoundError:
+            return "none"
+
+    return f"kornia-{get('kornia')}-torch-{get('torch')}"
+
+
 class LightGlueMatcher:
     """LightGlue on DISK features; same interface as ``DescriptorMatcher``.
 
@@ -112,6 +126,9 @@ class LightGlueMatcher:
         self.config = config
         self.image_sizes = list(image_sizes)
         self.device = torch_device(device)
+        # Its weights ship with kornia and run on torch, and GPU kernels can reorder
+        # near-equal scores (as for the DISK feature cache): all part of its cache key.
+        self.cache_tag = f"{_learned_version()}|{self.device.type}"
         self.model = (
             LightGlue(LIGHTGLUE_FEATURES, filter_threshold=config.lightglue_filter_threshold)
             .to(self.device)

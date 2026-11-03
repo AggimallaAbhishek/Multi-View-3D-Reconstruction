@@ -78,7 +78,7 @@ def test_run_colmap_recovers_rendered_cameras(tmp_path):
 def test_image_names_may_hold_spaces(tmp_path):
     """COLMAP's NAME is the rest of the header line, spaces included."""
     (tmp_path / "cameras.txt").write_text("1 PINHOLE 640 480 800 800 320 240\n")
-    (tmp_path / "images.txt").write_text("1 1 0 0 0 0 0 0 1 my photo 01.png\n\n")
+    (tmp_path / "images.txt").write_text("1 1 0 0 0 0 0 0 1 my photo 01.png  \n\n")
     (tmp_path / "points3D.txt").write_text("")
     assert list(read_text_model(tmp_path).cameras) == ["my photo 01.png"]
 

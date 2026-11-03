@@ -201,17 +201,15 @@ def test_pipeline_with_learned_config_recovers_true_poses(tmp_path):
 def test_match_cache_key_changes_with_the_lightglue_version(tmp_path, monkeypatch):
     """LightGlue's weights ship with kornia: a kornia upgrade may change matches of
     unchanged descriptors, so it must not reuse cached LightGlue matches."""
-    from src.features import matcher as matcher_module
+    from src.features import learned as learned_module
+    from src.features.matcher import DescriptorMatcher
 
-    cache = matcher_module.MatchCache(tmp_path)
     cfg = MatchConfig(method="lightglue")
-    before = cache.path_for("a", "b", cfg)
-    monkeypatch.setattr(matcher_module, "_learned_version", lambda: "kornia-0.0.0")
-    assert cache.path_for("a", "b", cfg) != before
+    before = LightGlueMatcher(cfg, [(64, 48)], device="cpu").cache_tag
+    monkeypatch.setattr(learned_module, "_learned_version", lambda: "kornia-0.0.0")
+    assert LightGlueMatcher(cfg, [(64, 48)], device="cpu").cache_tag != before
     # The classical matchers do not depend on kornia at all.
-    assert cache.path_for("a", "b", MatchConfig()) == matcher_module.MatchCache(tmp_path).path_for(
-        "a", "b", MatchConfig()
-    )
+    assert DescriptorMatcher(MatchConfig()).cache_tag == ""
 
 
 def test_match_cache_digest_covers_keypoint_positions():
@@ -237,10 +235,7 @@ def test_match_cache_key_changes_with_the_lightglue_device(tmp_path):
 
     cache = matcher_module.MatchCache(tmp_path)
     cfg = MatchConfig(method="lightglue")
-    assert cache.path_for("a", "b", cfg, device="cpu") != cache.path_for(
-        "a", "b", cfg, device="mps"
-    )
-    classical = MatchConfig()  # descriptor matching runs on the CPU only
-    assert cache.path_for("a", "b", classical, device="cpu") == cache.path_for(
-        "a", "b", classical, device="mps"
-    )
+    assert cache.path_for("a", "b", cfg, "cpu") != cache.path_for("a", "b", cfg, "mps")
+    matcher = LightGlueMatcher(cfg, [(64, 48)], device="cpu")
+    assert matcher.cache_tag.endswith("|cpu")
+    assert matcher_module.DescriptorMatcher(MatchConfig()).cache_tag == ""  # CPU only

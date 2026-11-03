@@ -37,7 +37,13 @@ from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.outputs import new_run_dir, save_stage_outputs
 from src.pipeline import CORE_STAGES, STAGES, PipelineResult, Stage, run_pipeline
 from src.run import read_json, run_stamp, run_stamp_of, write_json
-from src.web.report import FAILURE_NAME, REPORT_NAME, build_report, write_report
+from src.web.report import (
+    FAILURE_FIELDS,
+    FAILURE_NAME,
+    REPORT_NAME,
+    build_report,
+    write_report,
+)
 
 log = logging.getLogger(__name__)
 
@@ -103,51 +109,62 @@ class Job:
         }
 
     @classmethod
-    def from_run_dir(cls, run_dir: Path) -> Job | None:
+    def from_run_dir(cls, run_dir: Path) -> Job:
         """The web run of an earlier server in ``run_dir``: finished (its ``report.json``),
-        failed (its ``failure.json``), or None if it holds neither. A file that cannot be
-        read makes it a failed run naming the file, so it can still be listed and deleted."""
-        found = next(
-            (run_dir / n for n in (REPORT_NAME, FAILURE_NAME) if (run_dir / n).is_file()), None
-        )
-        if found is None:
-            return None
+        failed (its ``failure.json``), else failed as unfinished or unreadable, so that
+        every run folder can be listed and deleted."""
         run = cls(
-            id=run_dir.name, run_dir=run_dir, started=run_stamp_of(run_dir.name) or run_stamp()
+            id=run_dir.name,
+            status="failed",
+            run_dir=run_dir,
+            started=run_stamp_of(run_dir.name) or run_stamp(),
         )
+        finished = (run_dir / REPORT_NAME).is_file()
+        if finished:
+            path = run_dir / REPORT_NAME
+        elif (run_dir / FAILURE_NAME).is_file():
+            path = run_dir / FAILURE_NAME
+        else:
+            return dataclasses.replace(run, error=f"the run did not finish (no {REPORT_NAME})")
         try:
-            data = read_json(found)
-            if found.name == REPORT_NAME:
-                timings = dict(data.get("timings", {}))
-                photos, registered = image_counts(data)
-                changes = dict(
-                    status="done",
-                    stages_done=[*timings, "outputs"],
-                    timings=timings,
-                    photos=photos,
-                    registered=registered,
-                )
-            else:
-                changes = dict(
-                    status="failed",
-                    error=str(data["error"]),
-                    stage=data.get("stage"),
-                    stages_done=list(data.get("stages_done", [])),
-                    timings=dict(data.get("timings", {})),
-                )
-        except Exception as exc:  # any malformed content: report it on the run, not as a 500
-            log.warning("cannot read %s: %s", found, exc)
-            return dataclasses.replace(
-                run, status="failed", error=f"{found.name} cannot be read: {exc}"
-            )
-        return dataclasses.replace(run, **changes)
+            data = _read_run_file(path)
+        except ValueError as exc:
+            log.warning("cannot read %s: %s", path, exc)
+            return dataclasses.replace(run, error=f"{path.name} cannot be read: {exc}")
+        if not finished:
+            recorded = {k: data[k] for k in FAILURE_FIELDS if k in data}
+            recorded["error"] = str(recorded.get("error", "unknown error"))
+            return dataclasses.replace(run, **recorded)
+        timings = data.get("timings", {})
+        photos, registered = image_counts(data)
+        return dataclasses.replace(
+            run,
+            status="done",
+            stages_done=[*timings, "outputs"],
+            timings=timings,
+            photos=photos,
+            registered=registered,
+        )
+
+
+def _read_run_file(path: Path) -> dict[str, Any]:
+    """A run's ``report.json`` or ``failure.json``; ``ValueError`` if it cannot be read or
+    has the wrong shape for the fields a run is listed with."""
+    try:
+        data = read_json(path)  # bad JSON: ValueError already
+    except OSError as exc:
+        raise ValueError(exc) from exc
+    shapes = {"timings": dict, "images": dict, "stages_done": list}
+    if not isinstance(data, dict) or any(
+        k in data and not isinstance(data[k], t) for k, t in shapes.items()
+    ):
+        raise ValueError("unexpected content")
+    return data
 
 
 def _record_failure(job: Job) -> None:
-    """Best effort: the failed job's error, stage and timings as ``failure.json``."""
-    failure = {
-        k: v for k, v in job.to_dict().items() if k in ("error", "stage", "stages_done", "timings")
-    }
+    """Best effort: the failed job's ``FAILURE_FIELDS`` as ``failure.json``."""
+    failure = {k: v for k, v in job.to_dict().items() if k in FAILURE_FIELDS}
     try:
         write_json(job.run_dir / FAILURE_NAME, failure)
     except OSError:

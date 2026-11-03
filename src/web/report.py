@@ -20,7 +20,8 @@ from src.pipeline import PipelineResult
 from src.run import write_json
 
 REPORT_NAME = "report.json"
-FAILURE_NAME = "failure.json"  # a failed job's error, stage and timings, in its run folder
+FAILURE_NAME = "failure.json"  # a failed job's FAILURE_FIELDS, in its run folder
+FAILURE_FIELDS = ("error", "stage", "stages_done", "timings")
 
 
 def build_report(result: PipelineResult, gt: dict[str, Camera] | None = None) -> dict[str, Any]:

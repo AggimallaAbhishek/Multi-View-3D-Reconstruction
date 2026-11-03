@@ -26,7 +26,7 @@ from src.config import Config
 from src.data.dataset import CAMERA_FILE
 from src.evaluation.ground_truth import GT_CAMERAS_FILE, load_cameras_json
 from src.geometry.calibration import load_camera_file
-from src.run import is_run_dir_name, read_json
+from src.run import is_run_dir_name, read_json, run_stamp_of
 from src.web.jobs import (
     JOB_STAGES,
     RUN_LABEL,
@@ -36,7 +36,7 @@ from src.web.jobs import (
     new_job_id,
     terminate_children,
 )
-from src.web.report import REPORT_NAME
+from src.web.report import FAILURE_NAME, REPORT_NAME
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -65,14 +65,20 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
     previous: dict[str, Job] = {}  # finished runs never change: read each report once
 
     def previous_run(run_id: str) -> Job | None:
-        """A finished or failed web run of an earlier server, from its run folder."""
-        if run_id not in previous:
-            if not is_run_dir_name(run_id, RUN_LABEL):
-                return None
-            if (run := Job.from_run_dir(output_root / run_id)) is None:
-                return None
-            previous[run_id] = run
-        return previous[run_id]
+        """A finished or failed web run of an earlier server, from its run folder (None:
+        not a web run folder, or the one the running job is writing)."""
+        if run_id in previous:
+            return previous[run_id]
+        run_dir = output_root / run_id
+        if not is_run_dir_name(run_id, RUN_LABEL) or not run_dir.is_dir():
+            return None
+        active = manager.active()
+        if active is not None and run_stamp_of(run_id) == active.started:
+            return None  # being written: no report.json yet
+        run = Job.from_run_dir(run_dir)
+        if (run_dir / REPORT_NAME).is_file() or (run_dir / FAILURE_NAME).is_file():
+            previous[run_id] = run  # final: an unfinished folder may still be written
+        return run
 
     def find_job(job_id: str) -> Job:
         job = manager.get(job_id) or previous_run(job_id)
