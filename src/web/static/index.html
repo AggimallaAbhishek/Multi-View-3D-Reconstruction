@@ -35,7 +35,7 @@
       <span>Multi-View 3D Reconstruction</span>
     </a>
     <nav aria-label="Sections">
-      <a href="#how">How it works</a>
+      <a href="#how">How it is made</a>
       <a href="#architecture">Architecture</a>
       <a href="#results">Results</a>
     </nav>
@@ -45,17 +45,23 @@
   <main>
     <!-- Hero: the real reconstruction, live ------------------------------------------- -->
     <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-viewer" id="hero-viewer" tabindex="0" role="application" aria-roledescription="3-D view" aria-label="Live 3-D view of the templeRing reconstruction: the point cloud and its ring of recovered cameras. Drag or arrow keys to move, scroll to zoom, ] and [ to step through the cameras.">
-        <div class="fiducials" aria-hidden="true"></div>
-        <p class="hero-caption num" id="hero-caption" aria-hidden="true">templeRing · drag to orbit</p>
-        <div class="cam-label num" id="cam-label" aria-hidden="true" hidden></div>
-        <button type="button" class="pause" id="pause" aria-pressed="false" hidden>Pause rotation</button>
-        <p class="visually-hidden" id="hero-announce" aria-live="polite"></p>
-      </div>
+      <figure class="orbit" aria-labelledby="orbit-caption">
+        <div class="orbit-frame">
+          <div class="fiducials" aria-hidden="true"></div>
+          <div class="orbit-spin">
+            <img src="temple.jpg" alt="Illustration of a Greek temple, turning slowly" width="848" height="848" fetchpriority="high">
+            <svg class="orbit-ring" viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="orbit-track" cx="50" cy="50" r="48"/>
+              <g class="orbit-cameras"><line x1="50.00" y1="2.00" x2="50.00" y2="4.40"/><circle cx="50.00" cy="2.00" r="0.62"/><line x1="56.40" y1="2.43" x2="56.08" y2="4.81"/><circle cx="56.40" cy="2.43" r="0.62"/><line x1="62.68" y1="3.71" x2="62.05" y2="6.02"/><circle cx="62.68" cy="3.71" r="0.62"/><line x1="68.74" y1="5.81" x2="67.80" y2="8.02"/><circle cx="68.74" cy="5.81" r="0.62"/><line x1="74.46" y1="8.70" x2="73.24" y2="10.77"/><circle cx="74.46" cy="8.70" r="0.62"/><line x1="79.75" y1="12.33" x2="78.26" y2="14.21"/><circle cx="79.75" cy="12.33" r="0.62"/><line x1="84.50" y1="16.63" x2="82.78" y2="18.30"/><circle cx="84.50" cy="16.63" r="0.62"/><line x1="88.64" y1="21.53" x2="86.71" y2="22.95"/><circle cx="88.64" cy="21.53" r="0.62"/><line x1="92.09" y1="26.93" x2="89.99" y2="28.09"/><circle cx="92.09" cy="26.93" r="0.62"/><line x1="94.79" y1="32.75" x2="92.55" y2="33.61"/><circle cx="94.79" cy="32.75" r="0.62"/><line x1="96.69" y1="38.87" x2="94.36" y2="39.43"/><circle cx="96.69" cy="38.87" r="0.62"/><line x1="97.76" y1="45.20" x2="95.37" y2="45.44"/><circle cx="97.76" cy="45.20" r="0.62"/><line x1="97.97" y1="51.60" x2="95.57" y2="51.52"/><circle cx="97.97" cy="51.60" r="0.62"/><line x1="97.33" y1="57.98" x2="94.96" y2="57.58"/><circle cx="97.33" cy="57.98" r="0.62"/><line x1="95.84" y1="64.22" x2="93.55" y2="63.51"/><circle cx="95.84" cy="64.22" r="0.62"/><line x1="93.54" y1="70.20" x2="91.36" y2="69.19"/><circle cx="93.54" cy="70.20" r="0.62"/><line x1="90.46" y1="75.83" x2="88.44" y2="74.54"/><circle cx="90.46" cy="75.83" r="0.62"/><line x1="86.66" y1="80.99" x2="84.82" y2="79.44"/><circle cx="86.66" cy="80.99" r="0.62"/><line x1="82.20" y1="85.60" x2="80.59" y2="83.82"/><circle cx="82.20" cy="85.60" r="0.62"/><line x1="77.17" y1="89.57" x2="75.81" y2="87.59"/><circle cx="77.17" cy="89.57" r="0.62"/><line x1="71.65" y1="92.84" x2="70.57" y2="90.70"/><circle cx="71.65" cy="92.84" r="0.62"/><line x1="65.75" y1="95.34" x2="64.96" y2="93.08"/><circle cx="65.75" cy="95.34" r="0.62"/><line x1="59.56" y1="97.04" x2="59.08" y2="94.69"/><circle cx="59.56" cy="97.04" r="0.62"/><line x1="53.21" y1="97.89" x2="53.05" y2="95.50"/><circle cx="53.21" cy="97.89" r="0.62"/><line x1="46.79" y1="97.89" x2="46.95" y2="95.50"/><circle cx="46.79" cy="97.89" r="0.62"/><line x1="40.44" y1="97.04" x2="40.92" y2="94.69"/><circle cx="40.44" cy="97.04" r="0.62"/><line x1="34.25" y1="95.34" x2="35.04" y2="93.08"/><circle cx="34.25" cy="95.34" r="0.62"/><line x1="28.35" y1="92.84" x2="29.43" y2="90.70"/><circle cx="28.35" cy="92.84" r="0.62"/><line x1="22.83" y1="89.57" x2="24.19" y2="87.59"/><circle cx="22.83" cy="89.57" r="0.62"/><line x1="17.80" y1="85.60" x2="19.41" y2="83.82"/><circle cx="17.80" cy="85.60" r="0.62"/><line x1="13.34" y1="80.99" x2="15.18" y2="79.44"/><circle cx="13.34" cy="80.99" r="0.62"/><line x1="9.54" y1="75.83" x2="11.56" y2="74.54"/><circle cx="9.54" cy="75.83" r="0.62"/><line x1="6.46" y1="70.20" x2="8.64" y2="69.19"/><circle cx="6.46" cy="70.20" r="0.62"/><line x1="4.16" y1="64.22" x2="6.45" y2="63.51"/><circle cx="4.16" cy="64.22" r="0.62"/><line x1="2.67" y1="57.98" x2="5.04" y2="57.58"/><circle cx="2.67" cy="57.98" r="0.62"/><line x1="2.03" y1="51.60" x2="4.43" y2="51.52"/><circle cx="2.03" cy="51.60" r="0.62"/><line x1="2.24" y1="45.20" x2="4.63" y2="45.44"/><circle cx="2.24" cy="45.20" r="0.62"/><line x1="3.31" y1="38.87" x2="5.64" y2="39.43"/><circle cx="3.31" cy="38.87" r="0.62"/><line x1="5.21" y1="32.75" x2="7.45" y2="33.61"/><circle cx="5.21" cy="32.75" r="0.62"/><line x1="7.91" y1="26.93" x2="10.01" y2="28.09"/><circle cx="7.91" cy="26.93" r="0.62"/><line x1="11.36" y1="21.53" x2="13.29" y2="22.95"/><circle cx="11.36" cy="21.53" r="0.62"/><line x1="15.50" y1="16.63" x2="17.22" y2="18.30"/><circle cx="15.50" cy="16.63" r="0.62"/><line x1="20.25" y1="12.33" x2="21.74" y2="14.21"/><circle cx="20.25" cy="12.33" r="0.62"/><line x1="25.54" y1="8.70" x2="26.76" y2="10.77"/><circle cx="25.54" cy="8.70" r="0.62"/><line x1="31.26" y1="5.81" x2="32.20" y2="8.02"/><circle cx="31.26" cy="5.81" r="0.62"/><line x1="37.32" y1="3.71" x2="37.95" y2="6.02"/><circle cx="37.32" cy="3.71" r="0.62"/><line x1="43.60" y1="2.43" x2="43.92" y2="4.81"/><circle cx="43.60" cy="2.43" r="0.62"/></g>
+            </svg>
+          </div>
+        </div>
+        <figcaption id="orbit-caption">Illustration of a Greek temple (the Temple of Artemis), ringed by 47 marks: one for each photo of the benchmark temple reconstructed below.</figcaption>
+      </figure>
       <div class="hero-text">
-        <h1 id="hero-title"><span class="num" data-n="photos">47</span> photos in.<br>A <em>temple</em> out.</h1>
-        <p class="hero-error" id="hero-error" role="alert" hidden></p>
-        <p class="hero-lede">Classical structure from motion, written from scratch in Python. Ordinary overlapping photos become a 3-D point cloud and the position of every camera that took them, and the result is checked against ground truth.</p>
+        <h1 id="hero-title">Multi-View <em>3D</em> Reconstruction</h1>
+        <p class="hero-lede">Walk round an object with an ordinary camera and this project rebuilds it in three dimensions. A classical structure-from-motion pipeline, written from scratch in Python, finds the same points in many overlapping photos, works out where every photo was taken from, and triangulates those points into a coloured 3-D point cloud.</p>
+        <p class="hero-lede hero-lede-2">No depth sensor and no learned shortcut: only multi-view geometry, checked against benchmark ground truth and the reference system COLMAP (external).</p>
       </div>
       <div class="strip">
         <dl class="strip-numbers" id="strip" aria-label="The featured reconstruction in numbers">
@@ -72,42 +78,67 @@
     <!-- How it works: a pinned stage that changes with each step --------------------- -->
     <section class="how" id="how" aria-labelledby="how-title">
       <div class="how-steps">
-        <h2 id="how-title">How the temple was made</h2>
+        <h2 id="how-title">How the temple is made</h2>
+        <p class="section-lede how-lede">Five steps turn overlapping photos into a 3-D model. The first three are shown on the temple above, tilted into five views as photos from different positions would see it; the last two are the real reconstruction of the benchmark temple.</p>
         <ol class="steps" id="steps">
-          <li class="step is-active" data-frame="photos">
+          <li class="step is-active" data-frame="temple-photos">
+            <span class="step-progress" aria-hidden="true"></span>
             <h3>Photograph it from all round.</h3>
-            <img class="step-picture" src="showcase/photos.jpg" alt="Five of the templeRing photos" width="960" height="600" loading="lazy">
-            <p>Middlebury's templeRing: <span class="num" data-n="photos">47</span> photos of a plaster temple on a ring of viewpoints, each overlapping its neighbours. The camera's focal length comes from a calibration file, EXIF data, or a guess that bundle adjustment later refines.</p>
-            <ul class="photo-row" id="photo-row" aria-label="Six of the photos, evenly spread round the ring"></ul>
+            <img class="step-picture" src="showcase/temple-photos.jpg" alt="The temple seen from five positions" width="960" height="600" loading="lazy">
+            <p>Every part of the object has to appear in several photos taken from different places, each overlapping its neighbours by about two thirds. Here the temple is seen from <span class="num" data-n="temple-views">5</span> positions; the benchmark temple below was photographed <span class="num" data-n="photos">47</span> times on a ring round it.</p>
+            <ul class="photo-row" id="photo-row" aria-label="Six of the benchmark temple's 47 photos"></ul>
           </li>
-          <li class="step" data-frame="features">
+          <li class="step" data-frame="temple-features">
+            <span class="step-progress" aria-hidden="true"></span>
             <h3>Find points worth following.</h3>
-            <img class="step-picture" src="showcase/features.jpg" alt="One photo with its SIFT keypoints" width="960" height="600" loading="lazy">
-            <p>SIFT finds distinctive corners and blobs in each photo: <span class="num" data-n="keypoints">1 494</span> in this one, each with a 128-number descriptor of the texture round it. Dark or flat photos get a lower contrast threshold automatically.</p>
+            <img class="step-picture" src="showcase/temple-features.jpg" alt="The temple with its SIFT keypoints" width="960" height="600" loading="lazy">
+            <p>SIFT finds distinctive corners and blobs, columns, capitals, carved figures, and describes the texture round each with 128 numbers. It finds <span class="num" data-n="temple-keypoints">8 000</span> on this view, the most the configuration keeps.</p>
           </li>
-          <li class="step" data-frame="matches">
-            <h3>Match, then check the geometry.</h3>
-            <img class="step-picture" src="showcase/matches.jpg" alt="Verified matches between two neighbouring photos" width="960" height="600" loading="lazy">
-            <p>Descriptors are paired across photos (Lowe's ratio test, both directions), then a robust fit of the essential matrix throws out pairs no single camera motion can explain: <span class="num" data-n="verified">947</span> of <span class="num" data-n="matches">952</span> survive between these two neighbours.</p>
+          <li class="step" data-frame="temple-matches">
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Match them across views.</h3>
+            <img class="step-picture" src="showcase/temple-matches.jpg" alt="Matches between two neighbouring views of the temple" width="960" height="600" loading="lazy">
+            <p>Each point is paired with its look-alike in the next view (Lowe's ratio test, both directions), then a robust geometric fit throws out pairs that disagree: <span class="num" data-n="temple-verified">5 525</span> of <span class="num" data-n="temple-matches">5 553</span> survive here. A picture is flat, so a homography checks them; real photos of a 3-D object use the essential matrix.</p>
           </li>
           <li class="step" data-frame="cameras">
-            <h3>Solve the cameras one by one.</h3>
-            <img class="step-picture" src="showcase/cameras.jpg" alt="The recovered cameras round the temple" width="960" height="600" loading="lazy">
-            <p>Two photos give the first relative pose and the first 3-D points. Every further camera is placed by PnP against the points it sees, and bundle adjustment refines all cameras, points and the focal length together: <span class="num" data-n="cameras-short">47</span> cameras on the ring.</p>
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Solve where every camera stood.</h3>
+            <img class="step-picture" src="showcase/cameras.jpg" alt="The recovered cameras round the benchmark temple" width="960" height="600" loading="lazy">
+            <p>Two photos give the first relative pose and the first 3-D points. Every further camera is placed against the points it sees, and bundle adjustment refines all cameras, points and the focal length together: <span class="num" data-n="cameras-short">47</span> cameras on the ring of the benchmark temple.</p>
           </li>
           <li class="step" data-frame="cloud">
-            <h3>Keep the points you trust.</h3>
-            <img class="step-picture" src="showcase/cloud.jpg" alt="The filtered point cloud" width="960" height="600" loading="lazy">
-            <p>Points seen in too few views, with large reprojection error or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points. An optional dense stage adds stereo depth maps and a mesh.</p>
+            <span class="step-progress" aria-hidden="true"></span>
+            <h3>Build the point cloud.</h3>
+            <img class="step-picture" src="showcase/cloud.jpg" alt="The filtered point cloud of the benchmark temple" width="960" height="600" loading="lazy">
+            <p>Matched points are triangulated from the solved cameras; those seen in too few views or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points, shown live below.</p>
           </li>
         </ol>
       </div>
       <div class="how-stage-wrap">
         <figure class="how-stage">
           <div class="fiducials" aria-hidden="true"></div>
-          <img id="stage-image" src="showcase/photos.jpg" alt="Five of the templeRing photos" width="960" height="600">
-          <figcaption class="num" id="stage-caption">photos.jpg · 47 photos</figcaption>
+          <div class="stage-images">
+            <img class="stage-layer is-shown" id="stage-a" src="showcase/temple-photos.jpg" alt="The temple seen from five positions" width="960" height="600">
+            <img class="stage-layer" id="stage-b" alt="" width="960" height="600">
+          </div>
+          <figcaption class="num" id="stage-caption">The temple seen from 5 positions</figcaption>
         </figure>
+      </div>
+    </section>
+
+    <!-- The reconstruction, live ------------------------------------------------------ -->
+    <section class="live" id="live" aria-labelledby="live-title">
+      <h2 id="live-title">The reconstruction, live</h2>
+      <p class="section-lede">The real result for Middlebury's templeRing: the coloured point cloud and its ring of recovered cameras. Drag to turn it, scroll to zoom, hover a camera to see how far it is from the true one.</p>
+      <p class="hero-error" id="hero-error" role="alert" hidden></p>
+      <div class="live-frame">
+      <div class="hero-viewer" id="hero-viewer" tabindex="0" role="application" aria-roledescription="3-D view" aria-label="Live 3-D view of the templeRing reconstruction: the point cloud and its ring of recovered cameras. Drag or arrow keys to move, scroll to zoom, ] and [ to step through the cameras.">
+        <div class="fiducials" aria-hidden="true"></div>
+        <p class="hero-caption num" id="hero-caption" aria-hidden="true">templeRing · drag to orbit</p>
+        <div class="cam-label num" id="cam-label" aria-hidden="true" hidden></div>
+        <button type="button" class="pause" id="pause" aria-pressed="false" hidden>Pause rotation</button>
+        <p class="visually-hidden" id="hero-announce" aria-live="polite"></p>
+      </div>
       </div>
     </section>
 

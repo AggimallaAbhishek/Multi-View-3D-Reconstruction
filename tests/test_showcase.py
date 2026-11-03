@@ -97,3 +97,23 @@ def test_a_single_showcase_photo_is_the_first(run, tmp_path):
         (make_showcase(run_dir, images, tmp_path / "s", one) / "showcase.json").read_text()
     )["photos"]
     assert [p["name"] for p in photos] == ["view_01.png"]
+
+
+def test_temple_frames_are_drawn_from_measurements_on_the_picture(tmp_path):
+    """One picture tilted into five 'views': the keypoints and the verified matches shown
+    are the project's own SIFT and matching run on those views."""
+    from src.config import load_config
+    from src.web.showcase import TEMPLE_FRAMES, make_temple_frames
+    from tests.images import make_natural_texture
+
+    picture = tmp_path / "temple.jpg"
+    cv2.imwrite(str(picture), make_natural_texture(3, 640, 640))
+    config = load_config()
+    data = make_temple_frames(picture, tmp_path / "out", config)
+
+    for name in TEMPLE_FRAMES:
+        frame = cv2.imread(str(tmp_path / "out" / f"{name}.jpg"))
+        assert frame.shape[1] == config.web.showcase_frame_px, name
+    assert data["views"] == 5
+    assert data["keypoints"] > 200
+    assert 0 < data["verified"] <= data["matches"]

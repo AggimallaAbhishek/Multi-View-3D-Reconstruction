@@ -3,7 +3,7 @@
 
 body { font-size: var(--step-1); line-height: 1.55; }
 :root { --margin: clamp(16px, 4vw, 56px); --measure: 62ch; }
-html { scroll-padding-top: 80px; } /* headings and focused elements clear the sticky nav */
+html { scroll-padding-top: 80px; scroll-behavior: smooth; } /* headings and focused elements clear the sticky nav */
 
 /* Nav ---------------------------------------------------------------------------------- */
 .nav {
@@ -20,16 +20,39 @@ html { scroll-padding-top: 80px; } /* headings and focused elements clear the st
 
 /* Hero --------------------------------------------------------------------------------- */
 .hero {
-  position: relative; min-height: calc(100svh - 64px); display: grid; grid-template-rows: 1fr auto;
-  background: radial-gradient(ellipse 65% 60% at 58% 45%, var(--glow) 0%, var(--viewer) 70%);
+  position: relative; min-height: calc(100svh - 64px); display: grid;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); grid-template-rows: 1fr auto;
+  grid-template-areas: "text orbit" "strip strip"; align-items: center;
+  background: radial-gradient(ellipse 55% 65% at 72% 46%, var(--glow) 0%, var(--viewer) 72%);
   overflow: hidden; border-bottom: 1px solid var(--rule);
 }
-.hero-viewer { position: absolute; inset: 0 0 76px; cursor: grab; outline: none; }
+
+/* The turning temple: a picture, not a control. Nothing a visitor does changes it;
+   only a request for reduced motion holds it still (tokens.css). */
+.orbit { grid-area: orbit; justify-self: center; margin: var(--s6) var(--margin) var(--s6) 0; width: min(100%, 560px); pointer-events: none; user-select: none; -webkit-user-select: none; }
+.orbit-frame { position: relative; aspect-ratio: 1; padding: 7%; }
+.orbit-frame .fiducials { --fid-inset: 0; }
+.orbit-spin { position: relative; width: 100%; height: 100%; animation: orbit 90s linear infinite; will-change: transform; }
+.orbit-spin img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; box-shadow: 0 18px 60px rgb(0 0 0 / 0.55); }
+.orbit-ring { position: absolute; inset: -9%; width: 118%; height: 118%; max-width: none; overflow: visible; }
+.orbit-track { fill: none; stroke: var(--accent-line); stroke-width: 0.18; }
+.orbit-cameras line { stroke: var(--accent); stroke-width: 0.35; stroke-linecap: round; }
+.orbit-cameras circle { fill: var(--accent); }
+.orbit figcaption { margin-top: var(--s4); text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 48ch; margin-inline: auto; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+
+/* The live reconstruction, further down */
+.live { border-top: 1px solid var(--rule); }
+.live-frame {
+  position: relative; margin-top: var(--s6); height: min(78vh, 760px); min-height: 420px; border-radius: var(--r-card); overflow: hidden;
+  background: radial-gradient(ellipse 65% 60% at 50% 45%, var(--glow) 0%, var(--viewer) 70%);
+}
+.hero-viewer { position: absolute; inset: 0; cursor: grab; outline: none; }
 .hero-viewer:active { cursor: grabbing; }
 .hero-viewer:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .hero-viewer canvas { position: relative; z-index: 0; }
-.hero-viewer .fiducials { --fid-inset: 22px var(--margin); z-index: 1; }
-.hero-caption { position: absolute; z-index: 1; top: 52px; right: var(--margin); font-size: 13px; color: var(--muted); }
+.hero-viewer .fiducials { --fid-inset: 18px; z-index: 1; }
+.hero-caption { position: absolute; z-index: 1; top: 44px; right: 44px; font-size: 13px; color: var(--muted); }
 .cam-label {
   position: absolute; z-index: 3; pointer-events: none; transform: translate(14px, -50%);
   padding: 4px 9px; border: 1px solid var(--accent); border-radius: 6px; background: rgb(7 10 12 / 0.92);
@@ -38,23 +61,21 @@ html { scroll-padding-top: 80px; } /* headings and focused elements clear the st
 .cam-label.flip { transform: translate(calc(-100% - 14px), -50%); }
 .cam-label b { color: var(--accent); font-weight: 600; }
 
-.hero-text { position: relative; z-index: 2; align-self: end; padding: 0 var(--margin) var(--s7); max-width: 760px; pointer-events: none; }
-.hero-text > * { pointer-events: auto; position: relative; }
-/* a neutral scrim, so the text reads over any part of the cloud */
-.hero-text::before { content: ""; position: absolute; inset: -40% -30% -10% -20%; background: radial-gradient(closest-side, rgb(7 10 12 / 0.82), rgb(7 10 12 / 0)); pointer-events: none; }
-.hero h1 { font: 800 var(--step-4)/0.95 var(--display); font-stretch: 112%; letter-spacing: -0.03em; text-wrap: balance; }
+.hero-text { grid-area: text; position: relative; z-index: 2; padding: var(--s7) var(--margin); max-width: 780px; }
+.hero h1 { max-width: 11ch; font: 800 var(--step-4)/0.95 var(--display); font-stretch: 112%; letter-spacing: -0.03em; text-wrap: balance; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero h1 .num { font-family: inherit; letter-spacing: inherit; }
 .hero-error { margin-top: var(--s3); color: var(--error); }
 .pause {
-  position: absolute; z-index: 3; right: var(--margin); bottom: 22px; min-height: 36px; padding: 0 var(--s3);
+  position: absolute; z-index: 3; right: 44px; bottom: 36px; min-height: 36px; padding: 0 var(--s3);
   background: rgb(9 13 16 / 0.86); border: 1px solid var(--rule); border-radius: var(--r-control); color: var(--ink-2); font-size: 13px; cursor: pointer;
 }
 .pause:hover { color: var(--ink); border-color: var(--accent-line); }
 .pause[aria-pressed="true"] { color: var(--accent); }
+.hero-lede-2 { margin-top: var(--s3); color: var(--muted); }
 .hero-lede { margin-top: var(--s4); color: var(--ink-2); max-width: 48ch; }
 
-.strip { position: relative; z-index: 2; display: flex; align-items: stretch; border-top: 1px solid var(--rule); background: rgb(9 13 16 / 0.9); min-height: 76px; }
+.strip { grid-area: strip; position: relative; z-index: 2; display: flex; align-items: stretch; border-top: 1px solid var(--rule); background: rgb(9 13 16 / 0.9); min-height: 76px; }
 .strip-numbers { display: flex; margin: 0; }
 .strip-numbers > div { padding: var(--s3) var(--s5); border-right: 1px solid var(--rule); display: grid; align-content: center; }
 .strip-numbers > div:first-child { padding-left: var(--margin); }
@@ -76,7 +97,7 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
 
 /* How it works: pinned stage */
 .how { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--s7); align-items: start; }
-.how-steps h2 { margin-bottom: var(--s6); }
+.how-steps h2 { margin-bottom: 0; }
 .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
 .step { counter-increment: step; min-height: 68vh; padding: var(--s5) 0 var(--s5) var(--s6); position: relative; border-left: 1px solid var(--rule); }
 .step:last-child { min-height: 50vh; }
@@ -85,7 +106,10 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
   display: grid; place-items: center; background: var(--ground); border: 1.5px solid var(--rule);
   font: 600 14px var(--mono); color: var(--muted); transition: background-color var(--slow), color var(--slow), border-color var(--slow);
 }
-.step.is-active { border-left-color: var(--accent-line); }
+.step.is-active { border-left-color: var(--rule); }
+.step-progress { position: absolute; left: -1px; top: 0; width: 2px; height: calc(var(--progress, 0) * 100%); background: var(--accent); transition: height 120ms linear; }
+.step h3, .step p { transition: color var(--slow) var(--ease-out); }
+.how-lede { margin-bottom: var(--s6); }
 .step.is-active::before { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .step h3 { font: 700 var(--step-2)/1.2 var(--display); font-stretch: 106%; letter-spacing: -0.01em; color: var(--muted); transition: color var(--slow); }
 .step.is-active h3 { color: var(--ink); }
@@ -99,8 +123,10 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
 .how-stage-wrap { position: sticky; top: calc(64px + 9vh); }
 .how-stage { position: relative; margin: 0; background: var(--viewer); border-radius: var(--r-card); overflow: hidden; }
 .how-stage .fiducials { --fid-inset: 14px 14px 58px; z-index: 1; }
-.how-stage img { width: 100%; height: auto; aspect-ratio: 8 / 5; object-fit: cover; transition: opacity var(--slow) var(--ease-out); }
-.how-stage img.is-changing { opacity: 0; }
+.stage-images { position: relative; aspect-ratio: 8 / 5; }
+/* two stacked pictures crossfade, so a change never flashes the background */
+.stage-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.015); transition: opacity 700ms var(--ease-out), transform 1100ms var(--ease-out); }
+.stage-layer.is-shown { opacity: 1; transform: none; }
 .how-stage figcaption { padding: var(--s3) var(--s4); border-top: 1px solid var(--rule); font-size: 13px; color: var(--muted); background: var(--panel); }
 
 /* Architecture */
@@ -183,6 +209,9 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
 /* Responsive ---------------------------------------------------------------------------- */
 @media (max-width: 1000px) {
   .nav nav { display: none; }
+  .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "orbit" "text" "strip"; min-height: 0; }
+  .orbit { margin: var(--s6) auto 0; width: min(72vw, 460px); }
+  .hero-text { padding-top: var(--s5); }
   .strip { flex-wrap: wrap; }
   .strip-numbers { flex: 1 1 100%; flex-wrap: wrap; }
   .strip-numbers > div { flex: 1 1 25%; border-bottom: 1px solid var(--rule); }
@@ -209,13 +238,9 @@ h2 { font: 800 var(--step-3)/1.05 var(--display); font-stretch: 110%; letter-spa
 @media (max-width: 700px) {
   .strip-numbers > div { flex: 1 1 50%; padding: var(--s3) var(--margin); }
   .strip-numbers > div:nth-child(2n) { border-right: 0; }
-  /* the viewer above the text, not under it */
-  .hero { grid-template-rows: auto auto auto; min-height: 0; }
-  .hero-viewer { position: relative; inset: auto; height: 52svh; min-height: 300px; }
-  .hero-viewer .fiducials { --fid-inset: 14px var(--margin); }
-  .hero-text { padding-top: var(--s4); }
-  .hero-text::before { display: none; }
   .hero-caption { display: none; }
+  .orbit { width: min(80vw, 360px); }
+  .live-frame { height: 64svh; }
   .flow { grid-template-columns: minmax(0, 1fr); }
   .flow li::after { display: none !important; }
   .stack-row { flex-direction: column; align-items: stretch; }

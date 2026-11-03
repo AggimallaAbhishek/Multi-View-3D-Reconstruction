@@ -31,6 +31,8 @@ from src.run import read_json, write_json
 from src.web.report import REPORT_NAME
 
 FRAMES = ("photos", "features", "matches", "cameras", "cloud")
+TEMPLE_FRAMES = ("temple-photos", "temple-features", "temple-matches")
+TEMPLE_VIEWS_DEG = (-24, -12, 0, 12, 24)  # tilts that stand in for walking round the picture
 MATCH_LINES = 150  # lines drawn in the matches frame (a drawing choice, not a measurement)
 # Drawing choices for the frames (layout, not measurement):
 DIM = 0.45  # brightness of photos under keypoints or match lines, so the accent reads
@@ -271,3 +273,117 @@ def _render(
             cv2.line(canvas, (int(x), int(y)), tip, ACCENT, 1, cv2.LINE_AA)
             cv2.circle(canvas, (int(x), int(y)), 4, ACCENT, -1, cv2.LINE_AA)
     return canvas
+
+
+def make_temple_frames(picture: str | Path, out_dir: str | Path, config: Config) -> dict[str, Any]:
+    """Frames for "how it works" drawn from one picture (the intro's temple illustration).
+
+    The picture is tilted into five views, as photos from positions round it would look
+    (a homography per view: a picture is flat). The project's own feature extractor and
+    matcher then run on those views; the keypoints and matches drawn, and the numbers
+    returned, are their real output. A flat picture has no depth, so the matches are
+    verified with a homography (RANSAC, ``verification.ransac_threshold_px``) rather than
+    the essential matrix the pipeline uses on real photos.
+    """
+    from src.features.extractor import create_extractor
+    from src.features.matcher import DescriptorMatcher
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    image = cv2.imread(str(picture))
+    if image is None:
+        raise ValueError(f"cannot read {picture}")
+    views = [_tilt(image, deg) for deg in TEMPLE_VIEWS_DEG]
+    width = config.web.showcase_frame_px
+    size = (width, round(width * 5 / 8))
+
+    # photos: the five views fanned out
+    canvas = _canvas(size)
+    card = (int(width * CARD[0]), int(size[1] * CARD[1]))
+    step = (width - card[0] - width * 0.1) / (len(views) - 1)
+    for k, view in enumerate(views):
+        photo = _fit(view, card)
+        cv2.rectangle(photo, (0, 0), (photo.shape[1] - 1, photo.shape[0] - 1), MUTED, 2)
+        x = int(width * 0.05 + k * step)
+        _paste(canvas, photo, x, (size[1] - photo.shape[0]) // 2)
+    _save(out, "temple-photos", canvas, config)
+
+    extractor = create_extractor(config.features)
+    features = [extractor.detect(cv2.cvtColor(v, cv2.COLOR_BGR2GRAY)) for v in views]
+
+    # features: the middle view with every keypoint
+    middle = len(views) // 2
+    photo = _fit(views[middle], (size[0] - 40, size[1] - 40))
+    scale = photo.shape[1] / views[middle].shape[1]
+    photo = _dim(photo)
+    f = features[middle]
+    for (x, y), s in zip(f.points, f.sizes, strict=True):
+        cv2.circle(
+            photo,
+            (round(x * scale), round(y * scale)),
+            max(2, round(s * scale / 2)),
+            ACCENT,
+            1,
+            cv2.LINE_AA,
+        )
+    canvas = _canvas(size)
+    _paste(canvas, photo, (size[0] - photo.shape[1]) // 2, (size[1] - photo.shape[0]) // 2)
+    _save(out, "temple-features", canvas, config)
+
+    # matches: two neighbouring views, verified
+    a, b = middle - 1, middle
+    matches, _ = DescriptorMatcher(config.matching).match(features[a], features[b], a, b)
+    pa, pb = matches.points(features[a], features[b])
+    verified = 0
+    keep = np.zeros(len(pa), bool)
+    if len(pa) >= 4:
+        _, mask = cv2.findHomography(pa, pb, cv2.RANSAC, config.verification.ransac_threshold_px)
+        if mask is not None:
+            keep = mask.ravel().astype(bool)
+            verified = int(keep.sum())
+    half = (size[0] // 2 - 20, size[1] - 40)
+    left, right = _fit(views[a], half), _fit(views[b], half)
+    sa, sb = left.shape[1] / views[a].shape[1], right.shape[1] / views[b].shape[1]
+    canvas = _canvas(size)
+    y0, y1 = (size[1] - left.shape[0]) // 2, (size[1] - right.shape[0]) // 2
+    x_left = 10 + (half[0] - left.shape[1]) // 2
+    x_right = size[0] // 2 + 10 + (half[0] - right.shape[1]) // 2
+    _paste(canvas, _dim(left), x_left, y0)
+    _paste(canvas, _dim(right), x_right, y1)
+    good_a, good_b = pa[keep], pb[keep]
+    shown = (
+        np.linspace(0, len(good_a) - 1, min(len(good_a), MATCH_LINES)).astype(int)
+        if len(good_a)
+        else []
+    )
+    for i in shown:
+        (xa, ya), (xb, yb) = good_a[i], good_b[i]
+        cv2.line(
+            canvas,
+            (round(x_left + xa * sa), round(y0 + ya * sa)),
+            (round(x_right + xb * sb), round(y1 + yb * sb)),
+            ACCENT,
+            1,
+            cv2.LINE_AA,
+        )
+    _save(out, "temple-matches", canvas, config)
+
+    data = {"views": len(views), "keypoints": len(f), "matches": len(matches), "verified": verified}
+    write_json(out / "temple.json", data)
+    return data
+
+
+def _tilt(image: np.ndarray, degrees: float) -> np.ndarray:
+    """The picture as seen from a camera turned ``degrees`` round its vertical axis: the
+    far side shrinks (a homography), on the page's dark background."""
+    h, w = image.shape[:2]
+    t = np.deg2rad(degrees)
+    squeeze = 0.5 * h * abs(np.sin(t)) * 0.45  # how much the far edge shrinks
+    near, far = 0.0, squeeze
+    xs = w * (1 - np.cos(t)) / 2  # the turned picture is narrower
+    if degrees >= 0:  # right edge further away
+        dst = [[xs, near], [w - xs, far], [w - xs, h - far], [xs, h - near]]
+    else:
+        dst = [[xs, far], [w - xs, near], [w - xs, h - near], [xs, h - far]]
+    H = cv2.getPerspectiveTransform(np.float32([[0, 0], [w, 0], [w, h], [0, h]]), np.float32(dst))
+    return cv2.warpPerspective(image, H, (w, h), borderValue=BACKGROUND)

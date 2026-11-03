@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.config import load_config  # noqa: E402
-from src.web.showcase import make_showcase  # noqa: E402
+from src.web.showcase import make_showcase, make_temple_frames  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,12 +30,15 @@ def main(argv: list[str] | None = None) -> int:
         "--name", default="", help="name shown on the page (default: the photo folder)"
     )
     parser.add_argument("--out", type=Path, default=ROOT / "src" / "web" / "static" / "showcase")
+    parser.add_argument("--temple", type=Path, help="also draw the temple frames from this picture")
     args = parser.parse_args(argv)
     run_config = args.run_dir / "config.yaml"
     config = load_config(run_config if run_config.is_file() else None)
     out = make_showcase(
         args.run_dir, args.images, args.out, config, name=args.name or args.images.name
     )
+    if args.temple:
+        make_temple_frames(args.temple, out, config)
     total = sum(p.stat().st_size for p in out.iterdir())
     print(f"Wrote {out} ({total / 2**20:.2f} MB)")
     return 0

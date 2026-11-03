@@ -19,7 +19,10 @@ function fill(values) {
 }
 
 async function loadShowcase() {
-  const showcase = await fetch("showcase/showcase.json").then((r) => r.json());
+  const [showcase, temple] = await Promise.all([
+    fetch("showcase/showcase.json").then((r) => r.json()),
+    fetch("showcase/temple.json").then((r) => r.json()),
+  ]);
   const { report, frames } = showcase;
   const frame = Object.fromEntries(frames.map((f) => [f.file.replace(".jpg", ""), f]));
   const gt = report.ground_truth && !report.ground_truth.error ? report.ground_truth : null;
@@ -33,10 +36,14 @@ async function loadShowcase() {
     keypoints: count(frame.features.keypoints),
     verified: count(frame.matches.verified),
     matches: count(frame.matches.matches),
+    "temple-views": String(temple.views),
+    "temple-keypoints": count(temple.keypoints),
+    "temple-verified": count(temple.verified),
+    "temple-matches": count(temple.matches),
   });
   renderPhotos(showcase.photos ?? []);
   renderFragment(report);
-  return { showcase, frame, gt };
+  return { showcase, frame, gt, temple };
 }
 
 function renderPhotos(photos) {
@@ -129,46 +136,49 @@ async function startHero({ showcase, gt }) {
 
 // --- How it was made: the pinned stage follows the step in view ---------------------------
 
-function startStory({ frame }) {
+function startStory({ frame, temple }) {
   const steps = [...document.querySelectorAll(".step")];
-  const image = $("stage-image");
+  const layers = [$("stage-a"), $("stage-b")];
   const caption = $("stage-caption");
   const describe = {
-    photos: () => [`Five of the ${frame.photos.photos} templeRing photos`, `${frame.photos.photos} photos`],
-    features: () => [`${frame.features.photo} with its ${count(frame.features.keypoints)} SIFT keypoints`, `${frame.features.photo} · ${count(frame.features.keypoints)} keypoints`],
-    matches: () => [`${frame.matches.verified} verified matches between ${frame.matches.photos.join(" and ")}`, `${frame.matches.photos.join(" ↔ ")} · ${count(frame.matches.verified)} of ${count(frame.matches.matches)} verified (150 drawn)`],
-    cameras: () => [`The ${frame.cameras.cameras} recovered cameras round the temple`, `${frame.cameras.cameras} recovered cameras`],
-    cloud: () => [`The filtered point cloud of ${count(frame.cloud.points)} points`, `${count(frame.cloud.points)} points after filtering`],
+    "temple-photos": () => [`The temple seen from ${temple.views} positions`, `The temple seen from ${temple.views} positions`],
+    "temple-features": () => [`The temple with its ${count(temple.keypoints)} SIFT keypoints`, `${count(temple.keypoints)} SIFT keypoints on one view`],
+    "temple-matches": () => [`${count(temple.verified)} verified matches between two views of the temple`, `${count(temple.verified)} of ${count(temple.matches)} matches verified (150 drawn)`],
+    cameras: () => [`The ${frame.cameras.cameras} recovered cameras round the benchmark temple`, `Benchmark temple: ${frame.cameras.cameras} recovered cameras`],
+    cloud: () => [`The filtered point cloud of ${count(frame.cloud.points)} points`, `Benchmark temple: ${count(frame.cloud.points)} points after filtering`],
   };
-  let current = "photos";
-  let pending = 0; // the picture swap waiting for the fade, cancelled by a newer step
+  let current = "temple-photos";
+  let front = 0; // the layer on show
   const select = (name) => {
     if (name === current) return;
     current = name;
     for (const step of steps) step.classList.toggle("is-active", step.dataset.frame === name);
     const [alt, text] = describe[name]();
-    const swap = () => {
-      image.src = `showcase/${name}.jpg`;
-      image.alt = alt;
-      caption.textContent = `${name}.jpg · ${text}`;
-      image.classList.remove("is-changing");
+    const next = layers[1 - front];
+    next.src = `showcase/${name}.jpg`;
+    next.alt = alt;
+    const show = () => {
+      next.classList.add("is-shown");
+      layers[front].classList.remove("is-shown");
+      layers[front].alt = "";
+      front = 1 - front;
+      caption.textContent = text;
     };
-    clearTimeout(pending);
-    if (reducedMotion) return swap();
-    image.classList.add("is-changing");
-    pending = setTimeout(swap, 180);
+    if (next.complete) show(); else next.addEventListener("load", show, { once: true });
   };
-  // preload, so a step never waits for its picture
-  for (const name of Object.keys(describe)) new Image().src = `showcase/${name}.jpg`;
-  const [alt, text] = describe.photos();
-  image.alt = alt;
-  caption.textContent = `photos.jpg · ${text}`;
-  // One source of truth: the step under the middle of the viewport (the first above it
-  // before the steps begin, the last after they end), recomputed once per frame on scroll.
+  for (const name of Object.keys(describe)) new Image().src = `showcase/${name}.jpg`; // preload
+  caption.textContent = describe[current]()[1];
+
+  // One source of truth: the step under the middle of the viewport, and how far through
+  // it the reader is (the progress line), recomputed once per frame on scroll.
   const update = () => {
     const middle = innerHeight / 2;
     let active = steps[0];
-    for (const step of steps) if (step.getBoundingClientRect().top <= middle) active = step;
+    for (const step of steps) {
+      const r = step.getBoundingClientRect();
+      if (r.top <= middle) active = step;
+      step.style.setProperty("--progress", Math.min(1, Math.max(0, (middle - r.top) / r.height)).toFixed(3));
+    }
     select(active.dataset.frame);
   };
   let queued = false;
