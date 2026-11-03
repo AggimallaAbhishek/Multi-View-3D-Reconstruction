@@ -172,18 +172,19 @@ function openJobInUrl(id) {
   else if (saved?.id !== id) rememberOpenRun(id); // its folder is added once it has finished
 }
 
+/** Open a run; true only when the server no longer knows it (so it is forgotten). */
 async function openJob(id, { quiet = false } = {}) {
   const token = ++pollToken;
   openJobInUrl(id);
   try {
     const job = await api(jobUrl(id));
-    if (token !== pollToken) return "superseded"; // another run opened meanwhile
+    if (token !== pollToken) return false; // another run opened meanwhile
     showUploadMessage(null);
     if (job.status === "done") await showResults(job);
     else follow(job);
-    return "opened";
+    return false;
   } catch (error) {
-    if (token !== pollToken) return "superseded"; // don't clear the run now on screen
+    if (token !== pollToken) return false; // don't clear the run now on screen
     // Only a run the server does not know is forgotten (deleted, or a job id from
     // before a restart). Anything else (the server unreachable, a page error) keeps
     // the run remembered for the next reload and says what went wrong.
@@ -191,7 +192,7 @@ async function openJob(id, { quiet = false } = {}) {
     clearRun({ forget: gone });
     if (!gone) console.error(error);
     if (!gone || !quiet) showUploadMessage(`Could not open run ${id}: ${error.message}`);
-    return gone ? "gone" : "error";
+    return gone;
   }
 }
 
@@ -201,8 +202,8 @@ async function reopenRememberedRun() {
   const ids = rememberedOpenRun();
   const folder = ids.at(-1);
   for (const id of ids) {
-    const outcome = await openJob(id, { quiet: true });
-    if (outcome !== "gone") return; // opened, or an error that keeps it remembered
+    const gone = await openJob(id, { quiet: true });
+    if (!gone) return; // opened, or an error that keeps it remembered
     if (id !== folder) rememberOpenRun(folder, folder); // keep the folder for the next try
   }
   clearRun();
