@@ -8,6 +8,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
+import { linearColours } from "./colour.js";
+
 const ACCENT = 0x3cc2b5;
 const FRUSTUM_SCALE = 0.05; // frustum depth as a fraction of the cloud's extent ...
 const FRUSTUM_RING_SCALE = 0.1; // ... or of the cameras' median distance to it, if larger
@@ -166,8 +168,6 @@ function dominantAxis(e, scale = Math.max(...e.map(Math.abs))) {
   return v;
 }
 
-const srgbToLinear = (c) => (c < 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-
 // --- Viewer ---------------------------------------------------------------------------
 
 /** A round sprite (white disc, or a soft glow) for point materials. */
@@ -259,11 +259,8 @@ export class Viewer {
     this.#dispose(this.points);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    if (colours) {
-      // PLY colours are sRGB; three.js wants linear vertex colours (converted in place:
-      // the parsed arrays belong to this cloud)
-      for (let i = 0; i < colours.length; i++) colours[i] = srgbToLinear(colours[i]);
-      geometry.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+    if (colours) { // drawn as linear copies: the caller's arrays stay sRGB, to show again
+      geometry.setAttribute("color", new THREE.BufferAttribute(linearColours(colours), 3));
     }
     geometry.computeBoundingBox();
     this.sphere = robustSphere(positions);

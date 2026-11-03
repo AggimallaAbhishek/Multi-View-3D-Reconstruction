@@ -102,7 +102,7 @@ function startOrbit(model) {
   viewer.setPointSize(1.15); // fine points: the columns and cornices read clearly
   // the formation draws a growing share of these: points bottom to top, cameras round the ring
   const up = upOf(cloud, model.all, model.up);
-  const points = up ? sortByHeight(cloud, up) : { ...cloud, positions: cloud.positions.slice(), colours: cloud.colours?.slice() ?? null };
+  const points = up ? sortByHeight(cloud, up) : cloud; // setCloud leaves the arrays as they are
   const cameras = up ? aroundRing(ring, up) : ring;
   viewer.setCloud({ positions: points.positions, colours: points.colours });
   viewer.setCameras(cameras, { pullIn: 2.4 }); // drawn close round the model (caption says so)
