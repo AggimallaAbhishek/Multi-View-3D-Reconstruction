@@ -69,23 +69,29 @@
         <h2 id="how-title">How the temple was made</h2>
         <ol class="steps" id="steps">
           <li class="step is-active" data-frame="photos">
-            <h3>Photograph the object from all round.</h3>
+            <h3>Photograph it from all round.</h3>
+            <img class="step-picture" src="showcase/photos.jpg" alt="Five of the templeRing photos" width="960" height="600" loading="lazy">
             <p>Middlebury's templeRing: <span class="num" data-n="photos">47</span> photos of a plaster temple on a ring of viewpoints, each overlapping its neighbours. The camera's focal length comes from a calibration file, EXIF data, or a guess that bundle adjustment later refines.</p>
+            <ul class="photo-row" id="photo-row" aria-label="Six of the photos, evenly spread round the ring"></ul>
           </li>
           <li class="step" data-frame="features">
             <h3>Find points worth following.</h3>
+            <img class="step-picture" src="showcase/features.jpg" alt="One photo with its SIFT keypoints" width="960" height="600" loading="lazy">
             <p>SIFT finds distinctive corners and blobs in each photo: <span class="num" data-n="keypoints">1 494</span> in this one, each with a 128-number descriptor of the texture round it. Dark or flat photos get a lower contrast threshold automatically.</p>
           </li>
           <li class="step" data-frame="matches">
-            <h3>Match them, then keep only what the geometry allows.</h3>
+            <h3>Match, then check the geometry.</h3>
+            <img class="step-picture" src="showcase/matches.jpg" alt="Verified matches between two neighbouring photos" width="960" height="600" loading="lazy">
             <p>Descriptors are paired across photos (Lowe's ratio test, both directions), then a robust fit of the essential matrix throws out pairs no single camera motion can explain: <span class="num" data-n="verified">947</span> of <span class="num" data-n="matches">952</span> survive between these two neighbours.</p>
           </li>
           <li class="step" data-frame="cameras">
-            <h3>Solve the cameras, one at a time.</h3>
+            <h3>Solve the cameras one by one.</h3>
+            <img class="step-picture" src="showcase/cameras.jpg" alt="The recovered cameras round the temple" width="960" height="600" loading="lazy">
             <p>Two photos give the first relative pose and the first 3-D points. Every further camera is placed by PnP against the points it sees, and bundle adjustment refines all cameras, points and the focal length together: <span class="num" data-n="cameras-short">47</span> cameras on the ring.</p>
           </li>
           <li class="step" data-frame="cloud">
-            <h3>Keep the points you can trust.</h3>
+            <h3>Keep the points you trust.</h3>
+            <img class="step-picture" src="showcase/cloud.jpg" alt="The filtered point cloud" width="960" height="600" loading="lazy">
             <p>Points seen in too few views, with large reprojection error or far from their neighbours are filtered out, leaving <span class="num" data-n="points">9 907</span> coloured points. An optional dense stage adds stereo depth maps and a mesh.</p>
           </li>
         </ol>
@@ -138,11 +144,11 @@
             <tr><th scope="col">Scene</th><th scope="col">Cameras</th><th scope="col">Rotation error<br><small>median</small></th><th scope="col">Points</th><th scope="col">COLMAP <small>(external)</small></th></tr>
           </thead>
           <tbody>
-            <tr><th scope="row">templeRing <small>Middlebury, 47 photos</small></th><td class="num">47 / 47</td><td class="num">0.15°</td><td class="num">9 907</td><td class="num">47 / 47 · 0.26°</td></tr>
-            <tr><th scope="row">dinoRing <small>Middlebury, dark, 48 photos</small></th><td class="num">48 / 48</td><td class="num">0.15°</td><td class="num">3 462</td><td class="num">24 / 48 · 23.4°</td></tr>
-            <tr><th scope="row">pipes <small>ETH3D, 14 DSLR photos</small></th><td class="num">14 / 14</td><td class="num">0.06°</td><td class="num">–</td><td class="num">11 / 14 · 0.08°</td></tr>
-            <tr><th scope="row">office <small>ETH3D, 26 photos, low texture</small></th><td class="num">26 / 26</td><td class="num">0.14°</td><td class="num">–</td><td class="num">26 / 26 · 0.24°</td></tr>
-            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num">16 / 16</td><td class="num">0.21°</td><td class="num">–</td><td class="num">6 / 16 · 0.54° <small>K fixed</small></td></tr>
+            <tr><th scope="row">templeRing <small>Middlebury, 47 photos</small></th><td class="num" data-label="Cameras">47 / 47</td><td class="num" data-label="Rotation error">0.15°</td><td class="num" data-label="Points">9 907</td><td class="num" data-label="COLMAP (external)">47 / 47 · 0.26°</td></tr>
+            <tr><th scope="row">dinoRing <small>Middlebury, dark, 48 photos</small></th><td class="num" data-label="Cameras">48 / 48</td><td class="num" data-label="Rotation error">0.15°</td><td class="num" data-label="Points">3 462</td><td class="num" data-label="COLMAP (external)">24 / 48 · 23.4°</td></tr>
+            <tr><th scope="row">pipes <small>ETH3D, 14 DSLR photos</small></th><td class="num" data-label="Cameras">14 / 14</td><td class="num" data-label="Rotation error">0.06°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">11 / 14 · 0.08°</td></tr>
+            <tr><th scope="row">office <small>ETH3D, 26 photos, low texture</small></th><td class="num" data-label="Cameras">26 / 26</td><td class="num" data-label="Rotation error">0.14°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">26 / 26 · 0.24°</td></tr>
+            <tr class="highlight"><th scope="row">dinoSparseRing <small>16 widely spaced photos, learned features</small></th><td class="num" data-label="Cameras">16 / 16</td><td class="num" data-label="Rotation error">0.21°</td><td class="num" data-label="Points">–</td><td class="num" data-label="COLMAP (external)">6 / 16 · 0.54° <small>K fixed</small></td></tr>
           </tbody>
         </table>
       </div>
@@ -153,6 +159,7 @@
 
     <!-- Call to action --------------------------------------------------------------- -->
     <section class="cta" aria-labelledby="cta-title">
+      <div class="cta-text">
       <h2 id="cta-title">Bring your own photos.</h2>
       <p>Walk round an object, take twenty or more overlapping photos and drop them into the workstation. It runs on this machine; nothing is uploaded anywhere else.</p>
       <div class="cta-actions">
@@ -160,6 +167,12 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
         <code class="cli">python -m src.cli reconstruct data/raw/templeRing</code>
       </div>
+      </div>
+      <figure class="fragment" data-ui aria-labelledby="fragment-caption">
+        <div class="fragment-head"><span>Pipeline</span><span class="fragment-tag">done</span></div>
+        <ol class="fragment-pipeline" id="fragment-pipeline"></ol>
+        <figcaption id="fragment-caption">The workstation's pipeline column for the templeRing run above, with its real stage times.</figcaption>
+      </figure>
     </section>
   </main>
 

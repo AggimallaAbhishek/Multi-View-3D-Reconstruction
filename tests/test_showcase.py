@@ -75,3 +75,16 @@ def test_frame_numbers_come_from_the_run(run, tmp_path):
     matches = frames["matches.jpg"]
     assert 0 < matches["verified"] <= matches["matches"]
     assert frames["cameras.jpg"]["cameras"] == data["report"]["images"]["registered"]
+
+
+def test_showcase_keeps_a_few_of_the_photos_themselves(run, tmp_path):
+    """The intro shows real photos of the subject, evenly spread over the set."""
+    run_dir, images, config = run
+    out = make_showcase(run_dir, images, tmp_path / "s", config)
+    photos = json.loads((out / "showcase.json").read_text())["photos"]
+    assert len(photos) == 5  # every photo of the 5-view scene, at most web.showcase_photos (6)
+    for entry in photos:
+        image = cv2.imread(str(out / entry["file"]))
+        assert max(image.shape[:2]) == config.web.thumbnail_px * 2
+        assert (out / entry["file"]).stat().st_size < 60_000
+    assert [p["name"] for p in photos] == sorted(p["name"] for p in photos)

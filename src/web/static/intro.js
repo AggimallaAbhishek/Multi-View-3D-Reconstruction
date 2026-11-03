@@ -34,7 +34,44 @@ async function loadShowcase() {
     verified: count(frame.matches.verified),
     matches: count(frame.matches.matches),
   });
+  renderPhotos(showcase.photos ?? []);
+  renderFragment(report);
   return { showcase, frame, gt };
+}
+
+function renderPhotos(photos) {
+  $("photo-row").replaceChildren(...photos.map(({ file, name }) => {
+    const item = document.createElement("li");
+    const figure = document.createElement("figure");
+    const img = Object.assign(document.createElement("img"), { src: `showcase/${file}`, alt: `templeRing photo ${name}`, loading: "lazy", width: 480, height: 360 });
+    const caption = Object.assign(document.createElement("figcaption"), { textContent: name.replace(/\.[^.]+$/, "") });
+    figure.append(img, caption);
+    item.append(figure);
+    return item;
+  }));
+}
+
+/** The workstation's pipeline column for the showcase run, with its real times. */
+function renderFragment(report) {
+  const t = report.timings;
+  const s = report.stages ?? {};
+  const time = (x, cached) => (cached ? "cached" : `${x < 10 ? x.toFixed(1) : Math.round(x)} s`);
+  const rows = [
+    ["Load and check photos", `${report.images.total} photos`, time(t.dataset)],
+    ["Detect features", s.features ? `${count(Math.round(s.features.per_image_median))} per photo` : "", time(t.features, s.features?.cached)],
+    ["Match features", s.matches ? `${count(s.matches.matches)} matches` : "", time(t.matches, s.matches?.cached)],
+    ["Verify geometry", s.verification ? `${s.verification.pairs} pairs · ${Math.round(100 * s.verification.inlier_ratio)}% inliers` : "", time(t.verify)],
+    ["Register cameras, adjust", s.reconstruction ? `${s.reconstruction.registered}/${report.images.total} cameras` : "", time(t.pose + t.triangulate + t.cloud + t.reconstruct)],
+    ["Remove outliers", s.filter ? `${count(s.filter.kept)} of ${count(s.filter.total)} kept` : "", time(t.filter)],
+  ];
+  $("fragment-pipeline").replaceChildren(...rows.map(([name, detail, when]) => {
+    const li = document.createElement("li");
+    li.innerHTML = '<span class="dot" aria-hidden="true"></span><span><b></b><small></small></span><span class="time"></span>';
+    li.querySelector("b").textContent = name;
+    li.querySelector("small").textContent = detail;
+    li.querySelector(".time").textContent = when;
+    return li;
+  }));
 }
 
 // --- Hero: the reconstruction, live -----------------------------------------------------

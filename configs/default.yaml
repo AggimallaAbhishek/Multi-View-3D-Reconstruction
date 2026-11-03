@@ -203,3 +203,4 @@ web:                           # local web interface (python -m src.web); one jo
   thumbnail_quality: 82        # JPEG quality of the thumbnails (0-100)
   showcase_frame_px: 960       # width of the intro page's "how it works" frames (16:10)
   showcase_quality: 80         # their JPEG quality (scripts/make_showcase.py)
+  showcase_photos: 6           # photos of the subject kept for the intro page

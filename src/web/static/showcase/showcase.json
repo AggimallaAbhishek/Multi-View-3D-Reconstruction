@@ -74,17 +74,17 @@
       }
     },
     "timings": {
-      "dataset": 0.0645597499969881,
-      "features": 0.06882716700056335,
-      "matches": 0.23526050000509713,
-      "verify": 2.4222903330010013,
-      "pose": 0.4580273750034394,
-      "triangulate": 0.006037584003934171,
-      "cloud": 0.00966708299529273,
-      "reconstruct": 21.798185708998062,
-      "filter": 0.27225437499873806
+      "dataset": 0.02858354199997848,
+      "features": 0.021196333997067995,
+      "matches": 0.17591187500511296,
+      "verify": 2.1905182910049916,
+      "pose": 0.42321158300183015,
+      "triangulate": 0.005705791998479981,
+      "cloud": 0.008819583999866154,
+      "reconstruct": 16.293406500000856,
+      "filter": 0.24532175000058487
     },
-    "total_s": 25.335109876003116,
+    "total_s": 19.392675251008768,
     "warnings": [],
     "ground_truth": {
       "cameras": 47,
@@ -363,6 +363,32 @@
     {
       "file": "cloud.jpg",
       "points": 9907
+    }
+  ],
+  "photos": [
+    {
+      "file": "photo-01.jpg",
+      "name": "templeR0001.png"
+    },
+    {
+      "file": "photo-02.jpg",
+      "name": "templeR0010.png"
+    },
+    {
+      "file": "photo-03.jpg",
+      "name": "templeR0019.png"
+    },
+    {
+      "file": "photo-04.jpg",
+      "name": "templeR0029.png"
+    },
+    {
+      "file": "photo-05.jpg",
+      "name": "templeR0038.png"
+    },
+    {
+      "file": "photo-06.jpg",
+      "name": "templeR0047.png"
     }
   ]
 }

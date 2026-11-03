@@ -26,3 +26,4 @@ outputs/*
 .idea/
 .superpowers/
 !src/web/static/showcase/cloud.ply
+.taste-skill/

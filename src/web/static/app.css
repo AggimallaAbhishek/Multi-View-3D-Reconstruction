@@ -11,7 +11,7 @@
 .brand:hover .brand-name { color: var(--accent); }
 .logo { width: 30px; height: 30px; color: var(--accent); flex: none; }
 .brand-name { font: 700 1.0625rem/1.1 var(--display); font-stretch: 112%; letter-spacing: 0.005em; transition: color var(--fast); white-space: nowrap; }
-.brand-page { color: var(--muted); font-size: var(--step--1); padding-left: var(--s3); border-left: 1px solid var(--rule); white-space: nowrap; }
+.brand-page { color: var(--muted); font: 400 var(--step--1) var(--body); padding-left: var(--s3); border-left: 1px solid var(--rule); white-space: nowrap; }
 .topbar-tools { margin-left: auto; display: flex; align-items: center; gap: var(--s3); }
 .runs select {
   min-height: 36px; max-width: min(24rem, 46vw); padding: 0 var(--s3);
@@ -205,6 +205,8 @@ body[data-state="running"] .status-title::after {
 .gt-table th[aria-sort="descending"] button::after { content: " \2193"; }
 .gt-table td { padding: 6px var(--s5) 6px var(--s3); border-top: 1px solid var(--hair); font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gt-table td:first-child { font-family: var(--body); }
+.gt-table td:not(:first-child) { text-align: right; }
+.gt-table th:not(:first-child) button { text-align: right; padding-right: var(--s3); padding-left: var(--s5); }
 .gt-table tr.worst td { background: var(--warn-soft); }
 .gt-table tr.picked td { background: var(--accent-soft); }
 .gt-table .bar { display: inline-block; vertical-align: middle; height: 6px; margin-right: var(--s2); width: calc(64px * var(--share)); min-width: 1px; background: var(--accent); border-radius: 1px; }
@@ -266,9 +268,14 @@ body[data-state="running"] .status-title::after {
 .console { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; font-size: 12.5px; }
 .console li { display: grid; grid-template-columns: 74px 16px minmax(0, 1fr); gap: var(--s2); padding: 1px 0; color: var(--ink-2); }
 .console time { color: var(--faint); }
-.console .mark { color: var(--muted); }
-.console .ok .mark { color: var(--accent); }
-.console .bad .mark, .console .bad .text { color: var(--error); }
+/* marks drawn, not typed: a tick (done), a cross (failed), a chevron (news) */
+.console .mark { position: relative; width: 12px; height: 12px; margin-top: 3px; }
+.console .mark::before, .console .mark::after { content: ""; position: absolute; }
+.console li:not(.ok):not(.bad) .mark::before { left: 2px; top: 3px; width: 5px; height: 5px; border: solid var(--muted); border-width: 1.5px 1.5px 0 0; transform: rotate(45deg); }
+.console .ok .mark::before { left: 3px; top: 0; width: 4px; height: 8px; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.console .bad .mark::before, .console .bad .mark::after { left: 5px; top: 0; width: 2px; height: 11px; background: var(--error); transform: rotate(45deg); }
+.console .bad .mark::after { transform: rotate(-45deg); }
+.console .bad .text { color: var(--error); }
 .console li.new { animation: enter var(--slow) var(--ease-out); }
 .console:empty::before { content: "Stage progress and results are logged here."; color: var(--faint); font-family: var(--body); }
 
@@ -305,8 +312,8 @@ body[data-state="running"] .status-title::after {
   .col-left, .col-right { overflow: visible; }
 }
 @media (max-width: 760px) {
+  .desk { padding: var(--s4); gap: var(--s3); }
   .desk, body:not(:has(.gt-card:not([hidden]))) .desk { grid-template-columns: minmax(0, 1fr); grid-template-areas: "centre" "left" "right" "gt" "console"; }
-  .brand-page { display: none; }
   .brand-name { font-size: 0.9375rem; }
   .stage { height: 72vh; min-height: 420px; }
   .layers { left: var(--s3); right: auto; width: auto; max-width: calc(100% - 2 * var(--s3)); }
@@ -315,4 +322,17 @@ body[data-state="running"] .status-title::after {
 }
 @media (max-width: 560px) {
   .brand-name { display: none; }
+  .topbar { gap: var(--s3); padding: 0 var(--s4); }
+  .topbar-tools { min-width: 0; flex: 1; justify-content: flex-end; }
+  .runs { min-width: 0; flex: 1; }
+  .runs select { width: 100%; max-width: none; }
+  #replay { padding: 0 var(--s3); }
+  #replay .replay-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .viewer-tools { flex-wrap: wrap; }
+  .datastrip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .datastrip div:nth-child(2n) { border-right: 0; }
+  .datastrip div { border-bottom: 1px solid var(--rule); }
+  .datastrip dd { white-space: normal; }
+  .stage { height: auto; min-height: 0; }
+  .panel { min-height: 420px; }
 }

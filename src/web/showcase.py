@@ -24,6 +24,7 @@ import cv2
 import numpy as np
 
 from src.config import Config
+from src.data.preprocessing import resize_max_side
 from src.geometry.verification import inlier_matches
 from src.pipeline import run_pipeline
 from src.run import read_json, write_json
@@ -70,7 +71,10 @@ def make_showcase(
         {"file": "cameras.jpg", "cameras": len(centres)},
         {"file": "cloud.jpg", "points": len(points)},
     ]
-    write_json(out / "showcase.json", {"name": name, "report": report, "frames": frames})
+    photos = _save_photos(out, result, config)
+    write_json(
+        out / "showcase.json", {"name": name, "report": report, "frames": frames, "photos": photos}
+    )
     return out
 
 
@@ -78,6 +82,24 @@ def _save(out: Path, name: str, image: np.ndarray, config: Config) -> None:
     cv2.imwrite(
         str(out / f"{name}.jpg"), image, [cv2.IMWRITE_JPEG_QUALITY, config.web.showcase_quality]
     )
+
+
+def _save_photos(out: Path, result, config: Config) -> list[dict[str, str]]:
+    """Up to ``web.showcase_photos`` of the photos themselves, evenly spread over the set,
+    at twice the thumbnail size."""
+    n, wanted = len(result.images), config.web.showcase_photos
+    if n <= wanted:
+        picks = list(range(n))
+    else:
+        picks = [round(k * (n - 1) / (wanted - 1)) for k in range(wanted)]
+    photos = []
+    for k, index in enumerate(picks, start=1):
+        im = result.images[index]
+        small, _, _ = resize_max_side(im.image, im.K, 2 * config.web.thumbnail_px)
+        file = f"photo-{k:02d}.jpg"
+        cv2.imwrite(str(out / file), small, [cv2.IMWRITE_JPEG_QUALITY, config.web.showcase_quality])
+        photos.append({"file": file, "name": im.name})
+    return photos
 
 
 def _dim(image: np.ndarray, factor: float = DIM) -> np.ndarray:

@@ -195,7 +195,7 @@ function log(text, kind = "ok", when = new Date()) {
   const list = $("console");
   list.append(el("li", { class: `${kind} new` },
     el("time", {}, `[${clock(when)}]`),
-    el("span", { class: "mark", "aria-hidden": "true" }, kind === "ok" ? "✓" : kind === "bad" ? "✗" : "›"),
+    el("span", { class: "mark", "aria-hidden": "true" }), // drawn in CSS by kind
     el("span", { class: "text" }, text)));
   list.scrollTop = list.scrollHeight;
 }
