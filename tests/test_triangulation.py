@@ -217,3 +217,14 @@ def test_noisy_reprojection_stays_below_noise_level(scene):
     )
     assert result.reprojection.mean < 1.5 * sigma
     assert result.reprojection.mean < sigma * np.sqrt(np.pi / 2)
+
+
+def test_refine_points_takes_its_iterations_from_the_caller():
+    """No default: the count is triangulation.refine_iterations in the config."""
+    import inspect
+
+    from src.geometry.triangulation import refine_points
+
+    assert (
+        inspect.signature(refine_points).parameters["iterations"].default is inspect.Parameter.empty
+    )

@@ -17,6 +17,7 @@ centres to ours. Source: https://www.eth3d.net/datasets (Schöps et al., CVPR 20
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 import tempfile
@@ -53,14 +54,12 @@ def download(url: str, path: Path, attempts: int = 3, timeout: float = 60) -> bo
     return False
 
 
-def main(scene: str = "pipes", distorted: bool = False) -> int:
+def download_scene(scene: str, distorted: bool) -> int:
+    """``scene``: one of SCENES (``main`` checks it)."""
     try:
         import py7zr
     except ImportError:
         print('needs py7zr: uv pip install -e ".[data]"')
-        return 2
-    if scene not in SCENES:
-        print(f"unknown scene {scene!r}; choose from {', '.join(SCENES)}")
         return 2
     variant, image_dir, calibration_dir = VARIANTS["distorted" if distorted else "undistorted"]
     target = ROOT / "data" / "raw" / f"eth3d_{scene}{'_jpg' if distorted else ''}"
@@ -94,6 +93,15 @@ def main(scene: str = "pipes", distorted: bool = False) -> int:
     return 0
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("scene", nargs="?", default="pipes", choices=sorted(SCENES))
+    parser.add_argument(
+        "--distorted", action="store_true", help="the original JPGs, with their lens distortion"
+    )
+    args = parser.parse_args(argv)
+    return download_scene(args.scene, args.distorted)
+
+
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--distorted"]
-    sys.exit(main(*args[:1], distorted="--distorted" in sys.argv[1:]))
+    sys.exit(main())

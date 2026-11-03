@@ -50,7 +50,7 @@ being explicit about what is its own work and what is external.
 - Shows only what the pipeline really computes: registered cameras, points, reprojection
   error, per-stage counts and timings, ground-truth camera errors, diagnostic figures.
   No invented metrics (no coverage %, GPU meters, projects, accounts).
-- Real data is a sparse cloud (~10 k points for templeRing) with the cameras on a ring
+- Real data is a sparse cloud (~10 k points for templeRing, 24 k for the featured Temple) with the cameras on a ring
   ~10× wider than the object; the design must flatter that, not a photo-real model.
 - Progress arrives per stage (polled), not per camera.
 

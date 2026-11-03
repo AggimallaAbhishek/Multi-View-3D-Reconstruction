@@ -153,6 +153,8 @@ dense:                         # dense stereo on the recovered cameras (python -
   max_disparities: 384         # cap on the search range (multiple of 16)
   block_size: 3                # StereoSGBM (OpenCV) matching window and filters (5 and 7
                                # fatten object edges: more points off the silhouettes)
+  sgbm_p1_factor: 8            # smoothness penalties P1, P2 = factor * block_size^2: disparity
+  sgbm_p2_factor: 32           # changes of 1 px and of more (OpenCV's recommended 8 and 32)
   uniqueness_ratio: 10
   speckle_window: 100
   speckle_range: 2

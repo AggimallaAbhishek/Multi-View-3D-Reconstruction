@@ -388,3 +388,13 @@ def test_weak_images():
         FeatureStats("bunched", "sift", 500, 0.1, 1.0, False),
     ]
     assert [s.image for s in weak_images(stats, cfg)] == ["few", "bunched"]
+
+
+def test_sift_extractor_defaults_are_the_pipelines():
+    """A SIFTExtractor built directly behaves like the pipeline's (configs/default.yaml):
+    its defaults were OpenCV's contrast 0.04 and no adaptive retry."""
+    from src.config import FeatureConfig
+    from src.features.extractor import create_extractor
+
+    direct, pipeline = SIFTExtractor(), create_extractor(FeatureConfig())
+    assert direct.signature() == pipeline.signature()

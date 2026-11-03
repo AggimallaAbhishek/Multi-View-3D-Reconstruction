@@ -3,7 +3,7 @@
 > Reconstruct the 3D structure of a stationary real-world object or scene from overlapping photographs, using classical geometric computer vision: feature correspondence, epipolar geometry, Structure from Motion (SfM), triangulation, and bundle adjustment.
 
 ![status](https://img.shields.io/badge/status-complete%20%C2%B7%20M3-brightgreen)
-![tests](https://img.shields.io/badge/tests-387%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.12-informational)
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
@@ -70,7 +70,7 @@ On the Middlebury **templeRing** set (47 real photos of a plaster temple, 640×4
 
 **Beyond Middlebury (ETH3D, real DSLR scenes with ground truth):** pipes 14/14 cameras at 0.06°, office 26/26 at 0.14°, terrains 42/42 at 0.18° (COLMAP: 11/14 and 26/26 on the first two) — after lowering the SIFT contrast threshold to 0.02, which these scenes showed was needed (E7). From the **original, distorted** JPGs with no distortion given, the pipeline estimates the lens itself and still recovers 14/14 at 0.17° and 26/26 at 0.05°, where a plain pinhole model got 10/14 at 1.3° and 14/26 at 2.1° (E8).
 
-Experiments (RQ1–RQ5, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error costs a quarter to a third of the completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 5×; dense stereo gives 190× the points of the sparse cloud on the same cameras (RQ5); every camera of three ETH3D scenes is recovered (E7), also from distorted photos by self-calibrating the lens (E8).
+Experiments (RQ1–RQ5, [docs/experiments.md](docs/experiments.md)): completeness is limited by the spacing between views, not their number; a Lowe ratio of 0.7–0.8 with the mutual check works best; **a 5 % focal-length error costs a quarter to a third of the completeness while the reprojection error stays flat — and refining the focal length in bundle adjustment (now the default) recovers the calibrated result from ±20 % errors**; SIFT beats ORB on reliable points; bundle adjustment cuts pose errors 5.5×; dense stereo gives 190× the points of the sparse cloud on the same cameras (RQ5); every camera of three ETH3D scenes is recovered (E7), also from distorted photos by self-calibrating the lens (E8); learned features (external) register every view of the sparse ring SIFT leaves at 6/16 (E9).
 
 ### Course alignment (3D Computer Vision)
 
@@ -340,7 +340,7 @@ python -m src.cli reconstruct data/raw/templeRing
 #   .../figures/filtered.png (close-up render of the cleaned cloud)
 
 # the same, then a depth map per image from stereo with a neighbouring view on the
-# recovered cameras, fused into a dense cloud and meshed (~1.5 s more on templeRing, plus ~2 s for the mesh)
+# recovered cameras, fused into a dense cloud and meshed (~1.3 s more on templeRing, plus ~2 s for the mesh)
 python -m src.cli dense data/raw/templeRing
 #   .../point_clouds/dense.ply · meshes/reconstructed_mesh.ply (Open3D Poisson, external)
 #   .../reconstruction/reconstruction.json ("dense": points, partners, coverage)
@@ -351,12 +351,14 @@ python scripts/evaluate_dense.py data/raw/templeRing    # sparse vs dense (silho
 ### 7.6 Experiments (Phase 10)
 
 ```bash
-# all experiments in configs/experiments/ on templeRing, then figures and tables (~11 min)
+# all experiments in configs/experiments/ on templeRing, then figures and tables (~14 min on an Apple M4)
 python scripts/run_experiments.py
 #   outputs/experiments/<run>/<experiment>/experiment_results.csv · results.md · metrics.png · runtime.png
 #   ... one sub-directory per setting: config.yaml · environment.json · metrics.json · filtered.ply
 python scripts/evaluate_results.py outputs/experiments/<run>   # redraw figures/tables only
 ```
+
+That command covers E1–E5 and E3b. The others run on other data or with other tools and have their own commands, given in each section of experiments.md: E6 `scripts/run_colmap_baseline.py` (COLMAP, external) and `scripts/evaluate_dense.py`; E3b's figure `scripts/plot_focal_refinement.py`; E7–E9 `scripts/evaluate_against_ground_truth.py` on ETH3D or with `--config configs/learned.yaml`.
 
 Results and conclusions: [`docs/experiments.md`](docs/experiments.md); evidence and plots: `notebooks/04_reconstruction_analysis.ipynb`.
 
@@ -373,7 +375,7 @@ The server has two pages:
 - **`/`: the overview.** Behind the title, the full Middlebury Temple (312 photos) as this project reconstructed it turns constantly inside an even ring of 36 of its cameras: 312/312 cameras, 24 121 points, 0.08° median rotation error against ground truth. Below that come how the temple is made (photos, features, matches, cameras, cloud, each with numbers measured on that run), the same model live to explore (with all 312 cameras on request), the architecture with the external parts labelled, and results against ground truth and COLMAP. The data is committed under `src/web/static/showcase/`, made by `python scripts/make_showcase.py <run folder> data/raw/temple --up-axis y` from a finished web run (`python scripts/download_middlebury.py temple` fetches the photos).
 - **`/app.html`: the workstation.** Drop in a folder of photos, optionally with `camera.yaml` and `gt_cameras.json` (templeRing has both), and press **Reconstruct**. The pipeline column on the right ticks through the stages live, then shows what each stage produced (features per photo, matches, verified pairs and inliers, registered cameras, points kept; cached stages marked). The 3-D view (three.js, external) has orbit and pan, fit to the object or to every camera, auto-orbit, perspective or orthographic projection, layers and a label on each camera. Tabs show the camera poses against ground truth (sortable, worst camera highlighted), the matching figures and the statistics. **Replay** plays the run back with the cameras appearing in registration order. A console logs every stage. Exports are `filtered.ply`, `cameras.json` and `report.json`.
 
-Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with twelve thumbnails of its photos, so earlier results are listed again after a restart; **Delete this run** removes one. The workstation opens empty; the run on screen survives a page reload (and a server restart) until it is cleared or deleted. The uploaded photos are deleted once their run has ended.
+Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with twelve thumbnails of its photos, so earlier results, finished or failed, are listed again after a restart; **Delete this run** removes one. The workstation opens empty; the run on screen survives a page reload (a finished one also a server restart) until it is cleared or deleted. The uploaded photos are deleted once their run has ended.
 
 ![overview page: the reconstructed temple turning behind the title](docs/images/web_intro.jpg)
 
@@ -406,7 +408,7 @@ Multi-View-3D-Reconstruction/
 ├── configs/
 │   ├── default.yaml              # all thresholds & switches
 │   ├── camera.example.yaml       # format of camera.yaml (written by `cli calibrate`)
-│   └── experiments/              # E1–E5 experiment specs (YAML)
+│   └── experiments/              # E1–E5 and E3b experiment specs (YAML)
 ├── data/                         # git-ignored except data/sample/
 │   ├── raw/<scene>/              # input photos
 │   ├── processed/
@@ -444,7 +446,7 @@ Multi-View-3D-Reconstruction/
 │   ├── ROADMAP.md                # detailed phase plans
 │   ├── architecture.md
 │   ├── methodology.md            # maths, design choices, ours vs external
-│   ├── experiments.md            # experiment results, answers to RQ1–RQ4, failure cases
+│   ├── experiments.md            # experiment results, answers to RQ1–RQ5, failure cases
 │   └── images/                   # figures used by the docs
 └── scripts/
     ├── verify_setup.py
@@ -570,10 +572,11 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | E6 Baseline and dense | Ours vs COLMAP sparse (external); our sparse vs our dense | Same images, same starting `K` | RQ5 |
 | E7 Other datasets | Three ETH3D scenes; SIFT contrast threshold | Pipeline defaults | generalisation |
 | E8 Lens distortion | Self-calibration on/off on ETH3D's original JPGs | Pipeline defaults | calibration |
+| E9 Learned features (external) | SIFT + ratio test vs DISK + LightGlue (`configs/learned.yaml`) | Everything after matching | wide baselines |
 
-**Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity or ICP) and then compute Chamfer / completeness.
+**Without ground truth**, reprojection error and completeness are internal diagnostics only — they do not establish absolute 3D accuracy. With reference geometry, align first (Umeyama similarity) and then compute Chamfer / completeness.
 
-**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error costs a quarter to a third of the completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 2× the points but 6× the pose error (RQ4); bundle adjustment cuts pose error 5× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 10 k points into 1.8 M with fewer outliers (E6, RQ5); on three ETH3D scenes every camera registers at 0.06–0.18° (E7), and with the lens distortion estimated from the reconstruction also from the original, distorted images (E8).
+**Results:** [`docs/experiments.md`](docs/experiments.md). In short: completeness is limited by view spacing (RQ1); ratio 0.7–0.8 with the mutual check is best (RQ2); a 5 % focal-length error costs a quarter to a third of the completeness while reprojection error stays flat, and refining the focal length in BA undoes ±20 % errors (RQ3, E3b); ORB gives 2× the points but 6× the pose error (RQ4); bundle adjustment cuts pose error 5.5× (E5); our cameras have a lower rotation error than COLMAP's on all three Middlebury sets, and the dense stage turns 10 k points into 1.8 M with fewer outliers (E6, RQ5); on three ETH3D scenes every camera registers at 0.06–0.18° (E7), and with the lens distortion estimated from the reconstruction also from the original, distorted images (E8); DISK + LightGlue (external) registers 16/16 dinoSparseRing views where SIFT registers 6, but none of templeRing's upside-down views (E9).
 
 **Reproducibility:** every experiment records dataset ID, image count, full config, calibration, software versions, hardware, runtime, metrics, and output paths in CSV/JSON.
 
@@ -588,7 +591,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 | **Integration** | Full pipeline and every CLI command on rendered scenes (`tests/render.py`); real photos via `scripts/evaluate_against_ground_truth.py` on templeRing | Completes, writes intermediates, outputs reload, poses match ground truth |
 | **Visual** | Matches, epipolar lines, trajectories, clouds | Manual inspection checklist each phase |
 
-494 tests run in ~2.7 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
+The suite runs in ~3 min (`pytest -q`; the web tests are skipped without the `[web]` extra, the learned-feature tests without the `[learned]` extra). Test-first for geometry: write the synthetic test, watch it fail, implement, watch it pass. Automated tests cannot prove a point cloud looks like the object — visual inspection is a required step.
 
 ---
 
@@ -610,7 +613,7 @@ Report only metrics meaningful for the implementation tier (e.g. no camera-regis
 
 ## 15. Limitations
 
-1. **Overlap is required.** On templeRing, views more than ~20° apart stop matching and are not registered (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); with SIFT, pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered. The optional learned features (DISK + LightGlue, external, `configs/learned.yaml`) register all of dinoSparseRing, but are slower and fail on views rolled ~180° (E9).
+1. **Overlap is required.** On templeRing every view registers while the median gap between views is 16° or less; at 23° three of 16 drop out, at 32° four of 12 (E1). Images that do match a registered neighbour but share too few points with the reconstruction for PnP are registered from their relative pose (rendered views 40° apart: 6/6 instead of 2/6); with SIFT, pairs whose matches do not determine a pose (dinoSparseRing's weak links) stay unregistered. The optional learned features (DISK + LightGlue, external, `configs/learned.yaml`) register all of dinoSparseRing, but are slower and fail on views rolled ~180° (E9).
 2. **Calibration still matters, less than before.** With `K` fixed a 5 % focal-length error costs a quarter to a third of the completeness (E3). Bundle adjustment now refines one focal length shared by all images, which recovers the calibrated result from ±20 % errors and turns the fallback guess into a usable model (E3b); radial lens distortion is estimated from the reconstruction when the view is wide enough (E8; two coefficients approximate a real lens: 0.17° where ETH3D's own undistortion gives 0.06° on pipes); the principal point is not refined (the guess keeps a 0.76° rotation offset; refining it was measured: it only partly removes that offset and makes calibrated runs worse, because on a ring it trades off against rotation — E3b), and one shared focal length and distortion assume one camera at one zoom — photos whose starting `K` differ keep `K` fixed and are not self-calibrated.
 3. **Low reprojection error ≠ accurate 3D geometry.** In E3 the reprojection error stays ~0.25 px while the geometry degrades.
 4. Textureless, reflective, transparent and repetitive surfaces are unreliable; on smooth plaster SIFT finds ~1400 features per image. Dark or low-contrast images get a lower SIFT threshold automatically (`features.sift_adaptive_min_features`), which recovers dinoRing (48/48 cameras), but it cannot create texture that is not there.
@@ -657,7 +660,7 @@ Further: texture mapping · loop closure / global SfM · PyTorch3D mesh refineme
 - [x] **Phase 7** Two-view sparse cloud + viewer — *M1* ✅
 - [x] **Phase 8** Multi-view incremental SfM + BA
 - [x] **Phase 9** Filtering & export — *M2* ✅ (+ optional dense stage and mesh)
-- [x] **Phase 10** Evaluation & experiments ✅ (E1–E6)
+- [x] **Phase 10** Evaluation & experiments ✅ (E1–E6; E7–E9 added later)
 - [x] **Phase 11** Documentation & presentation — *M3* ✅
 - [x] **Phase 12** Web interface ✅
 
@@ -672,7 +675,7 @@ This repo ships project-level [Claude Code](https://claude.com/claude-code) skil
 | Skill | Source | Used in phases |
 |---|---|---|
 | `computer-vision-opencv` | `mindrally/skills` | 1–8 (OpenCV features, matching, RANSAC) |
-| `open3d-python` | `isl-org/open3d` (official) | 7, 9, 10 (point clouds, IO, viewer, ICP alignment) |
+| `open3d-python` | `isl-org/open3d` (official) | 7, 9, 10 (point clouds, IO, viewer, Poisson mesh) |
 | `python-testing-patterns` | `wshobson/agents` | 0–10 (pytest, fixtures, parametrization) |
 | `matplotlib` | `k-dense-ai/scientific-agent-skills` | 2–4, 10 (diagnostic figures, evaluation plots) |
 | `jupyter-notebook` | `openai/skills` | 1–10 (analysis notebooks) |

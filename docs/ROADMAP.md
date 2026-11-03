@@ -101,7 +101,7 @@ Mixed OpenCV wheels (remove all `opencv-*` then reinstall one) · Open3D/Python 
 - `data/loader.py`: discover `.jpg/.jpeg/.png/.tif` (case-insensitive), natural sort, decode with `cv2.imread`, return `ImageRecord(id, path, image, width, height, exif_focal)`.
 - `data/validation.py`: report unreadable files (warning, skip), empty dir (error), mixed resolutions (warning), near-duplicates via small-thumbnail hash, blur score via Laplacian variance (warning below threshold), minimum image count.
 - `data/preprocessing.py`: grayscale, resize to `max_side`, **scale `K` accordingly** (`fx, fy, cx, cy` × scale), undistort if distortion coefficients are provided.
-- `geometry/calibration.py`: load `camera.yaml`; else estimate `K` from EXIF focal length + sensor width, else fallback `f = 1.2·max(w,h)`, principal point at center. Optional `calibrate_from_checkerboard()`.
+- `geometry/calibration.py`: load `camera.yaml`; else estimate `K` from EXIF focal length + sensor width (*done with the 35 mm-equivalent focal length instead, which needs no sensor table*), else fallback `f = 1.2·max(w,h)`, principal point at center. Optional `calibrate_from_checkerboard()`.
 - Save `outputs/<run>/dataset.json` with metadata.
 
 ### 🧪 Tests
@@ -138,7 +138,7 @@ EXIF orientation rotating images silently (use `cv2.IMREAD_IGNORE_ORIENTATION` o
 ### Tasks
 - `features/extractor.py`: `Extractor` interface with `SIFTExtractor` (default, `nfeatures` from config) and `ORBExtractor`. Return `Features(points: (N,2) float32, descriptors, sizes, angles)`.
 - Optional RootSIFT normalization (flag).
-- Cache to `outputs/<run>/features/<image_id>.npz` keyed by image hash + config hash.
+- Cache to `outputs/<run>/features/<image_id>.npz` keyed by image hash + config hash. (*Done as one shared cache, `output.cache_dir` = `outputs/cache/`, so runs reuse each other's features.*)
 - `visualization/`: draw keypoints on sample images; `feature_statistics.csv` (image, detector, count, time_ms).
 
 ### 🧪 Tests
@@ -166,7 +166,7 @@ Stable feature counts on the sample set; keypoints visibly concentrate on textur
 > - Later cleanup: the mutual check queries only image-j features that survived the ratio test (identical result; unrelated pairs 2.3× faster). Exact k-NN uses `cv2.batchDistance` (identical to `BFMatcher`, no per-match Python objects); FLANN builds one seeded index per image; a match cache (`outputs/cache/matches`, keyed by both images' descriptors + settings) lets later commands skip matching; `pair_mode: auto` (default) is exhaustive up to `exhaustive_max_images` = 50, sequential above.
 
 ### Tasks
-- `features/matcher.py`: FLANN (SIFT) / BFMatcher Hamming (ORB); kNN k=2; Lowe ratio test (config, default 0.75); optional mutual nearest-neighbor check.
+- `features/matcher.py`: FLANN (SIFT) / BFMatcher Hamming (ORB) (*done: exact brute force via `cv2.batchDistance` by default, FLANN optional*); kNN k=2; Lowe ratio test (config, default 0.75); optional mutual nearest-neighbor check.
 - Pair selection: exhaustive for ≤ 50 images, sequential window (± k) option for larger sets.
 - Output `Matches(i, j, idx_i, idx_j, distances)`; `match_statistics.csv` (pair, raw, after_ratio, after_mutual).
 - Match visualizations for a few pairs (subsampled lines).
@@ -229,7 +229,7 @@ Real pairs show stable inlier ratios; epipolar lines pass through corresponding 
 > - Rendered 8-view set (1600×1200): 23 of 24 verified pairs get a pose; the one failure (30 inliers, all on one plane, H/F = 1.0) is a genuinely bad E, rejected by cheirality. Initial pair is exact with the true K (0.00° / 0.01°) and 1.75° / 0.83° off with a 20 %-wrong guessed focal length — evidence for RQ3.
 
 ### Tasks
-- `geometry/pose_estimation.py`: wrap `cv2.recoverPose` (four-solution decomposition + cheirality); also implement SVD decomposition of `E` manually for understanding; return pose + count of points in front of both cameras.
+- `geometry/pose_estimation.py`: wrap `cv2.recoverPose` (four-solution decomposition + cheirality); also implement SVD decomposition of `E` manually for understanding (*done the other way round: our decomposition is used, `cv2.recoverPose` is only a test oracle — methodology §4*); return pose + count of points in front of both cameras.
 - Reject poses when cheirality-passing ratio < threshold or baseline/parallax too small.
 - Initial-pair scoring for later SfM: many inliers **and** low `H/F` inlier ratio **and** sufficient median triangulation angle.
 
@@ -347,7 +347,7 @@ Drift, bad initial pair, scale/sign convention bugs, slow BA. Mitigate with synt
 ### Tasks
 - `pointcloud/filtering.py`: remove non-finite, high-error, low-track-length points; Open3D statistical outlier removal and radius outlier removal; log counts before/after each filter.
 - Export `sparse.ply`, `filtered.ply`, `cameras.json`, `reconstruction.json` (stats).
-- Optional dense: export our poses to COLMAP format → `image_undistorter` → `patch_match_stereo` → `stereo_fusion` → `dense.ply`; optional Poisson mesh via Open3D (`meshes/reconstructed_mesh.ply`). Clearly label as external.
+- Optional dense: export our poses to COLMAP format → `image_undistorter` → `patch_match_stereo` → `stereo_fusion` → `dense.ply` (*superseded: `patch_match_stereo` needs CUDA, so dense is our own SGBM stage, see the status above*); optional Poisson mesh via Open3D (`meshes/reconstructed_mesh.ply`). Clearly label as external.
 - `cli.py reconstruct` and `cli.py view`.
 
 ### 🧪 Tests
@@ -365,13 +365,13 @@ End-to-end `reconstruct` on a real dataset produces a clean, coherent multi-view
 
 **Goal:** Answer RQ1–RQ5 with reproducible numbers.
 
-> **Status — done (E1–E6).** E6: `src/reconstruction/colmap_runner.py` (external COLMAP, CPU) + `scripts/run_colmap_baseline.py` against ground truth, and `scripts/evaluate_dense.py` (sparse vs dense, silhouette check); results in experiments.md. `src.evaluation.experiments`: YAML specs in `configs/experiments/` (`vary` grid or named `runs`, overrides validated on load) → `run_experiment` (one run directory per setting with config, environment, `metrics.json`, `filtered.ply`; failures recorded, not raised) → `experiment_results.csv` + `experiment.json`. `reference_cloud`: every verified track triangulated with the ground-truth cameras. `src.evaluation.metrics`: `cloud_errors` (completeness, accuracy, Chamfer — fractions of the reference extent), `metric_scale`, `PoseErrors.similarity`. `src.evaluation.reports.make_report` → `metrics.png`, `runtime.png`, `results.md` from the CSV. `run_pipeline` records per-stage timings. New config: `dataset.max_images` (evenly spaced subset), `camera.auto_calibration_file`, `camera.focal_scale` (simulated focal error), `evaluation.completeness_tolerance`. One command: `python scripts/run_experiments.py` (~9 min); `scripts/evaluate_results.py` redraws. Results in [`experiments.md`](experiments.md); `notebooks/04_reconstruction_analysis.ipynb`. Decisions and findings:
+> **Status — done (E1–E6).** E6: `src/reconstruction/colmap_runner.py` (external COLMAP, CPU) + `scripts/run_colmap_baseline.py` against ground truth, and `scripts/evaluate_dense.py` (sparse vs dense, silhouette check); results in experiments.md. `src.evaluation.experiments`: YAML specs in `configs/experiments/` (`vary` grid or named `runs`, overrides validated on load) → `run_experiment` (one run directory per setting with config, environment, `metrics.json`, `filtered.ply`; failures recorded, not raised) → `experiment_results.csv` + `experiment.json`. `reference_cloud`: every verified track triangulated with the ground-truth cameras. `src.evaluation.metrics`: `cloud_errors` (completeness, accuracy, Chamfer — fractions of the reference extent), `metric_scale`, `PoseErrors.similarity`. `src.evaluation.reports.make_report` → `metrics.png`, `runtime.png`, `results.md` from the CSV. `run_pipeline` records per-stage timings. New config: `dataset.max_images` (evenly spaced subset), `camera.auto_calibration_file`, `camera.focal_scale` (simulated focal error), `evaluation.completeness_tolerance`. One command: `python scripts/run_experiments.py` (~14 min on an Apple M4 today); `scripts/evaluate_results.py` redraws. Results in [`experiments.md`](experiments.md); `notebooks/04_reconstruction_analysis.ipynb`. Decisions and findings:
 > - Middlebury's ground-truth surface is not public, so completeness is measured against an **internal reference**: our SIFT tracks over all images triangulated with the true cameras. It is independent of our poses but shares our matches; accuracy is therefore biased towards SIFT and E4 compares by completeness and pose error.
-> - RQ1: completeness is limited by view spacing — between a median view gap of ~23° and ~16° registration jumps from 6/16 to 21/24 images. RQ2: ratio 0.7–0.8 + mutual check is best; looser matching yields fewer, worse points. RQ3: a 5 % focal error halves completeness while reprojection error stays flat; guessed K (−49 %) gives a 20° pose error. RQ4: ORB 3× the points, 4× the pose error and runtime. E5: BA cuts pose error 4×, completeness 0.38 → 0.92, ~90 % of runtime. A scale from one measured distance agrees with the full fit within 0.7 %.
+> - Current numbers ([experiments.md](experiments.md); this phase first measured them at OpenCV's default SIFT threshold, which gave weaker figures): RQ1: completeness is limited by view spacing — between a median view gap of ~23° and ~16° registration jumps from 13/16 to 24/24 images. RQ2: ratio 0.7–0.8 + mutual check is best; looser matching yields fewer, worse points. RQ3: with `K` fixed a 5 % focal error costs a quarter to a third of the completeness while reprojection error stays flat; guessed K (−49 %) gives a 24° pose error. RQ4: ORB 2× the points, 6× the pose error, twice the runtime. E5: BA cuts pose error 5.5×, completeness 0.90 → 0.94, ~75 % of runtime. A scale from one measured distance agrees with the full fit within 0.7 %.
 > - Next candidates the results point to: refine the focal length in bundle adjustment (RQ3) — **done afterwards (E3b):** one shared focal scale refined in global adjustments, default on, ±20 % errors converge to the calibrated result; intermediate views or a wider-baseline matcher for sparse rings (RQ1). — **done afterwards (E9):** optional learned features and matching (DISK + LightGlue via kornia, external; `configs/learned.yaml`) register dinoSparseRing 16/16 instead of 6/16 at 0.21° median rotation error; they fail on templeRing's upside-down views (31/47), so SIFT stays the default.
 
 ### Tasks
-- `evaluation/metrics.py`: all metrics from README §12, including pose error vs synthetic/COLMAP and Chamfer/completeness after Umeyama/ICP alignment.
+- `evaluation/metrics.py`: all metrics from README §12, including pose error vs synthetic/COLMAP and Chamfer/completeness after Umeyama similarity alignment (ICP was planned, not needed: the clouds share our track correspondences).
 - `evaluation/experiments.py`: config sweeps (YAML grid) → one run dir per setting → aggregated `experiment_results.csv`.
 - Experiments E1–E6 (README §12). Metric scale from one measured distance.
 - `evaluation/reports.py` + `scripts/evaluate_results.py`: plots (points vs #images, inlier ratio by detector, reprojection error histograms, runtime breakdown).
@@ -393,7 +393,7 @@ Every figure/table in the report regenerates from committed configs with one com
 >   - one home for reconstruction statistics: `Reconstruction.reprojection_errors`, `Reconstruction.unregistered`, `Landmarks.track_lengths` (used by the CLI, experiments and the evaluation script);
 >   - `reconstruct` writes the multi-view cloud under the spec's names (`point_clouds/sparse.ply`, `filtered.ply`, `camera_poses/cameras.json`) and no longer the two-view files (`save_cloud`'s `cameras_name` removed);
 >   - experiments record raw and final matches per pair, save each run's `reprojection_errors.npy`, and reports draw `reprojection.png` per experiment; translation direction stays a pairwise metric (`evaluate_against_ground_truth.py`), multi-view uses rotation + centre error (README §12);
->   - `bundle_adjustment.refine_structure` switches structure refinement independently of bundle adjustment; E5 is now a 2×2 grid — BA does the work (4× pose error, completeness 0.38 → 0.92), refinement removes every observation beyond 2 px and trims pose errors ~12 %. E1–E4 reproduce identically.
+>   - `bundle_adjustment.refine_structure` switches structure refinement independently of bundle adjustment; E5 is now a 2×2 grid — BA does the work (4× pose error, completeness 0.38 → 0.92 at the old SIFT threshold; now 5.5× and 0.90 → 0.94, experiments.md), refinement removes every observation beyond 2 px and trims pose errors ~12 % (~10 % now). E1–E4 reproduce identically.
 > Still open, judgement calls: colours are uint8 on `Landmarks` but float in `[0, 1]` elsewhere; the reconstruction functions pass the same five arguments around (a state object would bundle them).
 
 ### Tasks

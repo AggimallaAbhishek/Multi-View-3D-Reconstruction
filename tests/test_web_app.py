@@ -624,3 +624,21 @@ def test_main_exits_quietly_on_ctrl_c(monkeypatch, tmp_path):
     config = tmp_path / "web.yaml"
     config.write_text("web:\n  open_browser: false\n")
     entry.main(["--config", str(config)])  # returns instead of raising
+
+
+@pytest.mark.parametrize("page", ["index.html", "app.html"])
+def test_every_third_party_resource_is_labelled_external(page):
+    """CLAUDE.md: anything provided by an external tool is labelled as external, so every
+    host the page loads from is named in an <!-- External: ... --> comment."""
+    import re
+
+    html = (Path(__file__).parent.parent / "src" / "web" / "static" / page).read_text()
+    host = r"""(?:https?:)?//([^/"'\s)]+)"""
+    tags = "link|script|img|iframe|source|video|audio"  # elements that load what they name
+    loading = rf"""<(?:{tags})\b[^>]*?\b(?:href|src)=["']{host}"""
+    importmap = "".join(re.findall(r'<script type="importmap">(.*?)</script>', html, re.S))
+    used = set(re.findall(loading, html)) | set(re.findall(rf'"{host}', importmap))
+    used |= set(re.findall(rf"""url\(["']?{host}""", html))  # inline CSS
+    comments = " ".join(re.findall(r"<!-- External:(.*?)-->", html, re.S))
+    labelled = set(re.findall(r"[\w.-]+\.[a-z]{2,}", comments))
+    assert used and used - labelled == set()

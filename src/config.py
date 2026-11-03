@@ -174,6 +174,8 @@ class DenseConfig:
     disparity_margin_px: int = 16
     max_disparities: int = 384
     block_size: int = 3
+    sgbm_p1_factor: int = 8
+    sgbm_p2_factor: int = 32
     uniqueness_ratio: int = 10
     speckle_window: int = 100
     speckle_range: int = 2
@@ -326,6 +328,7 @@ _RANGES: dict[str, tuple[float | None, float | None, bool, bool]] = {
     "web.thumbnail_quality": (0, 100, False, False),
     "web.showcase_quality": (0, 100, False, False),
     "web.port": (1, 65535, False, False),
+    "dense.sgbm_p1_factor": (0, None, True, False),  # > 0: 0 would not penalise 1 px steps
     "dense.rectify_alpha": (-1, 1, False, False),  # OpenCV: -1 means "let it choose"
     "dense.poisson_threads": (-1, None, False, False),  # Open3D: -1 means all cores
 }
@@ -350,6 +353,11 @@ def _check_ranges(config: Config, source: str) -> None:
         raise ConfigError(
             f"{source}: dataset.max_images ({dataset.max_images}) must be >= "
             f"dataset.min_images ({dataset.min_images})"
+        )
+    if config.dense.sgbm_p2_factor <= config.dense.sgbm_p1_factor:  # OpenCV requires P2 > P1
+        raise ConfigError(
+            f"{source}: dense.sgbm_p2_factor ({config.dense.sgbm_p2_factor}) must be > "
+            f"dense.sgbm_p1_factor ({config.dense.sgbm_p1_factor})"
         )
     if config.dense.block_size % 2 == 0:
         raise ConfigError(f"{source}: dense.block_size must be odd (got {config.dense.block_size})")

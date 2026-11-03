@@ -166,6 +166,7 @@ def test_learned_config_file_selects_disk_and_lightglue():
         ("matching.ratio", float("nan")),  # NaN compares False with every bound
         ("verification.confidence", float("nan")),
         ("camera.focal_scale", float("inf")),
+        ("dense.sgbm_p1_factor", 0),
     ],
 )
 def test_out_of_range_values_name_their_key(key, value):
@@ -181,6 +182,11 @@ def test_every_shipped_config_is_in_range():
     assert load_config().with_overrides({"dense.rectify_alpha": -1.0}).dense.rectify_alpha == -1.0
     # Open3D: -1 threads means all cores, as configs/default.yaml documents
     assert load_config().with_overrides({"dense.poisson_threads": -1}).dense.poisson_threads == -1
+
+
+def test_sgbm_p2_must_exceed_p1():
+    with pytest.raises(ConfigError, match=r"dense\.sgbm_p2_factor"):
+        load_config().with_overrides({"dense.sgbm_p1_factor": 32, "dense.sgbm_p2_factor": 32})
 
 
 def test_max_images_below_min_images_is_rejected():

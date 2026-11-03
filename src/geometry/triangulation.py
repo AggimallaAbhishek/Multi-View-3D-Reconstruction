@@ -154,7 +154,7 @@ def _residuals_and_jacobians(
 
 
 def refine_points(
-    cameras: Sequence[Camera], obs: Observations, X: np.ndarray, iterations: int = 5
+    cameras: Sequence[Camera], obs: Observations, X: np.ndarray, iterations: int
 ) -> np.ndarray:
     """Gauss-Newton refinement of each point's reprojection error in pixels.
 

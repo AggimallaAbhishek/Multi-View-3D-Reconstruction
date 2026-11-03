@@ -220,3 +220,19 @@ def test_fusion_of_depth_maps_without_a_single_depth_is_empty():
     images = [np.zeros((480, 640, 3), np.uint8)] * 2
     cloud = fuse_depth_maps(depths, cameras, images, [[1], [0]], 0.01, DenseConfig())
     assert cloud.points.shape == (0, 3) and cloud.colors.shape == (0, 3)
+
+
+def test_sgbm_smoothness_penalties_come_from_the_config(scene, monkeypatch):
+    """P1, P2 = factor * block_size**2 (OpenCV's recommended 8 and 32), from the config."""
+    created = {}
+    real = cv2.StereoSGBM_create
+
+    def spy(**kwargs):
+        created.update(kwargs)
+        return real(**kwargs)
+
+    monkeypatch.setattr(cv2, "StereoSGBM_create", spy)
+    config = DenseConfig(sgbm_p1_factor=5, sgbm_p2_factor=40, block_size=3)
+    cams = _cameras(scene)
+    pair_depth(scene.images[0], cams[0], scene.images[1], cams[1], _surface_points(scene), config)
+    assert (created["P1"], created["P2"]) == (5 * 9, 40 * 9)

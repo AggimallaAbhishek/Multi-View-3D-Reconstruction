@@ -25,6 +25,10 @@ from src.data.dataset import PreparedImage
 from src.data.preprocessing import to_gray
 from src.run import atomic_savez, write_csv
 
+# Defaults of a directly built extractor: the pipeline's (configs/default.yaml, which
+# test_default_file_matches_dataclass_defaults keeps equal to FeatureConfig()).
+FEATURE_DEFAULTS = FeatureConfig()
+
 log = logging.getLogger(__name__)
 
 
@@ -79,7 +83,7 @@ class FeatureExtractor(ABC):
     descriptor_dim: int
     descriptor_dtype: type
 
-    def __init__(self, max_features: int = 8000):
+    def __init__(self, max_features: int = FEATURE_DEFAULTS.max_features):
         self.max_features = max_features
 
     @abstractmethod
@@ -133,15 +137,15 @@ class SIFTExtractor(FeatureExtractor):
 
     def __init__(
         self,
-        max_features: int = 8000,
-        root_sift: bool = False,
-        contrast_threshold: float = 0.04,
-        min_features: int = 0,
-        min_contrast_threshold: float = 0.005,
-        affine_simulation: bool = False,
-        affine_max_tilt: int = 5,
-        affine_tilt_step: float = 2**0.5,
-        affine_rotate_step_base: float = 72.0,
+        max_features: int = FEATURE_DEFAULTS.max_features,
+        root_sift: bool = FEATURE_DEFAULTS.root_sift,
+        contrast_threshold: float = FEATURE_DEFAULTS.sift_contrast_threshold,
+        min_features: int = FEATURE_DEFAULTS.sift_adaptive_min_features,
+        min_contrast_threshold: float = FEATURE_DEFAULTS.sift_min_contrast_threshold,
+        affine_simulation: bool = FEATURE_DEFAULTS.affine_simulation,
+        affine_max_tilt: int = FEATURE_DEFAULTS.affine_max_tilt,
+        affine_tilt_step: float = FEATURE_DEFAULTS.affine_tilt_step,
+        affine_rotate_step_base: float = FEATURE_DEFAULTS.affine_rotate_step_base,
     ):
         super().__init__(max_features)
         self.affine_simulation = affine_simulation

@@ -12,7 +12,7 @@ Images are discovered, naturally sorted (`img2` < `img10`), decoded with EXIF or
 
 **Intrinsics** come per image from, in order: a calibration file (`camera.yaml`, from `cli calibrate` or a dataset), the EXIF 35 mm-equivalent focal length (converted along the image diagonal), or the fallback `f = 1.2·max(w, h)` with the principal point at the image centre. Resizing by `s` rescales `K` with the pixel-centre formula `f' = s·f`, `c' = (c + 0.5)·s − 0.5`.
 
-**Why it matters:** experiment E3 shows a 5 % focal-length error halves completeness, and the fallback guess (49 % off on templeRing) produces a distorted model, while the reprojection error barely changes. Intrinsics are the most important input; bundle adjustment keeps them fixed (§8).
+**Why it matters:** experiment E3 (with `K` held fixed) shows a 5 % focal-length error costs a quarter to a third of the completeness, and the fallback guess (49 % off on templeRing) produces a distorted model, while the reprojection error barely changes. Intrinsics are the most important input; bundle adjustment refines one focal length shared by all images by default, which recovers ±20 % errors (E3b), and keeps the principal point (§8).
 
 ## 2. Features and matching
 
