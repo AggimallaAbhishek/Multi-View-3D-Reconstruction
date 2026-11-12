@@ -17,12 +17,15 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
+import matplotlib
 from PIL import Image as PILImage
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
     CondPageBreak,
@@ -52,7 +55,7 @@ FIGURES = (
     ("triangulation/structure.png", "Points triangulated from the first pair"),
 )
 STAGE_LABELS = {
-    "dataset": "Prepare photos",
+    "dataset": "Load and check photos",
     "features": "Detect features",
     "matches": "Match features",
     "verify": "Verify geometry",
@@ -69,7 +72,7 @@ MATCHERS = {
     "flann": "ratio test (FLANN)",
     "lightglue": "LightGlue (external)",
 }
-CALIBRATION_SOURCES = {"file": "camera.yaml", "exif": "EXIF", "fallback": "fallback guess"}
+CALIBRATION_SOURCES = {"file": "camera.yaml", "exif": "EXIF", "fallback": "a guess"}
 
 PDF_MEDIA_TYPE = "application/pdf"
 
@@ -85,20 +88,29 @@ WARN_BG = colors.HexColor("#fff4dc")
 WARN = colors.HexColor("#7a5000")
 BAD = colors.HexColor("#a8322a")
 
+# DejaVu, shipped with matplotlib (external): unlike the PDF's built-in fonts it covers
+# Greek and Cyrillic too, so photo names in those scripts print as named.
+_FONT_DIR = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+SANS, BOLD, MONO = "DejaVuSans", "DejaVuSans-Bold", "DejaVuSansMono"
+for _name in (SANS, BOLD, MONO):
+    if _name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(_name, str(_FONT_DIR / f"{_name}.ttf")))
+pdfmetrics.registerFontFamily(SANS, normal=SANS, bold=BOLD, italic=SANS, boldItalic=BOLD)
+
 MARGIN = 18 * mm
 WIDTH = A4[0] - 2 * MARGIN  # of the text column
 
-_BASE = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, leading=13, textColor=INK)
+_BASE = ParagraphStyle("base", fontName=SANS, fontSize=9.5, leading=13, textColor=INK)
 S = {
     "eyebrow": ParagraphStyle(
-        "eyebrow", _BASE, fontName="Helvetica-Bold", fontSize=8, textColor=ACCENT, leading=10
+        "eyebrow", _BASE, fontName=BOLD, fontSize=8, textColor=ACCENT, leading=10
     ),
-    "title": ParagraphStyle("title", _BASE, fontName="Helvetica-Bold", fontSize=24, leading=29),
+    "title": ParagraphStyle("title", _BASE, fontName=BOLD, fontSize=24, leading=29),
     "meta": ParagraphStyle("meta", _BASE, textColor=MUTED),
     "h1": ParagraphStyle(
         "h1",
         _BASE,
-        fontName="Helvetica-Bold",
+        fontName=BOLD,
         fontSize=14,
         leading=18,
         spaceBefore=14,
@@ -108,7 +120,7 @@ S = {
     "h2": ParagraphStyle(
         "h2",
         _BASE,
-        fontName="Helvetica-Bold",
+        fontName=BOLD,
         fontSize=10.5,
         leading=14,
         spaceBefore=8,
@@ -119,23 +131,21 @@ S = {
     "cell": ParagraphStyle("cell", _BASE, fontSize=8.5, leading=11),
     "cell_num": ParagraphStyle("cell_num", _BASE, fontSize=8.5, leading=11, alignment=TA_RIGHT),
     "cell_bad": ParagraphStyle("cell_bad", _BASE, fontSize=8.5, leading=11, textColor=BAD),
-    "head": ParagraphStyle(
-        "head", _BASE, fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=MUTED
-    ),
+    "head": ParagraphStyle("head", _BASE, fontName=BOLD, fontSize=8, leading=10, textColor=MUTED),
     "head_num": ParagraphStyle(
         "head_num",
         _BASE,
-        fontName="Helvetica-Bold",
+        fontName=BOLD,
         fontSize=8,
         leading=10,
         textColor=MUTED,
         alignment=TA_RIGHT,
     ),  # fmt: skip
     "kpi_label": ParagraphStyle("kpi_label", _BASE, fontSize=8, leading=10, textColor=MUTED),
-    "kpi": ParagraphStyle("kpi", _BASE, fontName="Helvetica-Bold", fontSize=16, leading=20),
+    "kpi": ParagraphStyle("kpi", _BASE, fontName=BOLD, fontSize=16, leading=20),
     "warn": ParagraphStyle("warn", _BASE, textColor=WARN, fontSize=9, leading=12),
     "caption": ParagraphStyle("caption", _BASE, fontSize=8.5, leading=11, textColor=MUTED),
-    "code": ParagraphStyle("code", _BASE, fontName="Courier", fontSize=7, leading=8.6),
+    "code": ParagraphStyle("code", _BASE, fontName=MONO, fontSize=7, leading=8.6),
 }
 
 
@@ -221,7 +231,7 @@ def _title(run: _Run) -> list[Flowable]:
         if stamp
         else (run.env or {}).get("timestamp", "")
     )
-    meta = f"Run <font face='Courier'>{escape(run.dir.name)}</font>"
+    meta = f"Run {_mono(run.dir.name)}"
     if when:
         meta += f"  ·  {escape(when)}"
     return [
@@ -242,12 +252,12 @@ def _summary(run: _Run) -> list[Flowable]:
     tiles = [
         ("Cameras registered", f"{images.get('registered', 0)} / {images.get('total', 0)}"),
         ("Points (filtered)", _int(points.get("filtered", points.get("sparse")))),
-        ("Mean reprojection error", _px((r.get("reprojection") or {}).get("mean_px"))),
+        ("Mean reprojection", _px((r.get("reprojection") or {}).get("mean_px"))),
         ("Total time", _seconds(r.get("total_s"))),
     ]
     gt = r.get("ground_truth") or {}
-    if "rotation_deg" in gt:
-        tiles[3:3] = [("Median rotation error", _deg(gt["rotation_deg"]["median"]))]
+    if (gt.get("rotation_deg") or {}).get("median") is not None:
+        tiles[3:3] = [("Median rotation", _deg(gt["rotation_deg"]["median"]))]
     cells = [
         [Paragraph(escape(k), S["kpi_label"]), Paragraph(escape(v), S["kpi"])] for k, v in tiles
     ]
@@ -350,7 +360,7 @@ def _pipeline(run: _Run) -> list[Flowable]:
         _table(
             ["Stage", "Result", "Time", "Share of time"],
             rows,
-            [40 * mm, None, 20 * mm, 34 * mm],
+            [46 * mm, None, 20 * mm, 32 * mm],
             numeric=(2,),
         ),
     ]
@@ -411,30 +421,30 @@ def _accuracy(run: _Run) -> list[Flowable]:
     head = run.numbered("Accuracy against ground truth")
     if "error" in gt:
         return [head, Paragraph(escape(gt["error"]), S["body"])]
-    rot, centre = gt["rotation_deg"], gt["centre"]
+    rot, centre = gt.get("rotation_deg") or {}, gt.get("centre") or {}
     keys = ("median", "p90", "max")
     summary = _table(
         ["", "Median", "90th percentile", "Max"],
         [
-            ["Rotation error", *(_deg(rot[k]) for k in keys)],
-            ["Position error", *(_pct(centre[k]) for k in keys)],
+            ["Rotation error", *(_deg(rot.get(k)) for k in keys)],
+            ["Position error", *(_pct(centre.get(k)) for k in keys)],
         ],
         numeric=(1, 2, 3),
     )
     note = Paragraph(
-        f"{gt['cameras']} recovered cameras compared with the uploaded ground truth after a "
-        "similarity alignment (rotation, translation, scale). Position error is a share of "
+        f"{_int(gt.get('cameras'))} recovered cameras compared with the uploaded ground truth "
+        "after a similarity alignment (rotation, translation, scale). Position error is a share of "
         "the true cameras' spread. Every camera is listed in the appendix.",
         S["note"],
     )
     out: list[Flowable] = [head, note, Spacer(0, 6), summary]
-    worst = sorted(gt.get("per_camera", []), key=lambda c: -c["rotation_deg"])[:5]
+    worst = sorted(gt.get("per_camera", []), key=lambda c: -(c.get("rotation_deg") or 0))[:5]
     if worst:
         out += [
             _h2("Largest rotation errors"),
             _table(
                 ["Photo", "Rotation error", "Position error"],
-                [[c["image"], _deg(c["rotation_deg"]), _pct(c["centre"])] for c in worst],
+                _camera_rows(worst),
                 numeric=(1, 2),
             ),
         ]
@@ -446,10 +456,8 @@ def _figures(run: _Run) -> list[Flowable]:
     if not present:
         return []
     out: list[Flowable] = [PageBreak(), run.numbered("Figures")]
-    for n, (path, caption) in enumerate(present, 1):
-        image = _image(path, WIDTH, 105 * mm)
-        if image is None:
-            continue
+    images = [(im, c) for p, c in present if (im := _image(p, WIDTH, 105 * mm)) is not None]
+    for n, (image, caption) in enumerate(images, 1):
         out.append(
             KeepTogether(
                 [
@@ -506,9 +514,14 @@ def _per_camera(run: _Run) -> tuple[str, list[Flowable]] | None:
     cameras = gt.get("per_camera")
     if not cameras:
         return None
-    rows = [[c["image"], _deg(c["rotation_deg"]), _pct(c["centre"])] for c in cameras]
     return "Ground-truth error of every camera", [
-        _table(["Photo", "Rotation error", "Position error"], rows, numeric=(1, 2))
+        _table(["Photo", "Rotation error", "Position error"], _camera_rows(cameras), numeric=(1, 2))
+    ]
+
+
+def _camera_rows(cameras: list[dict[str, Any]]) -> list[list[str]]:
+    return [
+        [c.get("image", ""), _deg(c.get("rotation_deg")), _pct(c.get("centre"))] for c in cameras
     ]
 
 
@@ -546,9 +559,7 @@ def _configuration(run: _Run) -> tuple[str, list[Flowable]] | None:
     path = run.dir / "config.yaml"
     if not path.is_file():
         return None
-    note = Paragraph(
-        "Every setting the run used (<font face='Courier'>config.yaml</font>).", S["note"]
-    )
+    note = Paragraph(f"Every setting the run used ({_mono('config.yaml')}).", S["note"])
     return "Configuration", [note, Spacer(0, 4), Preformatted(path.read_text(), S["code"])]
 
 
@@ -560,7 +571,8 @@ def _files(run: _Run) -> tuple[str, list[Flowable]]:
     )
     return "Run folder", [
         Paragraph(
-            f"Files written to <font face='Courier'>{escape(run.dir.name)}</font>:", S["note"]
+            f"Files written to {_mono(run.dir.name)}:",
+            S["note"],
         ),
         Spacer(0, 4),
         Preformatted("\n".join(files), S["code"]),
@@ -568,6 +580,11 @@ def _files(run: _Run) -> tuple[str, list[Flowable]]:
 
 
 # --- building blocks --------------------------------------------------------------------
+
+
+def _mono(text: str) -> str:
+    """``text`` in the monospaced font, escaped, for a Paragraph."""
+    return f"<font face='{MONO}'>{escape(text)}</font>"
 
 
 def _h1(text: str) -> Paragraph:
@@ -589,7 +606,7 @@ def _table(
     rows: list[list[Any]],
     widths: list[float | None] | None = None,
     numeric: tuple[int, ...] = (),
-    bad_rows: list[int] = (),
+    bad_rows: tuple[int, ...] | list[int] = (),
 ) -> Table:
     """A data table: header repeated on every page, zebra rows, ``numeric`` columns
     right-aligned, ``bad_rows`` (indices into ``rows``) in red."""
@@ -710,7 +727,7 @@ class _Bar(Flowable):
         self.canv.setFillColor(ACCENT)
         self.canv.rect(0, 1, max(0.8, bar * self.fraction), 5, stroke=0, fill=1)
         self.canv.setFillColor(MUTED)
-        self.canv.setFont("Helvetica", 7.5)
+        self.canv.setFont(SANS, 7.5)
         self.canv.drawRightString(self.width, 1, f"{100 * self.fraction:.0f} %")
 
 
@@ -738,7 +755,7 @@ def _numbered_canvas(run_name: str) -> type[Canvas]:
             self.setStrokeColor(LINE)
             self.setLineWidth(0.5)
             self.line(MARGIN, y + 4 * mm, A4[0] - MARGIN, y + 4 * mm)
-            self.setFont("Helvetica", 7.5)
+            self.setFont(SANS, 7.5)
             self.setFillColor(MUTED)
             self.drawString(MARGIN, y, f"Reconstruction report  ·  {run_name}")
             self.drawRightString(A4[0] - MARGIN, y, f"Page {self._pageNumber} of {total}")
@@ -768,29 +785,30 @@ def _stage_features(s: dict[str, Any] | None) -> str:
     if not s:
         return ""
     cached = " (cached)" if s.get("cached") else ""
-    return f"{_int(s['total'])} features, median {_int(s['per_image_median'])} per photo{cached}"
+    median = _int(s.get("per_image_median"))
+    return f"{_int(s.get('total'))} features, median {median} per photo{cached}"
 
 
 def _stage_matches(s: dict[str, Any] | None) -> str:
     if not s:
         return ""
     cached = " (cached)" if s.get("cached") else ""
-    return f"{_int(s['matches'])} matches over {_int(s['pairs'])} pairs{cached}"
+    return f"{_int(s.get('matches'))} matches over {_int(s.get('pairs'))} pairs{cached}"
 
 
 def _stage_verification(s: dict[str, Any] | None) -> str:
     if not s:
         return ""
-    ratio = _pct(s["inlier_ratio"], 0)
-    return f"{_int(s['pairs'])} pairs verified, {_int(s['inliers'])} inliers ({ratio})"
+    ratio = _pct(s.get("inlier_ratio"), 0)
+    return f"{_int(s.get('pairs'))} pairs verified, {_int(s.get('inliers'))} inliers ({ratio})"
 
 
 def _stage_reconstruction(s: dict[str, Any] | None) -> str:
-    return f"{_int(s['registered'])} cameras, {_int(s['landmarks'])} points" if s else ""
+    return f"{_int(s.get('registered'))} cameras, {_int(s.get('landmarks'))} points" if s else ""
 
 
 def _stage_filter(s: dict[str, Any] | None) -> str:
-    return f"kept {_int(s['kept'])} of {_int(s['total'])} points" if s else ""
+    return f"kept {_int(s.get('kept'))} of {_int(s.get('total'))} points" if s else ""
 
 
 def _number(value: str | None) -> float | None:
@@ -808,8 +826,8 @@ def _px(value: float | None) -> str:
     return "—" if value is None else f"{value:.2f} px"
 
 
-def _deg(value: float) -> str:
-    return f"{value:.2f}°"
+def _deg(value: float | None) -> str:
+    return "—" if value is None else f"{value:.2f}°"
 
 
 def _pct(value: float | None, digits: int = 2) -> str:
@@ -819,9 +837,9 @@ def _pct(value: float | None, digits: int = 2) -> str:
 def _seconds(value: float | None) -> str:
     if value is None:
         return "—"
-    if value >= 60:
-        minutes, seconds = divmod(value, 60)
-        return f"{int(minutes)} min {seconds:.0f} s"
+    if round(value, 1) >= 60:  # rounded first: 59.96 s is "1 min 0 s", never "60.0 s"
+        minutes, seconds = divmod(round(value), 60)
+        return f"{minutes} min {seconds} s"
     return f"{value:.1f} s"
 
 

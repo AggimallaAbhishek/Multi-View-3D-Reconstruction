@@ -5,21 +5,10 @@ import numpy as np
 import pytest
 
 from src.run import write_json
-from src.web.report_pdf import render_report_pdf, report_filename
+from src.web.report_pdf import _seconds, render_report_pdf, report_filename
+from tests.pdf_text import pdf_text
 
 RUN_ID = "20261030-120000_web_reconstruct"
-
-
-def pdf_text(pdf: bytes) -> str:
-    """The text a PDF rendered without page compression draws, one string per line."""
-    raw = pdf.decode("latin-1")
-    strings = re.findall(r"\(((?:\\.|[^\\)])*)\)\s*Tj", raw)
-
-    def unescape(s: str) -> str:
-        s = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), s)
-        return re.sub(r"\\(.)", r"\1", s)
-
-    return "\n".join(unescape(s) for s in strings)
 
 
 def page_count(pdf: bytes) -> int:
@@ -204,3 +193,43 @@ def test_report_needs_report_json(tmp_path):
 
 def test_file_name_is_the_run_name(tmp_path):
     assert report_filename(tmp_path / RUN_ID) == f"{RUN_ID}_report.pdf"
+
+
+@pytest.mark.parametrize(
+    ("seconds", "shown"),
+    [(59.96, "1 min 0 s"), (119.6, "2 min 0 s"), (61.2, "1 min 1 s"), (4.04, "4.0 s")],
+)
+def test_times_round_without_a_sixtieth_second(seconds, shown):
+    assert _seconds(seconds) == shown
+
+
+def test_figures_are_numbered_without_gaps(run_dir):
+    (run_dir / "reconstruction").mkdir()
+    (run_dir / "reconstruction" / "cameras.png").write_bytes(b"not a png")  # skipped
+    figure = np.full((120, 160, 3), 200, np.uint8)
+    cv2.imwrite(str(run_dir / "reconstruction" / "reprojection_histogram.png"), figure)
+
+    text = pdf_text(render(run_dir))
+
+    assert "Figure 2." in text  # the histogram, after the unreadable cameras figure
+    assert "Figure 3." not in text
+
+
+def test_a_report_with_missing_fields_still_renders(run_dir):
+    """A report.json of an older or partial run may lack fields: shown as blanks."""
+    report = full_report(ground_truth={"cameras": 2, "per_camera": [{"image": "a.png"}]})
+    report["stages"] = {"features": {"total": 10}, "matches": {}, "verification": {"pairs": 1}}
+    write_json(run_dir / "report.json", report)
+
+    text = pdf_text(render(run_dir))
+
+    assert "Reconstruction report" in text
+
+
+def test_names_in_any_script_are_printed(run_dir):
+    write_json(
+        run_dir / "report.json",
+        full_report(images={"total": 3, "registered": 2, "unregistered": ["фото_1.jpg"]}),
+    )
+
+    assert "фото_1.jpg" in pdf_text(render(run_dir))

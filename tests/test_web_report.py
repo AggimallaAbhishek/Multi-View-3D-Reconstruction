@@ -9,8 +9,8 @@ from src.reconstruction.bundle_adjustment import scale_focal
 from src.web.report import build_report, write_report
 from src.web.report_pdf import render_report_pdf
 from tests.images import make_natural_texture, write_image
+from tests.pdf_text import pdf_text
 from tests.render import render_box_scene, scene_cameras, write_scene
-from tests.test_web_report_pdf import pdf_text
 
 N_VIEWS = 6
 
