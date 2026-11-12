@@ -37,6 +37,7 @@ from src.web.jobs import (
     terminate_children,
 )
 from src.web.report import FAILURE_NAME, REPORT_NAME
+from src.web.report_pdf import PDF_MEDIA_TYPE, render_report_pdf, report_filename
 
 UPLOAD_ROOT = Path("data/raw/web_uploads")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -159,6 +160,21 @@ def create_app(config: Config, manager: JobManager | None = None) -> FastAPI:
         if job.status != "done":
             raise HTTPException(409, f"job {job_id} is {job.status}")
         return read_json(job.run_dir / REPORT_NAME)
+
+    @app.get("/api/jobs/{job_id}/report.pdf")
+    def get_report_pdf(job_id: str) -> Response:
+        """The run's detailed report as a PDF, built on request from the run folder (so
+        earlier runs have one too) and sent as an attachment: browsers save it, they don't
+        open it."""
+        job = find_job(job_id)
+        if job.status != "done":
+            raise HTTPException(409, f"job {job_id} is {job.status}")
+        name = report_filename(job.run_dir)
+        return Response(
+            render_report_pdf(job.run_dir),
+            media_type=PDF_MEDIA_TYPE,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     @app.get("/api/jobs/{job_id}/files")
     def list_files(job_id: str) -> list[str]:
