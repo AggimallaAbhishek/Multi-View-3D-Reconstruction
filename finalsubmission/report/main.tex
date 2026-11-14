@@ -1,0 +1,312 @@
+\documentclass[conference,11pt]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{iftex}
+\usepackage{amsmath}
+\ifXeTeX % tectonic/XeLaTeX: IEEEtran's Times (ptm) is a pdfLaTeX font; use its clone
+  \usepackage{unicode-math}
+  % Times New Roman has no small caps (IEEE headings use them): take them from its clone.
+  \setmainfont{Times New Roman}[SmallCapsFont={[texgyretermes-regular.otf]},
+    SmallCapsFeatures={Letters=SmallCaps},
+    BoldFeatures={SmallCapsFont={[texgyretermes-bold.otf]}, SmallCapsFeatures={Letters=SmallCaps}}]
+  \setmathfont{texgyretermes-math.otf}
+\else % pdfLaTeX (Overleaf)
+  \usepackage{amssymb,amsfonts}
+\fi
+\usepackage{cite}
+\linespread{0.93} % tighter than IEEEtran's 11pt default
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes}
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{figures/}}
+
+\newcommand{\ext}{$^{\dagger}$}
+% Figure contents in a visible frame, as wide as the column.
+\newcommand{\figbox}[1]{\setlength{\fboxsep}{3pt}\fbox{\parbox{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}{\centering #1}}}
+\renewcommand{\arraystretch}{1.15}
+% Main headings (I., II., ...): bold small caps; side headings (A., B., ...): bold and one
+% size larger instead of IEEEtran's italic.
+\makeatletter
+\def\section{\@startsection{section}{1}{\z@}{1.5ex plus 1.5ex minus 0.5ex}%
+{0.7ex plus 1ex minus 0ex}{\normalfont\large\bfseries\centering\scshape}}
+\def\subsection{\@startsection{subsection}{2}{\z@}{1.5ex plus 1.5ex minus 0.5ex}%
+{0.7ex plus .5ex minus 0ex}{\normalfont\large\bfseries}}
+\makeatother
+
+\raggedbottom  % IEEEtran is flushbottom: avoid stretched gaps when a block moves to the next column
+\begin{document}
+
+\title{Multi-View 3D Reconstruction with Classical Structure from Motion: \\
+Accurate Cameras, Sparse and Dense Geometry from Overlapping Photographs}
+
+\input{authors.tex}
+
+\maketitle
+
+\begin{abstract}
+We present a complete, test-driven implementation of classical incremental Structure from Motion (SfM) that turns a set of overlapping photographs of a static object into calibrated camera poses, a coloured sparse point cloud, a fused dense point cloud and a surface mesh. The pipeline covers feature extraction (SIFT/ORB), ratio-test matching, robust epipolar verification with essential-matrix refinement, our own essential-matrix decomposition and $N$-view triangulation, PnP-based incremental registration with a relative-pose fallback, sparse bundle adjustment with an analytic Jacobian and focal-length self-calibration, outlier filtering, and SGBM-based dense stereo with multi-view fusion. On the Middlebury templeRing dataset all 47 cameras are recovered with a median rotation error of $0.15^\circ$ against ground truth (COLMAP: $0.26^\circ$), a mean reprojection error of 0.21\,px and a completeness of 0.94; the full sparse+dense+mesh run takes 28\,s on a laptop. Nine experiments study image count, matching thresholds, calibration error, detector choice, bundle adjustment, dense versus sparse reconstruction, generalisation to ETH3D scenes, lens self-calibration and learned features.
+\end{abstract}
+
+\begin{IEEEkeywords}
+structure from motion, multi-view geometry, bundle adjustment, triangulation, dense stereo, point clouds
+\end{IEEEkeywords}
+
+% Demo video link, highlighted (the video is 990 MB, so it is hosted on Google Drive).
+\noindent\setlength{\fboxsep}{4pt}\fcolorbox{orange!80!black}{yellow!25}{\parbox{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}{\small
+\textbf{Demo video} (screen recording of the working web application, 990\,MB, Google Drive):\\[2pt]
+\href{https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing}{\colorbox{blue!70!black}{\textcolor{white}{\textbf{\,\(\blacktriangleright\)\; Click to watch the demo video\,}}}}\\[2pt]
+\href{https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing}{\color{blue!70!black}\url{https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing}}}}
+\vspace{1mm}
+
+%=====================================================================
+\section{Introduction}
+A photograph is a 2-D projection of the world: depth is lost. When the same static scene is photographed from several viewpoints, corresponding image points constrain both where the cameras were and where the scene points are. Recovering this geometry---\emph{multi-view 3D reconstruction}---underlies photogrammetry, cultural-heritage digitisation, mapping and AR/VR, robot navigation, and the camera poses that neural scene representations such as NeRF~\cite{mildenhall2020nerf} and 3D Gaussian Splatting~\cite{kerbl2023gaussian} are trained from. Despite strong learned methods, classical SfM~\cite{hartley2004multiple,schoenberger2016sfm} remains the standard way to obtain accurate cameras, because it is grounded in projective geometry and its errors can be measured and explained.
+
+This project builds such a pipeline from first principles in Python, keeping every geometric step (decomposition, triangulation, tracks, registration, bundle adjustment, fusion) our own and using OpenCV~\cite{bradski2000opencv}, SciPy~\cite{virtanen2020scipy} and Open3D~\cite{zhou2018open3d} only for well-defined primitives, which are labelled \emph{external} (\ext) throughout. Every module was developed test-first against synthetic and rendered ground truth before being run on real photographs.
+
+%=====================================================================
+\section{Problem Statement}
+\textbf{Input:} $N$ overlapping photographs $\{I_i\}$ of a stationary object or scene, optionally with intrinsics $K$ (a calibration file, EXIF focal length, or a fallback guess), and optional ground-truth poses for evaluation.
+
+\textbf{Output:} (i) a camera pose $(R_i, \mathbf{t}_i)$ for every image that can be registered, with world$\rightarrow$camera convention $\mathbf{x}_c = R\mathbf{X} + \mathbf{t}$ and refined intrinsics; (ii) a coloured \emph{sparse} point cloud of triangulated landmarks; (iii) a \emph{dense} point cloud fused from per-view depth maps; (iv) a triangle \emph{mesh}; and (v) quantitative diagnostics (reprojection error, pose error and completeness against ground truth). All geometry is exported as PLY and JSON.
+
+The difficulty lies in wrong matches, low-texture surfaces, wide baselines, unknown or wrong calibration, degenerate (planar or rotation-only) pairs, drift accumulating over many views, and the inherent scale ambiguity of monocular reconstruction.
+
+%=====================================================================
+\section{Literature Review}
+\textbf{Two-view geometry.} The epipolar constraint $\hat{\mathbf{x}}_j^\top E\,\hat{\mathbf{x}}_i = 0$ with $E=[\mathbf{t}]_\times R$ is estimated from correspondences by the normalised eight-point algorithm~\cite{hartley1997defense} or the minimal five-point solver~\cite{nister2004efficient} inside RANSAC~\cite{fischler1981random} and its modern variants (USAC~\cite{raguram2013usac}). Its weakness is conditioning: wide or narrow baselines with few inliers give biased poses.
+
+\textbf{Features.} SIFT~\cite{lowe2004distinctive} remains the most reliable hand-crafted detector/descriptor; ORB~\cite{rublee2011orb} is faster but less distinctive. Learned keypoints and matchers such as DISK~\cite{tyszkiewicz2020disk} and LightGlue~\cite{lindenberger2023lightglue} handle wider baselines but are not rotation invariant and need a GPU.
+
+\textbf{Structure from Motion.} Photo Tourism~\cite{snavely2006photo} established incremental SfM: initialise from a pair, register images by PnP, triangulate, and refine by bundle adjustment~\cite{triggs2000bundle}. COLMAP~\cite{schoenberger2016sfm} is the state-of-the-art incremental system; global methods~\cite{moulon2013global} solve all rotations at once and are faster but more sensitive to outliers. Incremental SfM's limitations are drift, sensitivity to the initial pair, and cost, which grows with bundle adjustment.
+
+\textbf{Dense reconstruction.} Given cameras, multi-view stereo recovers surfaces: patch-based PMVS~\cite{furukawa2010accurate}, semi-global matching (SGM)~\cite{hirschmuller2008stereo} and COLMAP's PatchMatch~\cite{schoenberger2016pixelwise}; Poisson surface reconstruction~\cite{kazhdan2013screened} turns oriented points into a watertight mesh. Neural fields~\cite{mildenhall2020nerf,kerbl2023gaussian} produce photorealistic views but still depend on SfM poses and per-scene optimisation.
+
+Benchmarks with ground truth---Middlebury~\cite{seitz2006comparison} and ETH3D~\cite{schops2017multi}---make these methods measurable; we use both.
+
+%=====================================================================
+\section{Objectives}
+\begin{itemize}
+  \item Model camera projection and multi-view relationships, and verify each geometric module against exact synthetic and rendered ground truth.
+  \item Detect, match and robustly verify correspondences (SIFT/ORB, ratio test, mutual check, $E$/$F$ with RANSAC).
+  \item Implement relative pose recovery, $N$-view triangulation and their validity checks (cheirality, reprojection, triangulation angle) ourselves.
+  \item Extend two-view reconstruction to incremental multi-view SfM with PnP registration and sparse bundle adjustment.
+  \item Produce clean, coloured sparse and dense point clouds and a mesh; export standard formats (PLY, JSON).
+  \item Reach sub-degree camera accuracy on real data with ground truth and compare against COLMAP.
+  \item Answer five research questions with reproducible experiments: effect of image count (RQ1), matching quality (RQ2), calibration accuracy (RQ3), detector (RQ4), and sparse vs.\ dense (RQ5).
+  \item Provide a usable interface: a command-line tool and a local web application.
+\end{itemize}
+
+%=====================================================================
+\section{Methodology}
+
+\begin{figure}[t]
+\centering
+\figbox{\vspace{1mm}\begin{tikzpicture}[node distance=1.5mm and 2.5mm, font=\scriptsize,
+  box/.style={draw, rounded corners=2pt, fill=blue!6, align=center, minimum height=6.5mm, text width=18mm},
+  extb/.style={box, fill=orange!10},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[box] (img) {Images + $K$\\validation, resize};
+\node[extb, right=of img] (feat) {Features\\SIFT / ORB\ext};
+\node[box, right=of feat] (match) {Matching\\ratio + mutual};
+\node[box, below=of match] (ver) {Verification\\$E$/$F$, USAC\ext, refine};
+\node[box, left=of ver] (pose) {Initial pair\\$E$ decomp., DLT};
+\node[box, left=of pose] (trk) {Tracks\\union-find};
+\node[box, below=of trk] (reg) {Next best view\\PnP\ext\ + fallback};
+\node[box, right=of reg] (ba) {Bundle adjust.\\(after each image)};
+\node[box, right=of ba] (filt) {Refine + filter\\sparse PLY};
+\node[box, below=of filt] (dense) {Dense stereo\\SGBM\ext, fusion};
+\node[extb, left=of dense] (mesh) {Poisson mesh\ext};
+\node[box, left=of mesh] (eval) {Evaluation\\vs ground truth};
+\draw[arr] (img) -- (feat); \draw[arr] (feat) -- (match); \draw[arr] (match) -- (ver);
+\draw[arr] (ver) -- (pose); \draw[arr] (pose) -- (trk); \draw[arr] (trk) -- (reg);
+\draw[arr] (reg) -- (ba); \draw[arr] (ba) -- (filt); \draw[arr] (filt) -- (dense);
+\draw[arr] (dense) -- (mesh); \draw[arr] (mesh) -- (eval);
+\end{tikzpicture}\vspace{1mm}}
+\caption{Pipeline (read row by row, alternating direction; registration and bundle adjustment repeat for each new image). Blue: our implementation; orange / \ext: external library primitives (OpenCV, Open3D, SciPy).}
+\label{fig:pipeline}
+\end{figure}
+
+Fig.~\ref{fig:pipeline} shows the pipeline; every threshold lives in one YAML configuration and is recorded with each run.
+
+\subsection{Images, intrinsics and features}
+Images are naturally sorted, decoded with EXIF orientation, checked for blur and near-duplicates, and downscaled to 1600\,px with $K$ rescaled ($f'=sf$, $c'=(c+0.5)s-0.5$). Intrinsics come from a calibration file~\cite{zhang2000flexible}, the EXIF focal length, or the fallback $f=1.2\max(w,h)$. SIFT\ext~\cite{lowe2004distinctive} runs with contrast threshold 0.02 and is re-run with the threshold halved (down to 0.005) for any image below 500 features, which rescues dark, low-texture views. Matches are exact 2-NN with Lowe's ratio test ($r=0.75$) and a mutual check.
+
+\subsection{Verification and relative pose}
+With trusted intrinsics we fit $E$ by USAC\ext~\cite{raguram2013usac} on normalised coordinates (otherwise $F$), judging inliers by the Sampson distance
+\begin{equation}
+\boxed{d_S=\frac{(\mathbf{x}_j^\top F\mathbf{x}_i)^2}{(F\mathbf{x}_i)_1^2+(F\mathbf{x}_i)_2^2+(F^\top\mathbf{x}_j)_1^2+(F^\top\mathbf{x}_j)_2^2}}
+\end{equation}
+The verified $E$ is then refined by minimising the inliers' Sampson distances over $(R,\mathbf{t})$, which cut the worst pairwise error on templeRing from $12^\circ$ to $4.3^\circ$. A homography-to-epipolar inlier ratio flags planar pairs. Our own SVD decomposition of $E$ yields four candidate poses, and cheirality selects one. The initial pair maximises valid points subject to a median rotation-compensated parallax $\geq 4^\circ$.
+
+\subsection{Triangulation and tracks}
+Points are triangulated by a batched $N$-view DLT on normalised coordinates, refined by Gauss--Newton on the pixel error, and kept only if they lie in front of every camera, reproject within 2\,px, and have a triangulation angle $\geq 1.5^\circ$. Union-find over verified matches forms feature tracks; components that hit two keypoints of one image are discarded as inconsistent.
+
+\subsection{Incremental registration}
+The unregistered image with the most 2D--3D links is registered next by SQPnP~\cite{terzakis2020sqpnp} RANSAC\ext\ plus LM refinement (accepted with $\geq 30$ inliers within 4\,px). When PnP fails, a fallback composes the pose from the essential matrix with the best-connected registered image and recovers the baseline scale linearly from landmarks. New tracks are triangulated after each registration.
+
+\subsection{Bundle adjustment (loss function)}
+Poses $\{R_c,\mathbf{t}_c\}$ (Rodrigues vectors), points $\{\mathbf{X}_p\}$ and one focal scale $s$ shared by all cameras minimise the robust reprojection loss
+\begin{equation}
+\boxed{\min \sum_{(c,p)} \rho\Big(\big\lVert \pi\big(K'_c(R_c\mathbf{X}_p+\mathbf{t}_c)\big)-\mathbf{x}_{cp}\big\rVert^2\Big)}
+\end{equation}
+with $K'_c=K_c\,\mathrm{diag}(s,s,1)$, $\pi$ the perspective division and $\rho$ the soft-$L_1$ loss (1\,px scale), solved by SciPy's trust-region least squares\ext\ with our exact, sparse analytic Jacobian. The first camera fixes the gauge; scale is restored after each solve. A local adjustment (5 newest cameras) follows every registration, a global one every 5 registrations and at the end. After each, a structure-refinement step re-attaches track observations within 2\,px, drops worse ones, and re-triangulates. When the field of view is wide enough, two radial distortion coefficients are also estimated and the images re-processed (lens self-calibration).
+
+\subsection{Point clouds, dense stereo and mesh}
+Landmarks are coloured by bilinear sampling of every observation and filtered by mean reprojection error ($>$1\,px), statistical and radius outlier removal\ext\ on a scale-normalised copy. For dense reconstruction each view is paired with the neighbour nearest $8^\circ$ away, rectified from the known poses, matched by SGBM\ext~\cite{hirschmuller2008stereo}, and its disparities are mapped back to the original pixels; low-texture pixels and a 1\,px band around holes are masked. Depths survive fusion if $\geq 2$ of 4 nearby views agree within 1\,\%, and are voxel-averaged. Oriented normals feed screened Poisson reconstruction\ext~\cite{kazhdan2013screened}.
+
+\textbf{3-D representations:} camera frusta, sparse and dense coloured point clouds (PLY), and a triangle mesh (PLY).
+
+\subsection{Datasets and evaluation}
+\emph{Synthetic:} random 3-D points and cameras with exact or noisy projections, plus rendered images of a textured box on a ground plane, for unit and integration tests (579 tests). \emph{Real:} Middlebury templeRing/dinoRing (47/48 photos, 640$\times$480) and their sparse 16-view variants~\cite{seitz2006comparison}, and ETH3D pipes/office/terrains (14--42 DSLR photos)~\cite{schops2017multi}, all with ground-truth cameras. Estimated cameras are aligned to ground truth by a similarity (Umeyama~\cite{umeyama1991least}); we report rotation error, camera-centre error (\% of ring radius), reprojection error, and \emph{completeness}: the share of a reference cloud (all tracks triangulated with ground-truth cameras) with a reconstructed point within 1\,\% of the scene diagonal.
+
+%=====================================================================
+\section{Results and Discussion}
+
+\begin{table}[t]
+\caption{Camera accuracy against ground truth (\ext: external)}
+\label{tab:main}
+\centering
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+Scene (images) & Registered & Rot.\ err.\ med/max & Centre err. & Points \\
+\hline
+templeRing (47) & \textbf{47/47} & \textbf{0.15}/0.32$^\circ$ & 0.15\,\% & 9\,907 \\
+\hline
+\quad COLMAP\ext & 47/47 & 0.26/0.51$^\circ$ & 0.20\,\% & 7\,603 \\
+\hline
+dinoRing (48) & \textbf{48/48} & \textbf{0.15}/0.30$^\circ$ & 0.24\,\% & 3\,462 \\
+\hline
+\quad COLMAP\ext & 24/48 & 23.4/24.7$^\circ$ & 3.0\,\% & 496 \\
+\hline
+ETH3D pipes (14) & \textbf{14/14} & 0.06/0.12$^\circ$ & 0.21\,\% & 2\,661 \\
+\hline
+\quad COLMAP\ext & 11/14 & 0.08/0.12$^\circ$ & -- & -- \\
+\hline
+ETH3D office (26) & 26/26 & 0.14/0.35$^\circ$ & 0.66\,\% & 3\,170 \\
+\hline
+ETH3D terrains (42) & 42/42 & 0.18/0.22$^\circ$ & 0.21\,\% & 17\,832 \\
+\hline
+\end{tabular}}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figbox{\includegraphics[width=\linewidth]{templeRing_cameras.png}\\[1mm]
+\includegraphics[width=0.32\linewidth]{still_sparse.png}\hfill
+\includegraphics[width=0.32\linewidth]{still_dense.png}\hfill
+\includegraphics[width=0.32\linewidth]{still_mesh.png}}
+\caption{templeRing. Top: all 47 recovered cameras (top and side views). Bottom: filtered sparse cloud (9\,907 points), dense cloud (1.84\,M points) and Poisson mesh (306\,k triangles) from the same cameras.}
+\label{fig:temple}
+\end{figure}
+
+\subsection{Main results}
+Table~\ref{tab:main} and Fig.~\ref{fig:temple} summarise accuracy. On templeRing every camera registers with $0.15^\circ$ median rotation error, a mean reprojection error of 0.21\,px, a refined focal length within 0.02\,\% of the calibrated one and completeness 0.94. Run under identical conditions (same images and starting $K$), COLMAP~\cite{schoenberger2016sfm} also registers 47/47 but with $0.26^\circ$ error. On the dark dinoRing, COLMAP's default SIFT finds a third of our features and registers only the lit half, whose focal length then drifts by 62\,\%; our adaptive contrast threshold and focal-change guard keep all 48 views at $0.15^\circ$. ETH3D scenes are fully registered at $0.06$--$0.18^\circ$. The complete templeRing run (sparse, dense, mesh) takes 28\,s on an Apple M4. The dense stage multiplies the point count by 190 in 1.3\,s; only 0.8\,\% of dense points project outside the object's silhouette (3.1\,\% for the sparse cloud).
+
+\subsection{Experiments and ablations (templeRing)}
+\textbf{RQ1, image count.} Completeness is governed by \emph{view spacing}, not count: every image registers when the median gap is $\leq 16^\circ$ (24 images, completeness 0.83), but at $23^\circ$ three of 16 fail and at $50^\circ$ only the initial pair remains. Beyond full registration, extra images add longer tracks with diminishing returns (47 images: 0.94).
+
+\textbf{RQ2, matching.} A ratio of 0.7--0.8 is optimal (Table~\ref{tab:ablation}): looser ratios verify more pairs but the final cloud shrinks (9\,939$\rightarrow$7\,668 points) as ambiguous matches merge unrelated keypoints into inconsistent tracks; the mutual check matters most at loose ratios.
+
+\textbf{RQ3, calibration.} With $K$ fixed, a 5\,\% focal error costs a quarter to a third of the completeness (0.94$\rightarrow$0.59--0.71) and the fallback guess (49\,\% off) yields a distorted model ($24^\circ$ error)---yet the reprojection error stays near 0.2\,px: \emph{a wrong focal length is invisible to internal diagnostics} (Fig.~\ref{fig:calib}). Refining one shared focal scale in bundle adjustment recovers the calibrated result from every start between $-20$\,\% and $+20$\,\% (refined focal within 0.1\,\%, completeness 0.93--0.94), and even from the guess (0.93).
+
+\textbf{RQ4, detector.} ORB yields twice the points but 6$\times$ the pose error, twice the reprojection error and completeness 0.41 vs.\ 0.94, and is 2$\times$ slower overall because the extra points enlarge bundle adjustment.
+
+\textbf{Bundle adjustment.} Disabling it raises the median rotation error 5.5$\times$ ($0.16^\circ\rightarrow0.85^\circ$) as small PnP errors accumulate around the ring; structure refinement removes every observation beyond 2\,px and trims pose error by a further 10\,\%.
+
+\begin{table}[t]
+\caption{Ablations on templeRing (47 images)}
+\label{tab:ablation}
+\centering
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+Setting & Rot.\ err. & Reproj. & Points & Compl. \\
+\hline
+\textbf{Default} (SIFT, $r{=}0.75$, BA) & \textbf{0.15$^\circ$} & \textbf{0.21\,px} & 9\,907 & \textbf{0.94} \\
+\hline
+Ratio 0.6 / 0.9 (mutual on) & -- & 0.18/0.23 & 9\,864/8\,907 & 0.92/0.92 \\
+\hline
+Ratio 0.9, mutual off & -- & 0.23 & 7\,668 & 0.89 \\
+\hline
+ORB instead of SIFT & 0.91$^\circ$ & 0.42 & 19\,404 & 0.41 \\
+\hline
+No bundle adjustment & 0.85$^\circ$ & 0.36 & -- & 0.90 \\
+\hline
+BA, no structure refinement & 0.17$^\circ$ & 0.22 & -- & 0.93 \\
+\hline
+Focal $-$10\,\%, $K$ fixed & 1.06$^\circ$ & -- & -- & 0.26 \\
+\hline
+Focal $\pm$20\,\%, focal refined & 0.14--0.17$^\circ$ & -- & -- & 0.93--0.94 \\
+\hline
+Guessed $K$ ($-$49\,\%), fixed & 23.9$^\circ$ & -- & -- & 0.00 \\
+\hline
+Guessed $K$, focal refined & 0.76$^\circ$ & -- & -- & 0.93 \\
+\hline
+\end{tabular}}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figbox{\includegraphics[width=\linewidth]{e3b_focal_refinement.png}}
+\caption{Effect of focal-length error with $K$ fixed (E3) vs.\ refined in bundle adjustment (E3b): completeness and rotation error recover fully.}
+\label{fig:calib}
+\end{figure}
+
+\textbf{Generalisation and lens distortion.} With OpenCV's default SIFT threshold (0.04), half of ETH3D pipes stayed unregistered: neighbouring views shared too few landmarks for PnP. Halving it registers every image of all three scenes. From ETH3D's original, \emph{distorted} JPEGs with no distortion given, a plain pinhole model registers only 10/14 and 14/26 images at 1.3--2.1$^\circ$; our self-calibration estimates consistent coefficients for both scenes ($k_1\!\approx\!-0.10$, $k_2\!\approx\!+0.07$) and recovers 14/14 at $0.17^\circ$ and 26/26 at $0.05^\circ$.
+
+\textbf{Learned features (external).} Replacing SIFT and ratio matching by DISK~\cite{tyszkiewicz2020disk}+LightGlue~\cite{lindenberger2023lightglue} (pretrained, via kornia) raises dinoSparseRing (16 views $22^\circ$ apart) from 6/16 to 16/16 registered cameras at $0.21^\circ$, but registers only 31/47 views of templeRing, and takes minutes instead of seconds per scene.
+
+\subsection{Failure cases and error analysis}
+(i) \emph{Wide baselines}: on dinoSparseRing (16 views, $22^\circ$ apart) SIFT registers 6/16; even COLMAP stops at the same 6 views, so the remaining pairs lack the matches to fix a pose, not our registration logic. (ii) \emph{Rotated views}: templeRing views 32--47 are rolled by $180^\circ$; the learned matchers, trained on upright images, match none of them. (iii) \emph{Wrong intrinsics} without focal refinement silently distort the model, as above. (iv) \emph{Undetectable outliers}: a keypoint shifted along its epipolar line in a 2--3-view track leaves no reprojection error; about 1\,\% of such deliberate corruptions survive in tests. (v) \emph{Dense}: uniform regions get no depth, stereo fattens silhouette edges (mitigated by the 1\,px erosion band: off-silhouette points 1.9\,\%$\rightarrow$0.8\,\%), and Poisson extrapolates over holes (dark blobs under the base in Fig.~\ref{fig:temple}). (vi) \emph{Scale}: monocular reconstructions are up to scale; one measured distance fixes it to within 2\,\%.
+
+%=====================================================================
+\section{Conclusion}
+We built and evaluated a complete classical multi-view reconstruction system---features to mesh---whose geometric core is our own and verified against ground truth at every stage. It recovers every camera of all Middlebury ring datasets with dense views and of three ETH3D scenes at $0.06$--$0.18^\circ$ median rotation error, more accurately than COLMAP on the same inputs, and adds dense clouds and meshes within seconds. The experiments show that view spacing limits completeness, matching thresholds near 0.75 are optimal, calibration is the most important input but can be recovered by focal refinement, SIFT beats ORB on reliability, and bundle adjustment is indispensable.
+
+\textbf{Limitations.} Sparse rings with $>20^\circ$ spacing remain unregistrable with SIFT; bundle adjustment in Python (SciPy) dominates the runtime and scales poorly beyond a few hundred images; the dense stage uses two-view SGBM rather than PatchMatch multi-view stereo, and the mesh is untextured.
+
+\textbf{Future work.} Rotation-aware learned matching (or upright rectification) to combine SIFT's invariance with LightGlue's reach; a compiled bundle adjuster (Ceres) and global rotation averaging for large collections; PatchMatch MVS and mesh texturing; and using our cameras to initialise a 3D Gaussian Splatting model~\cite{kerbl2023gaussian}.
+
+%=====================================================================
+\input{contributions.tex}
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{99}
+\bibitem{mildenhall2020nerf} B.~Mildenhall, P.~P. Srinivasan, M.~Tancik, J.~T. Barron, R.~Ramamoorthi, and R.~Ng, ``NeRF: Representing scenes as neural radiance fields for view synthesis,'' in \emph{Proc. ECCV}, 2020, pp. 405--421.
+\bibitem{kerbl2023gaussian} B.~Kerbl, G.~Kopanas, T.~Leimk{\"u}hler, and G.~Drettakis, ``3D Gaussian splatting for real-time radiance field rendering,'' \emph{ACM Trans. Graph.}, vol.~42, no.~4, 2023.
+\bibitem{hartley2004multiple} R.~Hartley and A.~Zisserman, \emph{Multiple View Geometry in Computer Vision}, 2nd~ed. Cambridge, U.K.: Cambridge Univ. Press, 2004.
+\bibitem{schoenberger2016sfm} J.~L. Sch{\"o}nberger and J.-M. Frahm, ``Structure-from-motion revisited,'' in \emph{Proc. IEEE CVPR}, 2016, pp. 4104--4113.
+\bibitem{bradski2000opencv} G.~Bradski, ``The OpenCV library,'' \emph{Dr. Dobb's J. Softw. Tools}, vol.~25, no.~11, pp. 120--125, 2000.
+\bibitem{virtanen2020scipy} P.~Virtanen \emph{et~al.}, ``SciPy 1.0: Fundamental algorithms for scientific computing in Python,'' \emph{Nature Methods}, vol.~17, pp. 261--272, 2020.
+\bibitem{zhou2018open3d} Q.-Y. Zhou, J.~Park, and V.~Koltun, ``Open3D: A modern library for 3D data processing,'' arXiv:1801.09847, 2018.
+\bibitem{hartley1997defense} R.~I. Hartley, ``In defense of the eight-point algorithm,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~19, no.~6, pp. 580--593, 1997.
+\bibitem{nister2004efficient} D.~Nist{\'e}r, ``An efficient solution to the five-point relative pose problem,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~26, no.~6, pp. 756--770, 2004.
+\bibitem{fischler1981random} M.~A. Fischler and R.~C. Bolles, ``Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,'' \emph{Commun. ACM}, vol.~24, no.~6, pp. 381--395, 1981.
+\bibitem{raguram2013usac} R.~Raguram, O.~Chum, M.~Pollefeys, J.~Matas, and J.-M. Frahm, ``USAC: A universal framework for random sample consensus,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~35, no.~8, pp. 2022--2038, 2013.
+\bibitem{lowe2004distinctive} D.~G. Lowe, ``Distinctive image features from scale-invariant keypoints,'' \emph{Int. J. Comput. Vis.}, vol.~60, no.~2, pp. 91--110, 2004.
+\bibitem{rublee2011orb} E.~Rublee, V.~Rabaud, K.~Konolige, and G.~Bradski, ``ORB: An efficient alternative to SIFT or SURF,'' in \emph{Proc. IEEE ICCV}, 2011, pp. 2564--2571.
+\bibitem{tyszkiewicz2020disk} M.~Tyszkiewicz, P.~Fua, and E.~Trulls, ``DISK: Learning local features with policy gradient,'' in \emph{Proc. NeurIPS}, 2020.
+\bibitem{lindenberger2023lightglue} P.~Lindenberger, P.-E. Sarlin, and M.~Pollefeys, ``LightGlue: Local feature matching at light speed,'' in \emph{Proc. IEEE/CVF ICCV}, 2023, pp. 17627--17638.
+\bibitem{snavely2006photo} N.~Snavely, S.~M. Seitz, and R.~Szeliski, ``Photo tourism: Exploring photo collections in 3D,'' \emph{ACM Trans. Graph.}, vol.~25, no.~3, pp. 835--846, 2006.
+\bibitem{triggs2000bundle} B.~Triggs, P.~F. McLauchlan, R.~I. Hartley, and A.~W. Fitzgibbon, ``Bundle adjustment---A modern synthesis,'' in \emph{Vision Algorithms: Theory and Practice}, LNCS~1883, 2000, pp. 298--372.
+\bibitem{moulon2013global} P.~Moulon, P.~Monasse, and R.~Marlet, ``Global fusion of relative motions for robust, accurate and scalable structure from motion,'' in \emph{Proc. IEEE ICCV}, 2013, pp. 3248--3255.
+\bibitem{furukawa2010accurate} Y.~Furukawa and J.~Ponce, ``Accurate, dense, and robust multiview stereopsis,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~32, no.~8, pp. 1362--1376, 2010.
+\bibitem{hirschmuller2008stereo} H.~Hirschm{\"u}ller, ``Stereo processing by semiglobal matching and mutual information,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~30, no.~2, pp. 328--341, 2008.
+\bibitem{schoenberger2016pixelwise} J.~L. Sch{\"o}nberger, E.~Zheng, M.~Pollefeys, and J.-M. Frahm, ``Pixelwise view selection for unstructured multi-view stereo,'' in \emph{Proc. ECCV}, 2016, pp. 501--518.
+\bibitem{kazhdan2013screened} M.~Kazhdan and H.~Hoppe, ``Screened Poisson surface reconstruction,'' \emph{ACM Trans. Graph.}, vol.~32, no.~3, 2013.
+\bibitem{seitz2006comparison} S.~M. Seitz, B.~Curless, J.~Diebel, D.~Scharstein, and R.~Szeliski, ``A comparison and evaluation of multi-view stereo reconstruction algorithms,'' in \emph{Proc. IEEE CVPR}, 2006, pp. 519--528.
+\bibitem{schops2017multi} T.~Sch{\"o}ps \emph{et~al.}, ``A multi-view stereo benchmark with high-resolution images and multi-camera videos,'' in \emph{Proc. IEEE CVPR}, 2017, pp. 3260--3269.
+\bibitem{zhang2000flexible} Z.~Zhang, ``A flexible new technique for camera calibration,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~22, no.~11, pp. 1330--1334, 2000.
+\bibitem{terzakis2020sqpnp} G.~Terzakis and M.~Lourakis, ``A consistently fast and globally optimal solution to the perspective-n-point problem,'' in \emph{Proc. ECCV}, 2020, pp. 478--494.
+\bibitem{umeyama1991least} S.~Umeyama, ``Least-squares estimation of transformation parameters between two point patterns,'' \emph{IEEE Trans. Pattern Anal. Mach. Intell.}, vol.~13, no.~4, pp. 376--380, 1991.
+\end{thebibliography}
+
+\end{document}

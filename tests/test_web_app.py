@@ -270,6 +270,24 @@ def test_report_of_a_finished_job(done_job):
     assert done_job.get("/api/jobs/j/report").json() == {"total_s": 3.5}
 
 
+def test_downloadable_report_of_a_finished_job(done_job):
+    response = done_job.get("/api/jobs/j/report.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")  # saved, never opened in the browser
+    assert 'filename="20261030-120000_web_reconstruct_report.pdf"' in disposition
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_downloadable_report_needs_a_finished_job():
+    manager = FakeManager()
+    manager.jobs["r"] = Job(id="r", status="running")
+    assert client_for(manager).get("/api/jobs/r/report.pdf").status_code == 409
+    assert client_for(manager).get("/api/jobs/unknown/report.pdf").status_code == 404
+
+
 @pytest.mark.parametrize(
     ("path", "media_type"),
     [

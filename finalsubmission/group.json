@@ -1,0 +1,39 @@
+{
+  "_comment": "Edit this file, then run: python finalsubmission/build_submission.py  (1-5 members; delete unused entries). 'group' replaces X in GroupX_3dcv_project. Keep 'department' and 'university' short: each is one line under every author.",
+  "group": "Abhishek",
+  "department": "Dept. of Data Science and Intelligent Systems",
+  "university": "IIIT Dharwad",
+  "course": "3D Computer Vision",
+  "members": [
+    {
+      "name": "Aggimalla Abhishek",
+      "id": "23BDS004",
+      "email": "23bds004@iiitdwd.ac.in",
+      "contribution": "(28%) Project lead: pipeline architecture and integration; two-view geometry (essential matrix, pose, triangulation); incremental SfM and bundle adjustment; report writing."
+    },
+    {
+      "name": "N. Likhith Naik",
+      "id": "23BDS037",
+      "email": "23bds037@iiitdwd.ac.in",
+      "contribution": "(18%) Data preparation and validation; feature extraction and matching (SIFT/ORB, ratio test); SIFT vs ORB and matching-threshold experiments."
+    },
+    {
+      "name": "Sundaram",
+      "id": "23BDS060",
+      "email": "23bds060@iiitdwd.ac.in",
+      "contribution": "(18%) Dense stereo and depth-map fusion; point-cloud filtering; Poisson meshing; 3D visualization and demo video."
+    },
+    {
+      "name": "Sambhav Mishra",
+      "id": "23BDS050",
+      "email": "23bds050@iiitdwd.ac.in",
+      "contribution": "(18%) Evaluation against ground truth; experiments on image count, calibration and bundle adjustment; COLMAP and ETH3D comparisons."
+    },
+    {
+      "name": "Tejas Chalwadi",
+      "id": "23BDS063",
+      "email": "23bds063@iiitdwd.ac.in",
+      "contribution": "(18%) Web application; synthetic and rendered test suite; README and installation guides for macOS and Windows."
+    }
+  ]
+}

@@ -38,7 +38,7 @@ const FIGURES = {
 const DOWNLOADS = [
   ["point_clouds/filtered.ply", "Point cloud", "filtered.ply"],
   ["camera_poses/cameras.json", "Camera poses", "cameras.json"],
-  ["report.json", "Report", "report.json"],
+  ["report.json", "Report data", "report.json"],
 ];
 
 const CALIBRATION_SOURCES = { file: "camera.yaml", exif: "EXIF", fallback: "a guess" };
@@ -559,12 +559,16 @@ async function showResults(job, { replay = false } = {}) {
   renderSummary(report);
   renderGroundTruth(report.ground_truth);
   renderFigures(job.id, files);
-  const downloads = DOWNLOADS.filter(([path]) => files.includes(path));
-  $("export-card").hidden = !downloads.length;
+  const downloads = DOWNLOADS.filter(([path]) => files.includes(path)).map(([path, label, name]) => [fileUrl(job.id, path), label, name, name]);
+  // the detailed PDF report, built by the server when clicked and sent as an attachment
+  // (saved, not opened); named after the run, so reports of several runs don't collide
+  const runName = (job.run_dir ?? job.id).split(/[\\/]/).pop();
+  downloads.push([jobUrl(job.id, "/report.pdf"), "Detailed report", "PDF", `${runName}_report.pdf`]);
+  $("export-card").hidden = false;
   $("downloads").replaceChildren(
-    ...downloads.map(([path, label, name], k) =>
-      el("li", {}, el("a", { href: fileUrl(job.id, path), download: name, class: k === 0 ? "primary" : "" },
-        label, el("small", {}, name)))),
+    ...downloads.map(([href, label, shown, saveAs], k) =>
+      el("li", {}, el("a", { href, download: saveAs, class: k === 0 ? "primary" : "" },
+        label, el("small", {}, shown)))),
   );
   await loadViewer(job.id, report);
   if (token !== pollToken) return;

@@ -7,7 +7,9 @@ from src.config import config_from_dict
 from src.pipeline import CORE_STAGES, run_pipeline
 from src.reconstruction.bundle_adjustment import scale_focal
 from src.web.report import build_report, write_report
+from src.web.report_pdf import render_report_pdf
 from tests.images import make_natural_texture, write_image
+from tests.pdf_text import pdf_text
 from tests.render import render_box_scene, scene_cameras, write_scene
 
 N_VIEWS = 6
@@ -162,3 +164,15 @@ def test_stages_that_did_not_run_are_null(scene_dir):
     assert stages["verification"]["pairs"] > 0
     assert stages["initial_pair"] is None
     assert stages["reconstruction"] is None and stages["filter"] is None
+
+
+def test_pdf_report_renders_a_real_report(result, scene_dir, tmp_path):
+    """The keys the PDF report reads are the ones ``build_report`` writes."""
+    report = build_report(result, gt=scene_dir[3])
+    write_report(report, tmp_path)
+
+    text = pdf_text(render_report_pdf(tmp_path, compress=False))
+
+    assert f"{N_VIEWS} / {N_VIEWS}" in text
+    assert "Accuracy against ground truth" in text
+    assert f"{report['points']['filtered']:,}" in text
