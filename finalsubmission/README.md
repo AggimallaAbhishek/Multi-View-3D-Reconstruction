@@ -26,7 +26,7 @@ Requirements: `tectonic` (LaTeX) and `ffmpeg` on PATH (`brew install tectonic ff
 | `group.json` | group number, members, contributions: the only file you need to edit |
 | `report/main.tex` | the IEEE report source. `authors.tex` and `contributions.tex` are generated from `group.json`. It compiles on Overleaf too: upload `main.tex`, the two generated `.tex` files and `figures/`. |
 | `templates/README.md`, `templates/requirements.txt` | the README (macOS and Windows steps) and requirements for the zip |
-| `demo.mp4` (you add it) | your own screen recording of the web app; the build copies it into the package |
+| `demo.mp4` | the 1-2 minute web-app video (the Drive recording at 1.9x speed, 1080p: `ffmpeg -i <recording> -vf "setpts=PTS/1.9,fps=30,scale=1920:-2" -an -c:v libx264 -crf 24 -pix_fmt yuv420p demo.mp4`); the build copies it into the package |
 | `tools/record_webapp_demo.py` | optional: records a scripted web-app session automatically (Playwright + Chrome) |
 | `tools/make_demo.py` | renders `build/renders.mp4` from a `dense` run (Open3D offscreen); only the report's sparse/dense/mesh stills come from it |
 | `build/` | the demo run and the video (generated) |
