@@ -8,6 +8,8 @@
 ![opencv](https://img.shields.io/badge/OpenCV-5.0-green)
 ![open3d](https://img.shields.io/badge/Open3D-0.20-orange)
 
+> 🎥 **[▶ Watch the demo video on Google Drive](https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing)**: a screen recording of the web application reconstructing templeRing (990 MB).
+
 ---
 
 ## Contents
@@ -379,7 +381,13 @@ Each run is a normal run folder, `outputs/<timestamp>_web_reconstruct/`, with tw
 
 ![overview page: the reconstructed temple turning behind the title](docs/images/web_intro.jpg)
 
+![workstation while the templeRing reconstruction runs](docs/images/web_running.png)
+
 ![workstation on templeRing](docs/images/web_ui.png)
+
+| Camera poses against ground truth | Matching figures |
+|---|---|
+| ![camera poses tab](docs/images/web_poses.png) | ![matches tab](docs/images/web_matches.png) |
 
 Local only: the server listens on `127.0.0.1`, has no authentication and runs one reconstruction at a time. Upload limits and the poll interval are under `web:` in `configs/default.yaml`; the page needs internet access for three.js and the fonts. Through the page, templeRing gives exactly the CLI's numbers (Phase 12 in the roadmap).
 
