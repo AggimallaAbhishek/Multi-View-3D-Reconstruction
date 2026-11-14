@@ -3,8 +3,9 @@
 **Group {{GROUP}} · {{COURSE}} · final project**
 
 > [!IMPORTANT]
-> 🎥 **Demo video (Google Drive, 990 MB, too large for the zip): [https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing](https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing)**  
-> A screen recording of the working web application: uploading the sample photos, the live reconstruction, and exploring the 3-D result.
+> 🎥 **Demo video: [`demo.mp4`](demo.mp4)** in this folder (about 2 minutes, 1080p, played at 1.9× speed).  
+> **Full-length, full-resolution recording (Google Drive, 990 MB): [https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing](https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing)**  
+> Both are screen recordings of the working web application: uploading the sample photos, the live reconstruction, and exploring the 3-D result.
 
 Photos of a static object in, then camera poses, a coloured sparse point cloud, a dense point cloud and a surface mesh out. The pipeline is classical incremental Structure from Motion: SIFT features, ratio-test matching, epipolar verification, relative pose, N-view triangulation, PnP registration, bundle adjustment, outlier filtering, stereo depth maps with multi-view fusion, and Poisson meshing. It uses Python, OpenCV, NumPy/SciPy and Open3D. There is a command-line tool and a local web app.
 
@@ -40,6 +41,7 @@ On the included `sample_data/templeRing` (47 photos), the pipeline recovers **47
 GroupX_3dcv_project/
 ├── report.pdf          IEEE two-column project report
 ├── README.md           this file
+├── demo.mp4            ~2-minute screen recording of the web app (full length on Google Drive)
 ├── requirements.txt    Python packages (pinned versions)
 ├── code/               all source code
 │   ├── src/            the pipeline (data, features, geometry, reconstruction, dense,
@@ -218,4 +220,5 @@ No model weights or large datasets are included in this archive. The full datase
 ## 9. Report and video
 
 - `report.pdf`: IEEE conference format. It covers the introduction, problem statement, literature review, objectives, methodology, results and discussion (including ablations and failure cases), conclusion, author contributions and references.
-- **Demo video: [▶ Watch on Google Drive](https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing)** (<https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing>). It is a screen recording of the working web application (`python -m src.web`): uploading `sample_data/templeRing`, the live reconstruction, and exploring the 3-D result. At 990 MB it is above the archive's 200 MB limit, so it is linked here instead of being included as `demo.mp4`.
+- **Demo video: `demo.mp4`** (about 2 minutes). It is a screen recording of the working web application (`python -m src.web`): uploading `sample_data/templeRing`, the live reconstruction, and exploring the 3-D result. It is played at 1.9× speed and scaled to 1080p so that it fits the archive.
+- **Full-length original: [▶ Watch on Google Drive](https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing)** (<https://drive.google.com/drive/folders/1nIqmeL9LmYx48zrCKLDIJQHBeRR3svRe?usp=sharing>). It runs 3 min 38 s at the original resolution. At 990 MB it is above the archive's 200 MB limit, so it is linked here (anyone with the link can view).
