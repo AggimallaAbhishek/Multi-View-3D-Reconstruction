@@ -159,7 +159,7 @@ def main() -> None:
     if own.exists():
         shutil.copy2(own, out / "demo.mp4")
     else:
-        print("  demo video: linked on Google Drive (README.md and report.pdf), not in the zip")
+        print("  WARNING: finalsubmission/demo.mp4 is missing, so the package has no demo video")
 
     # 4. report -----------------------------------------------------------------------
     print("[4/6] report.pdf")
